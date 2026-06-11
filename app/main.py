@@ -27,6 +27,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ensure the schema exists (no-op on an existing DB) so a fresh clone works
+# whether the API or the daemon starts first.
+db.init_db()
+
 
 # --------------------------------------------------------------------------
 # shaping

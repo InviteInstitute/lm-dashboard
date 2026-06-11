@@ -1,0 +1,296 @@
+import React from 'react';
+import api from './api';
+
+// ===================== dark slate theme =====================
+const T = {
+    bg: '#0b0e13', panel: '#0f131a', border: '#1f2530', borderSoft: '#171c24',
+    ink: '#e6e9ef', sub: '#7d8694', faint: '#5a626e', track: '#0d1117',
+};
+const STATE = {
+    0: { c: '#3b82f6', label: 'Iterator' },
+    1: { c: '#a855f7', label: 'Explorer' },
+    2: { c: '#ef4444', label: 'Stuck' },
+};
+const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
+const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
+// the wheel-spinning signal drives the intervention column
+const WHEEL = { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' };
+const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
+const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
+const POLL_MS = 1500;
+const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
+
+function relTime(iso) {
+    if (!iso) return '—';
+    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return `${Math.round(s)}s`;
+    if (s < 3600) return `${Math.round(s / 60)}m`;
+    if (s < 86400) return `${Math.round(s / 3600)}h`;
+    return `${Math.round(s / 86400)}d`;
+}
+function fmtDur(s) {
+    if (s == null) return '—';
+    if (s < 60) return `${s.toFixed(1)}s`;
+    if (s < 3600) return `${(s / 60).toFixed(1)}m`;
+    return `${(s / 3600).toFixed(1)}h`;
+}
+function stateMeta(st) {
+    if (!st || st.current_state == null) return NOSTATE;
+    return STATE[st.current_state] || NOSTATE;
+}
+
+// ---------------- timelines (per-event boundaries) ----------------
+// `compact` renders just the bar (no legend, shorter) for the cohort boxes.
+const EpisodeTrack = ({ data, compact }) => {
+    if (!data || data.event_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No events yet.</div>;
+    const events = data.events || [], episodes = data.episodes || [];
+    const evToEp = {}, softSet = new Set();
+    episodes.forEach((ep, idx) => { for (let k = ep.start_idx; k < ep.end_idx; k++) evToEp[k] = idx; (ep.soft_indices || []).forEach(si => softSet.add(si)); });
+    const pauseAfter = {}; (data.pauses || []).forEach(p => { pauseAfter[p.after_idx] = p; });
+    const band = (p, key) => { const i = p.episode_type === 'INACTIVE_PAUSE'; return <div key={key} title={`${p.episode_type} · ${fmtDur(p.duration)}`} style={{ flex: '0 0 10px', background: i ? 'repeating-linear-gradient(45deg,#ef4444 0 4px,#3a1416 4px 8px)' : 'repeating-linear-gradient(45deg,#f59e0b 0 4px,#3a2a10 4px 8px)' }} />; };
+    const segs = []; let i = 0;
+    while (i < events.length) {
+        const epIdx = evToEp[i];
+        if (epIdx === undefined) { segs.push(<div key={`o${i}`} title={`${events[i].eventType} (orphan)`} style={{ flex: '0 0 3px', background: '#2a2d3a', borderRight: '1px solid rgba(0,0,0,0.6)' }} />); if (pauseAfter[i]) segs.push(band(pauseAfter[i], `po${i}`)); i++; continue; }
+        const ep = episodes[epIdx], c = EP[ep.episode_type] || EP.CODE; const ticks = [];
+        for (let k = ep.start_idx; k < ep.end_idx; k++) ticks.push(<div key={`t${k}`} title={`${events[k].eventType} · ${ep.episode_type}`} style={{ flex: '1 1 0', minWidth: 2, background: c, opacity: softSet.has(k) ? 0.4 : 1, borderRight: '1px solid rgba(0,0,0,0.6)' }} />);
+        segs.push(<div key={`e${epIdx}`} style={{ flexGrow: Math.max(1, ep.event_count), flexShrink: 1, minWidth: 6, display: 'flex', outline: `1px solid ${c}`, outlineOffset: -1 }}>{ticks}</div>);
+        if (pauseAfter[ep.end_idx - 1]) segs.push(band(pauseAfter[ep.end_idx - 1], `p${epIdx}`));
+        i = ep.end_idx;
+    }
+    return (<>
+        <div style={compact ? trkSm : trk}>{segs}</div>
+        {!compact && <div style={legend}>
+            <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
+            <span><i style={sw('repeating-linear-gradient(45deg,#ef4444 0 3px,#3a1416 3px 6px)')} />inactive pause</span>
+        </div>}
+    </>);
+};
+const HmmTrack = ({ data, compact }) => {
+    if (!data || !data.runs || data.run_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No runs yet.</div>;
+    const blocks = data.runs.map((run, i) => { const st = STATE[run.hmm_state] || NOSTATE; const obs = run.obs_bucket != null ? data.obs_labels[run.obs_bucket] : '—'; const sc = run.change_score != null ? run.change_score.toFixed(3) : 'first'; return <div key={i} title={`Run #${i + 1} · ${st.label} · obs=${obs} · score=${sc}`} style={{ flex: '1 1 0', minWidth: 6, background: st.c, opacity: run.hmm_state == null ? 0.3 : 1, borderRight: '1px solid rgba(0,0,0,0.6)' }} />; });
+    return (<>
+        <div style={compact ? trkSm : trk}>{blocks}</div>
+        {!compact && <div style={legend}>{Object.entries(STATE).map(([k, v]) => <span key={k}><i style={sw(v.c)} />{v.label}</span>)}</div>}
+    </>);
+};
+const trk = { display: 'flex', height: 28, background: T.track, border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' };
+const trkSm = { ...trk, height: 16, borderRadius: 6 };
+const legend = { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 9, fontSize: 11.5, color: T.sub };
+const sw = (bg) => ({ display: 'inline-block', width: 11, height: 11, borderRadius: 3, marginRight: 6, verticalAlign: 'middle', background: bg });
+
+// ---------------- detail (inside modal) ----------------
+const Detail = ({ s, sid }) => {
+    if (!s) return <div style={{ color: T.sub, padding: 30 }}>No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>.</div>;
+    const cur = stateMeta(s);
+    return (
+        <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                <span style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700 }}>{s.studentID}</span>
+                <span style={{ background: `${cur.c}1f`, color: cur.c, border: `1px solid ${cur.c}55`, borderRadius: 999, padding: '3px 12px', fontSize: 12.5, fontWeight: 700 }}>{s.current_state === WHEEL_STATE ? '⚠ Stuck' : cur.label}</span>
+                <span style={{ marginLeft: 'auto', color: T.sub, fontSize: 12.5 }}>runs <b style={{ color: T.ink }}>{s.run_count}</b> · events <b style={{ color: T.ink }}>{s.event_count}</b></span>
+            </div>
+            <div style={lbl}>Playground</div>
+            {s.block && s.block.llm_prompt
+                ? <pre style={pre}>{s.block.llm_prompt}</pre>
+                : <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No playground yet — hasn’t run code.</div>}
+            <div style={{ ...lbl, marginTop: 22 }}>Episode timeline</div>
+            <EpisodeTrack data={s.episodes} />
+            <div style={{ ...lbl, marginTop: 22 }}>Strategy (HMM) · one block per run</div>
+            <HmmTrack data={s.hmm} />
+        </div>
+    );
+};
+const lbl = { fontSize: 11, fontWeight: 700, letterSpacing: 1, color: T.sub, textTransform: 'uppercase', marginBottom: 10 };
+const pre = { margin: 0, padding: 14, background: T.track, border: `1px solid ${T.border}`, borderRadius: 10, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#c9d1d9', maxHeight: 280, overflow: 'auto', marginBottom: 4 };
+
+// ---------------- layout ----------------
+const S = {
+    page: { background: T.bg, height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: FONT, color: T.ink, overflow: 'hidden' },
+    bar: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', flexShrink: 0 },
+    title: { fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 9 },
+    input: { marginLeft: 'auto', background: T.panel, border: `1px solid ${T.border}`, borderRadius: 999, color: T.ink, padding: '9px 16px', fontSize: 14, fontFamily: FONT, outline: 'none', width: 220 },
+    reset: { background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    rosterBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', background: T.panel, flexShrink: 0 },
+    rchip: { display: 'inline-flex', alignItems: 'center', gap: 7, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 999, padding: '5px 6px 5px 11px', fontSize: 12.5, fontFamily: MONO, color: T.ink, cursor: 'pointer' },
+    rx: { border: 'none', background: 'transparent', color: T.faint, fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: '0 2px' },
+
+    main: { display: 'flex', flex: 1, minHeight: 0 },                       // two-pane shell
+    board: { flex: 1, overflow: 'auto', padding: '22px 28px' },
+    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14, alignContent: 'start' },
+
+    box: (accent) => ({ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 12, padding: '13px 15px', cursor: 'pointer', position: 'relative', boxShadow: `inset 4px 0 0 ${accent}`, transition: 'transform .08s, border-color .12s' }),
+    boxHead: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
+    sid: { fontFamily: MONO, fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+    stateBadge: (c) => ({ marginLeft: 'auto', background: `${c}1f`, color: c, border: `1px solid ${c}55`, borderRadius: 999, padding: '2px 10px', fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap' }),
+    miniLbl: { fontSize: 9.5, fontWeight: 700, letterSpacing: 1, color: T.faint, textTransform: 'uppercase', margin: '11px 0 5px' },
+    metaRow: { display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12, color: T.sub },
+
+    col: { width: 320, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.panel, overflow: 'auto', padding: '20px 18px' },
+    colHead: { fontSize: 12.5, fontWeight: 800, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 },
+    colCount: { marginLeft: 'auto', background: `${WHEEL.c}1f`, color: WHEEL.c, border: `1px solid ${WHEEL.c}55`, borderRadius: 999, padding: '1px 9px', fontSize: 12 },
+    colItem: { background: T.bg, border: `1px solid ${WHEEL.c}40`, borderLeft: `3px solid ${WHEEL.c}`, borderRadius: 10, padding: '11px 13px', marginBottom: 10, cursor: 'pointer' },
+    colSid: { fontFamily: MONO, fontWeight: 700, fontSize: 14 },
+    colSub: { fontSize: 12, color: WHEEL.c, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 },
+    colEmpty: { color: T.sub, fontSize: 13, lineHeight: 1.5 },
+
+    empty: { color: T.sub, fontSize: 14, textAlign: 'center', marginTop: 60 },
+    overlay: { position: 'fixed', inset: 0, background: 'rgba(3,5,9,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 24 },
+    modal: { background: T.bg, border: `1px solid ${T.border}`, borderRadius: 16, width: 'min(860px, 96vw)', maxHeight: '88vh', overflow: 'auto', padding: 26, position: 'relative', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' },
+    modalX: { position: 'absolute', top: 14, right: 16, border: 'none', background: 'transparent', color: T.sub, fontSize: 22, cursor: 'pointer' },
+};
+
+const CohortDashboard = () => {
+    const [states, setStates] = React.useState({});   // studentID -> full payload
+    const [roster, setRoster] = React.useState([]);
+    const [selected, setSelected] = React.useState(null);
+    const [query, setQuery] = React.useState('');
+
+    const fetchStates = React.useCallback(async () => {
+        try {
+            const list = (await api.get('/api/student_states/')).data.students || [];
+            const m = {}; list.forEach(s => { m[s.studentID] = s; });
+            setStates(m);
+        } catch { /* keep */ }
+    }, []);
+    React.useEffect(() => { fetchStates(); const id = setInterval(fetchStates, POLL_MS); return () => clearInterval(id); }, [fetchStates]);
+
+    const fetchRoster = React.useCallback(async () => {
+        try { setRoster((await api.get('/api/tracked/')).data.tracked || []); } catch { /* keep */ }
+    }, []);
+    React.useEffect(() => { fetchRoster(); const id = setInterval(fetchRoster, POLL_MS); return () => clearInterval(id); }, [fetchRoster]);
+
+    const addTracked = async () => {
+        const sid = query.trim(); if (!sid) return;
+        try { await api.post('/api/tracked/', { studentID: sid }); } catch { /* */ }
+        setQuery(''); fetchRoster();
+    };
+    const removeTracked = async (sid) => {
+        try { await api.post('/api/tracked/', { studentID: sid, remove: true }); } catch { /* */ }
+        setRoster(r => r.filter(x => x.studentID !== sid));
+        if (selected === sid) setSelected(null);
+        fetchStates();
+    };
+    const resetAll = async () => {
+        if (!window.confirm('Reset episodes + strategy state for ALL students?\n\nLocal only — students stay tracked and the board rebuilds as they keep coding. Prod is untouched.')) return;
+        try { await api.post('/api/reset/'); } catch { /* */ }
+        setSelected(null); setStates({}); fetchStates(); fetchRoster();
+    };
+
+    // one box per tracked student, merged with their materialized state.
+    // STABLE order (by studentID) so a box never jumps when its own data
+    // updates on a new event — surfacing who needs help is the right column's job.
+    const boxes = roster
+        .map(r => ({ studentID: r.studentID, has_data: r.has_data, st: states[r.studentID] || null }))
+        .sort((a, b) => a.studentID.localeCompare(b.studentID));
+
+    const intervene = boxes.filter(b => b.st && b.st.current_state === WHEEL_STATE);
+    const detail = selected ? (states[selected] || null) : null;
+
+    return (
+        <div style={S.page}>
+            <div style={S.bar}>
+                <span style={S.title}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 0 3px #22c55e33' }} />
+                    Researcher Dashboard
+                </span>
+                <input style={S.input} placeholder="Track a student ID…" value={query}
+                       onChange={e => setQuery(e.target.value)}
+                       onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
+                <button style={S.reset} onClick={resetAll}
+                        title="Reset episodes + strategy state for all students (local only)">
+                    ↺ Reset
+                </button>
+            </div>
+
+            <div style={S.rosterBar}>
+                <span style={{ fontSize: 12, color: T.sub, fontWeight: 700 }}>Tracking {roster.length}:</span>
+                {roster.length === 0 && <span style={{ fontSize: 12.5, color: T.faint }}>none — add a student ID above to start tracking.</span>}
+                {roster.map(r => (
+                    <span key={r.studentID} style={S.rchip} onClick={() => setSelected(r.studentID)} title="Open">
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.has_data ? '#22c55e' : '#f59e0b' }} />
+                        {r.studentID}
+                        <button style={S.rx} title="Stop tracking"
+                                onClick={e => { e.stopPropagation(); removeTracked(r.studentID); }}>×</button>
+                    </span>
+                ))}
+            </div>
+
+            <div style={S.main}>
+                {/* left: a box per tracked student */}
+                <div style={S.board}>
+                    {boxes.length === 0 ? (
+                        <div style={S.empty}>No students tracked yet. Add a student ID up top to start.</div>
+                    ) : (
+                        <div style={S.grid}>
+                            {boxes.map(b => {
+                                const sm = stateMeta(b.st);
+                                const accent = b.st ? sm.c : '#2a2d3a';
+                                return (
+                                    <div key={b.studentID} style={S.box(accent)} onClick={() => setSelected(b.studentID)}
+                                         onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = accent + '66'; }}
+                                         onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = T.border; }}>
+                                        <div style={S.boxHead}>
+                                            <span style={S.sid} title={b.studentID}>{b.studentID}</span>
+                                            <span style={S.stateBadge(accent)}>
+                                                {b.st ? (b.st.current_state === WHEEL_STATE ? '⚠ Stuck' : sm.label) : 'No data'}
+                                            </span>
+                                        </div>
+                                        {b.st ? (
+                                            <>
+                                                <div style={S.miniLbl}>Strategy</div>
+                                                <HmmTrack data={b.st.hmm} compact />
+                                                <div style={S.miniLbl}>Episodes</div>
+                                                <EpisodeTrack data={b.st.episodes} compact />
+                                                <div style={S.metaRow}>
+                                                    <span>{b.st.run_count} runs · {b.st.event_count} events</span>
+                                                    <span>{relTime(b.st.last_seen)}</span>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div style={{ color: T.faint, fontSize: 12.5, padding: '16px 0 8px' }}>
+                                                {b.has_data ? 'Loading…' : 'Waiting for activity…'}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* right: who needs intervention (wheel-spinning) */}
+                <div style={S.col}>
+                    <div style={S.colHead}>
+                        <span style={{ color: WHEEL.c }}>{WHEEL.icon}</span> Needs intervention
+                        <span style={S.colCount}>{intervene.length}</span>
+                    </div>
+                    {intervene.length === 0 ? (
+                        <div style={S.colEmpty}>No one is wheel-spinning right now. 🎉</div>
+                    ) : (
+                        intervene.map(b => (
+                            <div key={b.studentID} style={S.colItem} onClick={() => setSelected(b.studentID)}>
+                                <div style={S.colSid}>{b.studentID}</div>
+                                <div style={S.colSub}>
+                                    {WHEEL.icon} {WHEEL.label} · {b.st.consecutive_stuck} re-runs
+                                    <span style={{ marginLeft: 'auto', color: T.faint }}>{relTime(b.st.last_seen)}</span>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+
+            {selected && (
+                <div style={S.overlay} onClick={() => setSelected(null)}>
+                    <div style={S.modal} onClick={e => e.stopPropagation()}>
+                        <button style={S.modalX} onClick={() => setSelected(null)}>×</button>
+                        <Detail s={detail} sid={selected} />
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default CohortDashboard;

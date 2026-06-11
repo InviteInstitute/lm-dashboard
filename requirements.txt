@@ -1,0 +1,15 @@
+# API (read server)
+fastapi
+uvicorn[standard]
+
+# ingestion daemon
+requests
+python-dotenv
+
+# strategy HMM + episode segmenter (daemon only)
+numpy>=2.0
+hmmlearn>=0.3
+joblib>=1.5
+scikit-learn>=1.5
+apted>=1.0
+vex-pipeline @ git+https://github.com/InviteInstitute/vex-lm-pipeline.git

@@ -1,4 +1,4 @@
-# LUC Cohort Dashboard
+# LM Dashboard
 
 A live **"who needs help"** dashboard for a cohort of students coding in the VEX
 block environment. It mirrors student activity from the Reflecks production

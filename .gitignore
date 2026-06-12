@@ -9,6 +9,9 @@ venv/
 *.sqlite3
 db.sqlite3-*
 
+# Exported research data (CSV dumps) — never commit student data
+exports/
+
 # Env
 .env
 .env.mirror

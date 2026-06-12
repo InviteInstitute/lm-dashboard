@@ -10,7 +10,9 @@ Datetime contract: the existing rows were written by Django as UTC-naive
 strings '%Y-%m-%d %H:%M:%S.%f'. We read/write that exact format so lexical
 string comparison stays chronological (ORDER BY started_at, resolved_at >= cutoff).
 """
+import csv
 import json
+import os
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
@@ -190,6 +192,41 @@ def reset_all():
         except Exception:
             con.rollback()
             raise
+
+
+# --------------------------------------------------------------------------
+# CSV export (used by scripts/export_csv.py and by reset to back up first)
+# --------------------------------------------------------------------------
+_EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4"}
+
+
+def export_csv(out_dir, tables=None, db_path=None):
+    """Dump tables to CSV (one file per table) into out_dir. Read-only.
+    JSON columns are written as raw JSON text. Returns (out_dir, {table: rows})."""
+    os.makedirs(out_dir, exist_ok=True)
+    con = sqlite3.connect(db_path or DB_PATH)
+    try:
+        if tables is None:
+            tables = [
+                r[0] for r in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                ).fetchall() if r[0] not in _EXPORT_SKIP
+            ]
+        written = {}
+        for t in tables:
+            cur = con.execute(f'SELECT * FROM "{t}"')
+            cols = [d[0] for d in cur.description]
+            with open(os.path.join(out_dir, f"{t}.csv"), "w", newline="", encoding="utf-8") as f:
+                w = csv.writer(f)
+                w.writerow(cols)
+                n = 0
+                for row in cur:
+                    w.writerow(row)
+                    n += 1
+            written[t] = n
+        return out_dir, written
+    finally:
+        con.close()
 
 
 # --------------------------------------------------------------------------

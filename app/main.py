@@ -155,13 +155,17 @@ def tracked_mutate(body: TrackBody):
 
 @app.post("/api/reset/")
 def reset():
-    """Reset all students locally: clear every student's episodes + HMM state
-    (and the raw mirror behind them) so the board starts fresh. Students stay
-    tracked; the board rebuilds as they keep coding. Prod is untouched.
+    """Back up the current data to CSV, then reset all students locally: clear
+    every student's logs + episodes + HMM state + flags so the board starts
+    fresh. Students stay tracked; the board rebuilds as they keep coding. Prod
+    is untouched.
 
-    Signals the daemon (via meta) to drop its in-memory workers, then wipes the
-    DB immediately so the UI clears without waiting for the next tick."""
-    stamp = db.now().isoformat()
-    db.set_meta("reset_requested_at", stamp)
+    Fail-safe: the CSV snapshot is written FIRST, so if the backup fails the wipe
+    never runs. Signals the daemon (via meta) to drop its in-memory workers, then
+    wipes the DB immediately so the UI clears without waiting for the next tick."""
+    stamp = db.now()
+    backup_dir = config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}"
+    out_dir, rows = db.export_csv(str(backup_dir))   # snapshot BEFORE wiping
+    db.set_meta("reset_requested_at", stamp.isoformat())
     db.reset_all()
-    return {"reset": True, "at": stamp}
+    return {"reset": True, "at": stamp.isoformat(), "backup": out_dir, "rows": rows}

@@ -172,9 +172,15 @@ const CohortDashboard = () => {
         fetchStates();
     };
     const resetAll = async () => {
-        if (!window.confirm('Reset episodes + strategy state for ALL students?\n\nLocal only — students stay tracked and the board rebuilds as they keep coding. Prod is untouched.')) return;
-        try { await api.post('/api/reset/'); } catch { /* */ }
-        setSelected(null); setStates({}); fetchStates(); fetchRoster();
+        if (!window.confirm('Reset ALL student data in the local database?\n\nA CSV backup of the current data is saved first (to exports/), then every student\'s logs, episodes, strategy state, and flags are cleared and the board starts fresh from now. Students stay tracked. Local only — production is untouched.')) return;
+        try {
+            const { data } = await api.post('/api/reset/');
+            window.alert('Saved CSV backup to:\n' + (data.backup || 'exports/') + '\n\nThen reset all student data.');
+            setSelected(null); setStates({});
+        } catch {
+            window.alert('Reset failed — data was NOT cleared.');
+        }
+        fetchStates(); fetchRoster();
     };
 
     // one box per tracked student, merged with their materialized state.
@@ -198,8 +204,8 @@ const CohortDashboard = () => {
                        onChange={e => setQuery(e.target.value)}
                        onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
                 <button style={S.reset} onClick={resetAll}
-                        title="Reset episodes + strategy state for all students (local only)">
-                    ↺ Reset
+                        title="Clear all student data from the local database and start fresh from now (local only)">
+                    ↺ Reset data
                 </button>
             </div>
 

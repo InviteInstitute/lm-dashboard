@@ -4,12 +4,12 @@ description: A live who-needs-help dashboard for a cohort of students coding in 
 
 # LM Dashboard
 
-LM Dashboard is a live **"who needs help"** view for a cohort of students coding
-in the VEX block environment. It mirrors student activity from the Reflecks
-production backend onto a local machine, infers each student's coding
-**strategy** with a Hidden Markov Model, segments their session into
-**episodes**, raises **intervention flags** (wheel-spinning, idle, big rewrite),
-and shows it all on a single researcher dashboard.
+LM Dashboard is a live "who needs help" view for a room full of students coding in
+the VEX block environment. It mirrors what they're doing from the Reflecks
+production backend onto your own machine, figures out each student's coding
+**strategy** with a Hidden Markov Model, breaks their session into **episodes**,
+raises **intervention flags** when someone's wheel-spinning, idle, or rewriting
+everything, and puts it all on one screen for you.
 
 ```mermaid
 flowchart LR
@@ -20,49 +20,31 @@ flowchart LR
     api --> dash["Researcher<br/>dashboard"]
 ```
 
-## How it works in one paragraph
+## How it works, in one paragraph
 
-Students code in VEX; their logs land in the **Reflecks production server**. A
-local **daemon** polls that server's REST API for new events (cursor-based, with
-idle backoff), stores the raw logs in a local SQLite file, and continuously
-computes each tracked student's derived state (strategy, episodes, flags) into a
-**materialized table**. A small **read API** serves that table to a **React
-dashboard**. The daemon is the *only writer*; the dashboard never recomputes
-anything, it just reads precomputed state. Nothing is ever written back to
-production, it is a read-only mirror.
+Students code in VEX, and their logs land in the Reflecks production server. A
+local **daemon** asks that server's REST API for new events (it keeps a cursor and
+backs off when things are quiet), drops the raw logs into a local SQLite file, and
+keeps each tracked student's derived state (strategy, episodes, flags) up to date
+in a **materialized table**. A small **read API** hands that table to a **React
+dashboard**. The daemon is the only thing that writes; the dashboard never
+recomputes anything, it just reads what's already there. And nothing ever goes
+back to production. It's a read-only mirror, full stop.
 
 ## What you get
 
-<div class="grid cards" markdown>
+For each student you track, the daemon takes a raw stream of VEX events and turns
+it into three things you can actually act on:
 
--   :material-brain:{ .lg .middle } **Strategy inference**
+```mermaid
+flowchart LR
+    ev["One student's<br/>VEX event stream"] --> d{{"Local daemon<br/>read-only mirror"}}
+    d --> strat["Strategy (HMM)<br/>Iterator · Explorer · Stuck"]
+    d --> epi["Episodes<br/>code · run · reset + pauses"]
+    d --> flags["Intervention flags<br/>wheel-spin · idle · big rewrite"]
+```
 
-    ---
-
-    An HMM classifies each student into Iterator, Explorer, or Stuck from how
-    their code changes between runs.
-
--   :material-layers-triple:{ .lg .middle } **Episode segmentation**
-
-    ---
-
-    Each session is carved into code / run / reset episodes with pause detection.
-
--   :material-hand-back-right:{ .lg .middle } **Intervention flags**
-
-    ---
-
-    Wheel-spinning, inactivity, and big-rewrite triggers surface the students who
-    need attention now.
-
--   :material-shield-check:{ .lg .middle } **Read-only mirror**
-
-    ---
-
-    Production is never written to. Everything runs on one laptop with one SQLite
-    file.
-
-</div>
+All of it runs on one laptop with one SQLite file, and production is never touched.
 
 ## Where to go next
 
@@ -72,13 +54,13 @@ production, it is a read-only mirror.
 
     ---
 
-    Install, configure credentials, and run all three processes.
+    Install it, add your credentials, and get all three processes running.
 
 -   :material-sitemap:{ .lg .middle } **[Architecture](concepts/architecture.md)**
 
     ---
 
-    The CQRS + materialized-view design and the polled micro-batch model.
+    The CQRS plus materialized-view design and the polled micro-batch model.
 
 -   :material-monitor:{ .lg .middle } **[Using the dashboard](guides/using-the-dashboard.md)**
 

@@ -21,6 +21,10 @@ from app.pipeline.client import ProdClient, ProdClientError
 
 log = logging.getLogger("pipeline")
 
+# While paused, re-check the local pause flag this often (cheap SQLite read, no
+# prod request) so a Resume click takes effect within ~1s.
+PAUSED_POLL_S = 1.0
+
 
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(description="VEX ingestion + inference pipeline (single writer).")
@@ -69,6 +73,7 @@ def main(argv=None):
     # workers (so buffered events don't re-materialize) when it changes. Prime it
     # to the current value so a stale flag doesn't fire a reset on boot.
     last_reset = db.get_meta("reset_requested_at")
+    last_paused = None
 
     fails = idle = 0
     while True:
@@ -81,6 +86,18 @@ def main(argv=None):
             db.reset_all()
             last_reset = rr
             log.info("reset handled (%s) — cleared in-memory workers + local data", rr)
+
+        # Polling pause switch (dashboard button). When paused, make ZERO prod
+        # requests: skip backfill + drain + inference entirely and idle locally
+        # until re-enabled. Reset (above) is still honored while paused.
+        paused = db.get_meta("polling_enabled") == "0"
+        if paused != last_paused:
+            log.info("polling %s (dashboard toggle)", "PAUSED" if paused else "RESUMED")
+            last_paused = paused
+        if paused:
+            idle = 0  # resume responsive
+            time.sleep(PAUSED_POLL_S)
+            continue
 
         try:
             # roster: only ingest + compute the studentIDs the user tracks

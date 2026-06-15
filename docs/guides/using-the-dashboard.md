@@ -77,6 +77,24 @@ card, or click **ack** to dismiss the alert without leaving the column.
     daemon closes the acked row and opens a fresh one, so a student who never
     actually got unstuck re-surfaces in the feed.
 
+## Pause / resume polling
+
+The top bar has a **⏸ Pause polling** toggle. Pausing tells the daemon to stop
+hitting the production server entirely — it makes **zero requests to prod** while
+paused, keeps showing the last data it fetched, and resumes within about a second
+of clicking **▶ Resume polling**. The status dot turns amber and a "polling
+paused" label appears while it's off.
+
+!!! tip
+    Use this between sessions. The daemon polls production continuously while
+    running (even during quiet stretches), which keeps a constant load on prod.
+    Pausing when no class is active lets prod recover — important if it runs on a
+    CPU-credit (burstable) instance. The toggle is shared, so every open
+    dashboard reflects the same state.
+
+The daemon process keeps running while paused; pausing only stops the prod
+polling, not the daemon itself.
+
 ## Drill-down
 
 Click any card to open the full detail:

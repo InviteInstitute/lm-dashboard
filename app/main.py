@@ -186,3 +186,29 @@ def reset():
     db.set_meta("reset_requested_at", stamp)
     db.reset_all()
     return {"reset": True, "at": stamp}
+
+
+def _polling_enabled() -> bool:
+    """Default ON: only an explicit "0" pauses polling."""
+    return db.get_meta("polling_enabled") != "0"
+
+
+class PollingBody(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/polling/")
+def polling_status():
+    """Whether the daemon is currently polling production (the dashboard's pause
+    toggle reads this)."""
+    return {"enabled": _polling_enabled()}
+
+
+@app.post("/api/polling/")
+def set_polling(body: PollingBody):
+    """Pause or resume the daemon's production polling. When paused the daemon
+    makes ZERO requests to prod -- it keeps running locally and resumes within a
+    second of being re-enabled. Lets you stop loading prod between sessions
+    without killing the process. Local control flag only; prod is untouched."""
+    db.set_meta("polling_enabled", "1" if body.enabled else "0")
+    return {"enabled": body.enabled}

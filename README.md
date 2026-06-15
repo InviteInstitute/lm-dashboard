@@ -6,10 +6,18 @@ backend onto a local machine, infers each student's coding **strategy** with an
 HMM, segments their session into **episodes**, raises **intervention flags**
 (wheel-spinning, idle, big rewrite), and shows it all on a researcher dashboard.
 
-![Architecture (plain-language)](docs/architecture-simple.png)
+```mermaid
+flowchart LR
+    students["Students coding<br/>in VEX"] --> prod[("Reflecks<br/>production server")]
+    prod -. "polls, read-only" .-> daemon["Local daemon<br/>mirror and analyze"]
+    daemon --> sqlite[("Local SQLite<br/>mirror")]
+    sqlite --> api["Read API"]
+    api --> dash["Researcher<br/>dashboard"]
+```
 
-> A more technical version of this diagram is in [`docs/architecture.pdf`](docs/architecture.pdf),
-> and the full system design is in [`docs/DESIGN.md`](docs/DESIGN.md).
+> The full system design, including a diagram of the write/read (CQRS) split, is
+> in [`docs/DESIGN.md`](docs/DESIGN.md). The browsable docs site lives in `docs/`
+> (run `mkdocs serve`, then open http://localhost:4000).
 
 ---
 
@@ -33,6 +41,7 @@ app/
   config.py            env-derived settings (DB path, CORS, prod creds)
   smart_delta_engine.py  block-diff → LLM "playground" prompt
   strategy_hmm/        events → change scores → HMM latent states (+ trained model.pkl)
+  episode_engine/      session → CODE/RUN/RESET episodes + pauses (vendored, stdlib-only)
   pipeline/            the ingestion + inference daemon (the only DB writer)
     client.py          authenticated REST client for the prod server
     poller.py          cursor-based, idempotent ingest of raw logs

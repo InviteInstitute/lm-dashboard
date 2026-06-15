@@ -13,12 +13,19 @@ const STATE = {
 };
 const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
 const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
-// the wheel-spinning signal drives the intervention column
-const WHEEL = { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' };
+// All intervention signals -- the right column shows everything the backend
+// fires (wheel_spin + inactive + big_change), not just wheel-spinning.
+const TRIGGERS = {
+    wheel_spin: { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' },
+    inactive:   { c: '#f59e0b', icon: '⏸', label: 'Inactive' },
+    big_change: { c: '#a855f7', icon: '✎', label: 'Big rewrite' },
+};
+const TRIGGER_FALLBACK = { c: '#6b7280', icon: '•', label: 'Trigger' };
 const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
 const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
 const POLL_MS = 1500;
 const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
+const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
 function relTime(iso) {
     if (!iso) return '—';
@@ -110,7 +117,8 @@ const S = {
     bar: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', flexShrink: 0 },
     title: { fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 9 },
     input: { marginLeft: 'auto', background: T.panel, border: `1px solid ${T.border}`, borderRadius: 999, color: T.ink, padding: '9px 16px', fontSize: 14, fontFamily: FONT, outline: 'none', width: 220 },
-    reset: { background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    export: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    reset: { background: '#ef44441a', color: '#ef4444', border: '1px solid #ef444466', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     rosterBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', background: T.panel, flexShrink: 0 },
     rchip: { display: 'inline-flex', alignItems: 'center', gap: 7, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 999, padding: '5px 6px 5px 11px', fontSize: 12.5, fontFamily: MONO, color: T.ink, cursor: 'pointer' },
     rx: { border: 'none', background: 'transparent', color: T.faint, fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: '0 2px' },
@@ -128,11 +136,12 @@ const S = {
 
     col: { width: 320, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.panel, overflow: 'auto', padding: '20px 18px' },
     colHead: { fontSize: 12.5, fontWeight: 800, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 },
-    colCount: { marginLeft: 'auto', background: `${WHEEL.c}1f`, color: WHEEL.c, border: `1px solid ${WHEEL.c}55`, borderRadius: 999, padding: '1px 9px', fontSize: 12 },
-    colItem: { background: T.bg, border: `1px solid ${WHEEL.c}40`, borderLeft: `3px solid ${WHEEL.c}`, borderRadius: 10, padding: '11px 13px', marginBottom: 10, cursor: 'pointer' },
+    colCount: (c) => ({ marginLeft: 'auto', background: `${c}1f`, color: c, border: `1px solid ${c}55`, borderRadius: 999, padding: '1px 9px', fontSize: 12 }),
+    colItem: (c) => ({ background: T.bg, border: `1px solid ${c}40`, borderLeft: `3px solid ${c}`, borderRadius: 10, padding: '11px 13px', marginBottom: 10, cursor: 'pointer', position: 'relative' }),
     colSid: { fontFamily: MONO, fontWeight: 700, fontSize: 14 },
-    colSub: { fontSize: 12, color: WHEEL.c, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 },
+    colSub: (c) => ({ fontSize: 12, color: c, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }),
     colEmpty: { color: T.sub, fontSize: 13, lineHeight: 1.5 },
+    ackBtn: { marginLeft: 'auto', background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, borderRadius: 999, padding: '2px 9px', fontSize: 11, cursor: 'pointer', fontFamily: FONT },
 
     empty: { color: T.sub, fontSize: 14, textAlign: 'center', marginTop: 60 },
     overlay: { position: 'fixed', inset: 0, background: 'rgba(3,5,9,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 24 },
@@ -143,6 +152,7 @@ const S = {
 const CohortDashboard = () => {
     const [states, setStates] = React.useState({});   // studentID -> full payload
     const [roster, setRoster] = React.useState([]);
+    const [triggers, setTriggers] = React.useState([]);   // backend-fired alerts
     const [selected, setSelected] = React.useState(null);
     const [query, setQuery] = React.useState('');
 
@@ -160,6 +170,17 @@ const CohortDashboard = () => {
     }, []);
     React.useEffect(() => { fetchRoster(); const id = setInterval(fetchRoster, POLL_MS); return () => clearInterval(id); }, [fetchRoster]);
 
+    const fetchTriggers = React.useCallback(async () => {
+        try { setTriggers((await api.get('/api/triggers/')).data.triggers || []); } catch { /* keep */ }
+    }, []);
+    React.useEffect(() => { fetchTriggers(); const id = setInterval(fetchTriggers, POLL_MS); return () => clearInterval(id); }, [fetchTriggers]);
+
+    const ackTrigger = async (id) => {
+        // Optimistic: drop the row immediately so the click feels instant.
+        setTriggers(ts => ts.filter(t => t.id !== id));
+        try { await api.post('/api/triggers/ack/', { id }); } catch { fetchTriggers(); }
+    };
+
     const addTracked = async () => {
         const sid = query.trim(); if (!sid) return;
         try { await api.post('/api/tracked/', { studentID: sid }); } catch { /* */ }
@@ -171,14 +192,21 @@ const CohortDashboard = () => {
         if (selected === sid) setSelected(null);
         fetchStates();
     };
-    const resetAll = async () => {
-        if (!window.confirm('Reset ALL student data in the local database?\n\nA CSV backup of the current data is saved first (to exports/), then every student\'s logs, episodes, strategy state, and flags are cleared and the board starts fresh from now. Students stay tracked. Local only — production is untouched.')) return;
+    const exportData = async () => {
         try {
-            const { data } = await api.post('/api/reset/');
-            window.alert('Saved CSV backup to:\n' + (data.backup || 'exports/') + '\n\nThen reset all student data.');
+            const { data } = await api.post('/api/export/');
+            window.alert('Exported a CSV snapshot to:\n' + (data.dir || 'exports/'));
+        } catch {
+            window.alert('Export failed.');
+        }
+    };
+    const resetAll = async () => {
+        if (!window.confirm("Reset ALL student data?\n\nThis permanently clears every student's logs, episodes, strategy state, and flags from the local database. There is NO backup, so click Export first if you want a CSV copy.\n\nStudents stay tracked and the board rebuilds from new activity. Local only, production is untouched.")) return;
+        try {
+            await api.post('/api/reset/');
             setSelected(null); setStates({});
         } catch {
-            window.alert('Reset failed — data was NOT cleared.');
+            window.alert('Reset failed, data was NOT cleared.');
         }
         fetchStates(); fetchRoster();
     };
@@ -190,7 +218,12 @@ const CohortDashboard = () => {
         .map(r => ({ studentID: r.studentID, has_data: r.has_data, st: states[r.studentID] || null }))
         .sort((a, b) => a.studentID.localeCompare(b.studentID));
 
-    const intervene = boxes.filter(b => b.st && b.st.current_state === WHEEL_STATE);
+    // Restrict the alert feed to students the user is currently tracking --
+    // the backend evaluator runs over every student_state row, but we don't
+    // want to surface alerts for students who were just removed.
+    const tracked = new Set(roster.map(r => r.studentID));
+    const alerts = triggers.filter(t => tracked.has(t.studentID));
+    const headColor = TRIGGERS.wheel_spin.c;
     const detail = selected ? (states[selected] || null) : null;
 
     return (
@@ -198,14 +231,18 @@ const CohortDashboard = () => {
             <div style={S.bar}>
                 <span style={S.title}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 0 3px #22c55e33' }} />
-                    Researcher Dashboard
+                    Learner Modeling Dashboard
                 </span>
                 <input style={S.input} placeholder="Track a student ID…" value={query}
                        onChange={e => setQuery(e.target.value)}
                        onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
                 <button style={S.reset} onClick={resetAll}
-                        title="Clear all student data from the local database and start fresh from now (local only)">
-                    ↺ Reset data
+                        title="Wipe all student data with NO backup. Export first if you want a copy.">
+                    ↺ Reset
+                </button>
+                <button style={S.export} onClick={exportData}
+                        title="Save a CSV snapshot of all data to exports/ (no changes to the data)">
+                    ⬇ Export
                 </button>
             </div>
 
@@ -265,24 +302,37 @@ const CohortDashboard = () => {
                     )}
                 </div>
 
-                {/* right: who needs intervention (wheel-spinning) */}
+                {/* right: backend-fired alerts (wheel_spin + inactive + big_change) */}
                 <div style={S.col}>
                     <div style={S.colHead}>
-                        <span style={{ color: WHEEL.c }}>{WHEEL.icon}</span> Needs intervention
-                        <span style={S.colCount}>{intervene.length}</span>
+                        <span style={{ color: headColor }}>{TRIGGERS.wheel_spin.icon}</span> Needs intervention
+                        <span style={S.colCount(headColor)}>{alerts.length}</span>
                     </div>
-                    {intervene.length === 0 ? (
-                        <div style={S.colEmpty}>No one is wheel-spinning right now. 🎉</div>
+                    {alerts.length === 0 ? (
+                        <div style={S.colEmpty}>No active alerts right now. 🎉</div>
                     ) : (
-                        intervene.map(b => (
-                            <div key={b.studentID} style={S.colItem} onClick={() => setSelected(b.studentID)}>
-                                <div style={S.colSid}>{b.studentID}</div>
-                                <div style={S.colSub}>
-                                    {WHEEL.icon} {WHEEL.label} · {b.st.consecutive_stuck} re-runs
-                                    <span style={{ marginLeft: 'auto', color: T.faint }}>{relTime(b.st.last_seen)}</span>
+                        alerts.map(t => {
+                            const meta = triggerMeta(t.trigger_type);
+                            return (
+                                <div key={t.id} style={S.colItem(meta.c)} onClick={() => setSelected(t.studentID)}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={S.colSid}>{t.studentID}</span>
+                                        <button style={S.ackBtn}
+                                                title="Acknowledge / dismiss"
+                                                onClick={e => { e.stopPropagation(); ackTrigger(t.id); }}>
+                                            ack
+                                        </button>
+                                    </div>
+                                    <div style={S.colSub(meta.c)}>
+                                        {meta.icon} {t.label || meta.label}
+                                        {t.value ? ` · ${t.value}` : ''}
+                                        <span style={{ marginLeft: 'auto', color: T.faint }}>
+                                            {t.age_seconds != null ? fmtDur(t.age_seconds) : '—'}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             </div>

@@ -38,9 +38,9 @@ def _parse_args(argv=None):
     p.add_argument("--overlap", type=float, default=2.0,
                    help="Cursor overlap seconds to absorb same-ts straddles.")
     p.add_argument("--backfill-hours", type=float,
-                   default=float(os.environ.get("PIPELINE_BACKFILL_HOURS", 0)),
+                   default=float(os.environ.get("PIPELINE_BACKFILL_HOURS", 24)),
                    help="On first run (empty cursor) only backfill the last N hours "
-                        "(0 = replay all history). Bounds the initial drain.")
+                        "(default 24, <=0 = replay all history). Bounds the initial drain.")
     return p.parse_args(argv)
 
 
@@ -103,7 +103,7 @@ def main(argv=None):
             new = poller.drain(client, cursor, limit=limit, overlap_seconds=overlap,
                                tracked=tracked)
             fails = 0
-        except (ProdClientError, Exception) as e:   # transient: 504/timeout/etc.
+        except ProdClientError as e:   # transient: 504/timeout/auth/etc.
             fails += 1
             delay = min(30.0, 0.5 * (2 ** min(fails, 6))) + random.uniform(0, 0.5)
             log.warning("drain failed (%d): %s -- backoff %.1fs", fails, e, delay)
@@ -111,6 +111,13 @@ def main(argv=None):
                 log.error("UNHEALTHY: %d consecutive poll failures", fails)
             time.sleep(delay)
             continue
+        except Exception:
+            # Not a known-transient prod error -- this is almost certainly a bug
+            # in our own code. Don't perpetually back off and hide it: log and
+            # re-raise so the process supervisor restarts (and the error stays
+            # visible) instead of silently sleeping in a loop.
+            log.exception("daemon tick crashed on a non-transient error -- exiting")
+            raise
 
         # Inference clock: run on changed workers, materialize state.
         changed = workers.dirty_workers()

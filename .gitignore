@@ -20,6 +20,9 @@ exports/
 node_modules/
 frontend/dist/
 
+# Docs build output (MkDocs)
+site/
+
 # OS / editors
 .DS_Store
 .vscode/

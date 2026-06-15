@@ -13,7 +13,7 @@ const STATE = {
 };
 const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
 const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
-// All intervention signals -- the right column shows everything the backend
+// All intervention signals, the right column shows everything the backend
 // fires (wheel_spin + inactive + big_change), not just wheel-spinning.
 const TRIGGERS = {
     wheel_spin: { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' },
@@ -100,7 +100,7 @@ const Detail = ({ s, sid }) => {
             <div style={lbl}>Playground</div>
             {s.block && s.block.llm_prompt
                 ? <pre style={pre}>{s.block.llm_prompt}</pre>
-                : <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No playground yet — hasn’t run code.</div>}
+                : <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No playground yet due to no runs</div>}
             <div style={{ ...lbl, marginTop: 22 }}>Episode timeline</div>
             <EpisodeTrack data={s.episodes} />
             <div style={{ ...lbl, marginTop: 22 }}>Strategy (HMM) · one block per run</div>
@@ -248,15 +248,15 @@ const CohortDashboard = () => {
                 <span style={S.title}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: pollingOn ? '#22c55e' : '#f59e0b', boxShadow: `0 0 0 3px ${pollingOn ? '#22c55e33' : '#f59e0b33'}` }} />
                     Learner Modeling Dashboard
-                    {!pollingOn && <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>· polling paused</span>}
+                    {!pollingOn && <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>· Daemon Paused</span>}
                 </span>
                 <input style={S.input} placeholder="Track a student ID…" value={query}
                        onChange={e => setQuery(e.target.value)}
                        onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
                 <button style={pollingOn ? S.pollPause : S.pollResume} onClick={togglePolling}
                         title={pollingOn
-                            ? 'Pause the daemon: stop ALL polling of the production server. The board keeps showing the last data; no new events are fetched until you resume. Use this between sessions to stop loading prod.'
-                            : 'Polling is paused — the daemon is making no requests to production. Click to resume fetching new events.'}>
+                            ? 'Pause the daemon: stop ALL polling of the production server. The board keeps showing the last data. No new events are fetched until you resume. Use this between sessions to stop loading prod.'
+                            : 'Polling is paused. The daemon is making no requests to production. Click to resume fetching new events.'}>
                     {pollingOn ? '⏸ Pause polling' : '▶ Resume polling'}
                 </button>
                 <button style={S.reset} onClick={resetAll}
@@ -264,14 +264,14 @@ const CohortDashboard = () => {
                     ↺ Reset
                 </button>
                 <button style={S.export} onClick={exportData}
-                        title="Save a CSV snapshot of all data to exports/ (no changes to the data)">
+                        title="Save a CSV snapshot of all data to exports">
                     ⬇ Export
                 </button>
             </div>
 
             <div style={S.rosterBar}>
                 <span style={{ fontSize: 12, color: T.sub, fontWeight: 700 }}>Tracking {roster.length}:</span>
-                {roster.length === 0 && <span style={{ fontSize: 12.5, color: T.faint }}>none — add a student ID above to start tracking.</span>}
+                {roster.length === 0 && <span style={{ fontSize: 12.5, color: T.faint }}>Add Student ID to Start Tracking</span>}
                 {roster.map(r => (
                     <span key={r.studentID} style={S.rchip} onClick={() => setSelected(r.studentID)} title="Open">
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.has_data ? '#22c55e' : '#f59e0b' }} />
@@ -286,7 +286,7 @@ const CohortDashboard = () => {
                 {/* left: a box per tracked student */}
                 <div style={S.board}>
                     {boxes.length === 0 ? (
-                        <div style={S.empty}>No students tracked yet. Add a student ID up top to start.</div>
+                        <div style={S.empty}>No students added yet. Enter student IDs up top to start.</div>
                     ) : (
                         <div style={S.grid}>
                             {boxes.map(b => {

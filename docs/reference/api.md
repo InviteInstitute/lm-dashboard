@@ -197,10 +197,10 @@ Whether the daemon is currently polling production. Defaults to enabled.
 
 ## POST /api/polling/
 
-Pause or resume the daemon's production polling. When paused, the daemon makes
-**zero requests to prod** — it keeps running locally and resumes within ~1 second
-of being re-enabled. Use it to stop loading production between sessions without
-killing the process.
+Pause or resume the daemon's production polling. When it's paused, the daemon makes
+zero requests to prod. It keeps running locally and picks back up within about a
+second of being re-enabled. This is how you stop loading production between sessions
+without killing the process.
 
 ```json title="Pause"
 { "enabled": false }

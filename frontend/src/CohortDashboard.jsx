@@ -119,6 +119,8 @@ const S = {
     input: { marginLeft: 'auto', background: T.panel, border: `1px solid ${T.border}`, borderRadius: 999, color: T.ink, padding: '9px 16px', fontSize: 14, fontFamily: FONT, outline: 'none', width: 220 },
     export: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     reset: { background: '#ef44441a', color: '#ef4444', border: '1px solid #ef444466', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    pollPause: { background: '#f59e0b1a', color: '#f59e0b', border: '1px solid #f59e0b66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    pollResume: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     rosterBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', background: T.panel, flexShrink: 0 },
     rchip: { display: 'inline-flex', alignItems: 'center', gap: 7, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 999, padding: '5px 6px 5px 11px', fontSize: 12.5, fontFamily: MONO, color: T.ink, cursor: 'pointer' },
     rx: { border: 'none', background: 'transparent', color: T.faint, fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: '0 2px' },
@@ -155,6 +157,7 @@ const CohortDashboard = () => {
     const [triggers, setTriggers] = React.useState([]);   // backend-fired alerts
     const [selected, setSelected] = React.useState(null);
     const [query, setQuery] = React.useState('');
+    const [pollingOn, setPollingOn] = React.useState(true);   // daemon prod polling
 
     const fetchStates = React.useCallback(async () => {
         try {
@@ -174,6 +177,19 @@ const CohortDashboard = () => {
         try { setTriggers((await api.get('/api/triggers/')).data.triggers || []); } catch { /* keep */ }
     }, []);
     React.useEffect(() => { fetchTriggers(); const id = setInterval(fetchTriggers, POLL_MS); return () => clearInterval(id); }, [fetchTriggers]);
+
+    // Daemon polling state. Polled on the same timer so the toggle stays in sync
+    // across multiple open dashboards.
+    const fetchPolling = React.useCallback(async () => {
+        try { setPollingOn((await api.get('/api/polling/')).data.enabled); } catch { /* keep */ }
+    }, []);
+    React.useEffect(() => { fetchPolling(); const id = setInterval(fetchPolling, POLL_MS); return () => clearInterval(id); }, [fetchPolling]);
+    const togglePolling = async () => {
+        const next = !pollingOn;
+        setPollingOn(next);   // optimistic
+        try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
+        catch { fetchPolling(); }
+    };
 
     const ackTrigger = async (id) => {
         // Optimistic: drop the row immediately so the click feels instant.
@@ -230,12 +246,19 @@ const CohortDashboard = () => {
         <div style={S.page}>
             <div style={S.bar}>
                 <span style={S.title}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 0 3px #22c55e33' }} />
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: pollingOn ? '#22c55e' : '#f59e0b', boxShadow: `0 0 0 3px ${pollingOn ? '#22c55e33' : '#f59e0b33'}` }} />
                     Learner Modeling Dashboard
+                    {!pollingOn && <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>· polling paused</span>}
                 </span>
                 <input style={S.input} placeholder="Track a student ID…" value={query}
                        onChange={e => setQuery(e.target.value)}
                        onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
+                <button style={pollingOn ? S.pollPause : S.pollResume} onClick={togglePolling}
+                        title={pollingOn
+                            ? 'Pause the daemon: stop ALL polling of the production server. The board keeps showing the last data; no new events are fetched until you resume. Use this between sessions to stop loading prod.'
+                            : 'Polling is paused — the daemon is making no requests to production. Click to resume fetching new events.'}>
+                    {pollingOn ? '⏸ Pause polling' : '▶ Resume polling'}
+                </button>
                 <button style={S.reset} onClick={resetAll}
                         title="Wipe all student data with NO backup. Export first if you want a copy.">
                     ↺ Reset

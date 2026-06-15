@@ -20,6 +20,8 @@ There is no authentication; the endpoints are local-only.
 | `POST` | `/api/triggers/ack/` | dismiss a trigger |
 | `POST` | `/api/export/` | write a CSV snapshot of all current data |
 | `POST` | `/api/reset/` | clear all local progress and flags + signal the daemon |
+| `GET`  | `/api/polling/` | whether the daemon is currently polling production |
+| `POST` | `/api/polling/` | pause or resume the daemon's production polling |
 
 ---
 
@@ -180,3 +182,33 @@ from new activity.
 ```json title="Response"
 { "reset": true, "at": "2026-06-14T10:31:00" }
 ```
+
+---
+
+## GET /api/polling/
+
+Whether the daemon is currently polling production. Defaults to enabled.
+
+```json title="Response"
+{ "enabled": true }
+```
+
+---
+
+## POST /api/polling/
+
+Pause or resume the daemon's production polling. When paused, the daemon makes
+**zero requests to prod** — it keeps running locally and resumes within ~1 second
+of being re-enabled. Use it to stop loading production between sessions without
+killing the process.
+
+```json title="Pause"
+{ "enabled": false }
+```
+
+```json title="Resume"
+{ "enabled": true }
+```
+
+Returns the new state, e.g. `{ "enabled": false }`. This is a local control flag
+(stored in `meta`); production is untouched.

@@ -18,6 +18,9 @@ STUCK_STATE = 2
 STATE_LABELS = {0: "iterator", 1: "explorer", 2: "stuck"}
 # Resolved triggers linger this long in the feed before dropping off.
 TRIGGER_RECENT_SECONDS = 120
+# Cap how many ids /api/student_states/?students= can request -- well under
+# SQLite's SQLITE_MAX_VARIABLE_NUMBER and large enough to cover any real cohort.
+MAX_STUDENT_IDS = 500
 
 app = FastAPI(title="LUC Cohort Dashboard")
 app.add_middleware(
@@ -75,6 +78,11 @@ def health():
 def student_states(students: str | None = None, classCode: str | None = None):
     """Read the materialized student_state table (written by the daemon)."""
     ids = [x.strip() for x in students.split(",") if x.strip()] if students else None
+    if ids and len(ids) > MAX_STUDENT_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"too many studentIDs (max {MAX_STUDENT_IDS})",
+        )
     rows = [_shape_state(s) for s in db.list_student_states(ids, classCode)]
     rows.sort(key=lambda s: s["last_seen"] or "", reverse=True)
     rows.sort(key=lambda s: s["stuck"], reverse=True)
@@ -97,13 +105,14 @@ def triggers():
     for t in db.triggers_feed(cutoff):
         active = t["resolved_at"] is None
         d = t["detail"] or {}
+        started = t["started_at"]
         items.append({
             "id": t["id"], "studentID": t["studentID"], "trigger_type": t["trigger_type"],
             "label": d.get("label", t["trigger_type"]), "value": d.get("value"),
-            "started_at": _iso(t["started_at"]),
+            "started_at": _iso(started),
             "resolved_at": _iso(t["resolved_at"]),
             "active": active,
-            "age_seconds": (now - t["started_at"]).total_seconds(),
+            "age_seconds": (now - started).total_seconds() if started else None,
         })
         if active:
             counts[t["trigger_type"]] = counts.get(t["trigger_type"], 0) + 1
@@ -153,19 +162,27 @@ def tracked_mutate(body: TrackBody):
     return {"added": sid}
 
 
+@app.post("/api/export/")
+def export():
+    """Save a CSV snapshot of all current data to exports/<timestamp>/. Read-only;
+    never modifies the database."""
+    stamp = db.now()
+    out_dir, rows = db.export_csv(
+        str(config.BASE_DIR / "exports" / f"export_{stamp.strftime('%Y-%m-%d_%H%M%S')}")
+    )
+    return {"exported": True, "at": stamp.isoformat(), "dir": out_dir, "rows": rows}
+
+
 @app.post("/api/reset/")
 def reset():
-    """Back up the current data to CSV, then reset all students locally: clear
-    every student's logs + episodes + HMM state + flags so the board starts
-    fresh. Students stay tracked; the board rebuilds as they keep coding. Prod
-    is untouched.
+    """Wipe all local student data (logs, episodes, HMM state, flags) and tell the
+    daemon to drop its in-memory workers. Students stay tracked; the board rebuilds
+    from new activity. NO backup -- call POST /api/export/ first for a CSV copy.
+    Local only; production is untouched.
 
-    Fail-safe: the CSV snapshot is written FIRST, so if the backup fails the wipe
-    never runs. Signals the daemon (via meta) to drop its in-memory workers, then
-    wipes the DB immediately so the UI clears without waiting for the next tick."""
-    stamp = db.now()
-    backup_dir = config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}"
-    out_dir, rows = db.export_csv(str(backup_dir))   # snapshot BEFORE wiping
-    db.set_meta("reset_requested_at", stamp.isoformat())
+    Sets the meta flag (so the daemon drops its workers and re-wipes any row a race
+    leaves behind) and wipes now so the UI clears immediately."""
+    stamp = db.now().isoformat()
+    db.set_meta("reset_requested_at", stamp)
     db.reset_all()
-    return {"reset": True, "at": stamp.isoformat(), "backup": out_dir, "rows": rows}
+    return {"reset": True, "at": stamp}

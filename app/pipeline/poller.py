@@ -54,6 +54,13 @@ def _parse_ts(s):
     return dt
 
 
+def _event_ts_raw(ev):
+    """Prod's serializer historically had a typo ('recieved_at'); accept the
+    correctly-spelled key too so a future fix doesn't silently stop advancing
+    the cursor."""
+    return ev.get("recieved_at") or ev.get("received_at")
+
+
 def _normalize(ev):
     return {
         "studentID": ev.get("studentID") or "",
@@ -62,7 +69,7 @@ def _normalize(ev):
         "project": ev.get("project") or "",
         "raw_message": ev.get("raw_message", "{}"),
         "source_event_id": ev.get("id"),
-        "event_time": _parse_ts(ev.get("recieved_at")),  # prod serializer typo
+        "event_time": _parse_ts(_event_ts_raw(ev)),
     }
 
 
@@ -93,7 +100,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
         if not results:
             break
         for ev in results:
-            et = _parse_ts(ev.get("recieved_at"))
+            et = _parse_ts(_event_ts_raw(ev))
             sid = ev.get("id")
             if et and (max_et is None or et > max_et):
                 max_et = et
@@ -103,8 +110,21 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
                 continue
             inserted, norm = persist(ev)
             if inserted:
-                route(norm)
-                new_count += 1
+                try:
+                    route(norm)
+                    new_count += 1
+                except Exception:
+                    # The event landed in vex_log but we failed to push it
+                    # into the in-memory worker. Drop the worker so the next
+                    # tick rehydrates from the DB (which now includes this
+                    # event) instead of serving a buffer that's missing it.
+                    from app.pipeline import workers
+                    workers._workers.pop(norm["studentID"], None)
+                    logger.exception(
+                        "route failed for %s after persist; dropped worker for rehydrate",
+                        norm["studentID"],
+                    )
+                    raise
         if len(results) < limit:
             break
         offset += limit

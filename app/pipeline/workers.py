@@ -13,7 +13,7 @@ from collections import deque
 from app import db
 from app.strategy_hmm.pipeline import compute_strategy_states
 from app.smart_delta_engine import generate_llm_prompt_from_project
-from vex_pipeline.research.episode_segmenter import segment_session
+from app.episode_engine import segment_session
 
 logger = logging.getLogger("pipeline")
 
@@ -44,10 +44,10 @@ class StudentWorker:
         self.events.append({"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts})
         if ev.get("classCode"):
             self.class_code = ev["classCode"]
-        if ev.get("project"):
+        if ev.get("project") is not None:
             self.latest_project = ev["project"]
             self.latest_project_ts = ev.get("event_time")
-        if ev.get("source_event_id"):
+        if ev.get("source_event_id") is not None:
             self.last_event_id = max(self.last_event_id, ev["source_event_id"])
         if ev.get("event_time"):
             self.last_event_time = ev["event_time"]
@@ -131,7 +131,18 @@ def get_worker(student_id):
 
 
 def route(ev):
-    get_worker(ev["studentID"]).ingest(ev)
+    """Route a freshly-persisted event to its student worker.
+
+    If the worker isn't cached yet, _rehydrate already picks up the just-
+    inserted vex_log row, so we must NOT also ingest(ev) -- that would
+    double-count the same event in the in-memory buffer."""
+    sid = ev["studentID"]
+    w = _workers.get(sid)
+    if w is None:
+        w = _workers[sid] = StudentWorker(sid)
+        _rehydrate(w)
+        return
+    w.ingest(ev)
 
 
 def dirty_workers():
@@ -168,10 +179,10 @@ def _rehydrate(worker):
         worker.events.append({"event_type": et, "content": row["raw_message"] or "{}", "ts": ts})
         if row["classCode"]:
             worker.class_code = row["classCode"]
-        if row["project"]:
+        if row["project"] is not None:
             worker.latest_project = row["project"]
             worker.latest_project_ts = row["event_time"]
-        if row["source_event_id"]:
+        if row["source_event_id"] is not None:
             worker.last_event_id = max(worker.last_event_id, row["source_event_id"])
         if row["event_time"]:
             worker.last_event_time = row["event_time"]

@@ -43,7 +43,7 @@ def bucket_change_score(score):
 
 
 def _extract_runs(events):
-    """Pull (xml, ast) per runProject event in chronological order."""
+    """Pull (xml, ast, ts) per runProject event in chronological order."""
     runs = []
     for ev in events:
         if ev.get("event_type") != "runProject":
@@ -56,7 +56,7 @@ def _extract_runs(events):
                 content = {}
         xml = extract_workspace_xml(content)
         ast = xml_to_block_ast(xml)
-        runs.append((xml, ast))
+        runs.append((xml, ast, ev.get("ts")))
     return runs
 
 
@@ -66,16 +66,17 @@ def compute_strategy_states(events):
     runs_out = []
     obs_seq = []
 
-    for i, (xml, ast) in enumerate(runs):
+    for i, (xml, ast, ts) in enumerate(runs):
         if i == 0:
             score = None
             bucket = None
         else:
-            prev_xml, prev_ast = runs[i - 1]
+            prev_xml, prev_ast, _ = runs[i - 1]
             score = cached_change_score(prev_xml, xml, prev_ast, ast)
             bucket = bucket_change_score(score)
             obs_seq.append(bucket)
-        runs_out.append({"index": i, "change_score": score, "obs_bucket": bucket, "hmm_state": None})
+        runs_out.append({"index": i, "change_score": score, "obs_bucket": bucket,
+                         "hmm_state": None, "ts": ts})
 
     if len(obs_seq) >= 1:
         model = _get_model()

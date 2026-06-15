@@ -60,7 +60,12 @@ def db_to_dt(s):
 
 
 def _jload(s):
-    return json.loads(s) if s else None
+    if not s:
+        return None
+    try:
+        return json.loads(s)
+    except (ValueError, TypeError):
+        return None
 
 
 def _jdump(o):

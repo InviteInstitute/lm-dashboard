@@ -1,0 +1,73 @@
+site_name: Learner Modeling Dashboard
+site_description: A live who-needs-help dashboard for a cohort of students coding in the VEX block environment.
+docs_dir: docs
+dev_addr: localhost:4000
+repo_url: https://github.com/InviteInstitute/luc-dashboard
+repo_name: InviteInstitute/luc-dashboard
+
+theme:
+  name: material
+  logo: images/logo.png
+  favicon: images/logo.png
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Write path (the daemon): concepts/write-path.md
+      - Read path and dashboard: concepts/read-path.md
+      - Data model: concepts/data-model.md
+  - Guides:
+      - Using the dashboard: guides/using-the-dashboard.md
+      - Configuration: guides/configuration.md
+      - Operations: guides/operations.md
+  - Reference:
+      - API reference: reference/api.md
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - tables
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+
+validation:
+  links:
+    anchors: warn
+
+exclude_docs: |
+  DESIGN.md

@@ -3,7 +3,35 @@
 In-depth design of the LUC Cohort Dashboard. For setup/usage see the
 [README](../README.md).
 
-![Architecture (technical)](architecture.png)
+```mermaid
+flowchart LR
+    subgraph prod["Reflecks production · read-only source"]
+        ev["VEX event stream"]
+    end
+
+    subgraph write["WRITE side · daemon · single writer"]
+        direction TB
+        poll["Cursor poller<br/>idle backoff"]
+        log[("vex_log<br/>append-only event log")]
+        workers["In-memory workers<br/>HMM · episodes · prompt"]
+        state[("student_state<br/>materialized view")]
+        trig[("trigger_event")]
+        poll --> log --> workers
+        workers --> state
+        workers --> trig
+    end
+
+    subgraph read["READ side · API · N readers"]
+        direction TB
+        fastapi["FastAPI"]
+        ui["React dashboard"]
+        fastapi --> ui
+    end
+
+    ev -. "poll" .-> poll
+    state --> fastapi
+    trig --> fastapi
+```
 
 ---
 
@@ -102,8 +130,9 @@ of recent events. Key choices:
 `compute_strategy_states`: per `runProject`, extract the block AST →
 **`change_score`** via APTED tree-edit-distance between consecutive runs (with a
 hashed-pair cache) → bucket → HMM (`model.pkl`, lazy-loaded) → latent **state**
-(iterator / explorer / stuck). Plus episode segmentation (external `vex_pipeline`)
-and a "playground" LLM prompt from the current blocks.
+(iterator / explorer / stuck). Plus episode segmentation (vendored
+`app/episode_engine`, dependency-free) and a "playground" LLM prompt from the
+current blocks.
 
 ### 4.6 Triggers
 A per-tick sweep with lifecycle in `trigger_event`:

@@ -162,6 +162,16 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS note (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    studentID VARCHAR(128) NOT NULL,
+    ts DATETIME NOT NULL,
+    text TEXT NOT NULL,
+    trigger_id INTEGER,
+    trigger_type VARCHAR(24),
+    created_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_note_student ON note(studentID, ts);
 """
 
 
@@ -359,6 +369,35 @@ def set_picked(sid, picked):
         "UPDATE tracked_student SET picked = ?, picked_at = ? WHERE studentID = ?",
         (1 if picked else 0, dt_to_db(now()) if picked else None, sid),
     )
+
+
+def add_note(student_id, text, trigger_id=None, trigger_type=None):
+    """Append one note for a student. trigger_id/trigger_type are set when the
+    note is written from an active alert; both None for a manual note. Returns
+    the created row as a dict."""
+    ts = dt_to_db(now())
+    with closing(connect()) as con:
+        cur = con.execute(
+            "INSERT INTO note (studentID, ts, text, trigger_id, trigger_type, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (student_id, ts, text, trigger_id, trigger_type, ts),
+        )
+        nid = cur.lastrowid
+        con.commit()
+    return {
+        "id": nid, "studentID": student_id, "ts": ts, "text": text,
+        "trigger_id": trigger_id, "trigger_type": trigger_type, "created_at": ts,
+    }
+
+
+def list_notes(student_id):
+    """All notes for a student, oldest first."""
+    rows = _query(
+        "SELECT id, studentID, ts, text, trigger_id, trigger_type, created_at "
+        "FROM note WHERE studentID = ? ORDER BY ts, id",
+        (student_id,),
+    )
+    return [dict(r) for r in rows]
 
 
 def tracked_add(sid):

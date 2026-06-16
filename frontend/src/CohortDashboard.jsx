@@ -162,6 +162,31 @@ const S = {
     modalX: { position: 'absolute', top: 14, right: 16, border: 'none', background: 'transparent', color: T.sub, fontSize: 22, cursor: 'pointer' },
 };
 
+const NotesPanel = ({ notes, onAdd }) => {
+    const [draft, setDraft] = React.useState('');
+    const save = () => { const t = draft.trim(); if (!t) return; onAdd(t); setDraft(''); };
+    return (
+        <div style={S.notesPanel}>
+            <div style={S.miniLbl}>Notes &amp; observations ({notes.length})</div>
+            {notes.length === 0 && <div style={{ color: T.faint, fontSize: 12.5, padding: '6px 0' }}>No notes yet.</div>}
+            {notes.map(n => (
+                <div key={n.id} style={S.notesItem}>
+                    <div style={S.notesMeta}>
+                        <span>{n.ts}</span>
+                        {n.trigger_type && <span style={{ color: '#818cf8' }}>· during {n.trigger_type}</span>}
+                    </div>
+                    <div style={{ fontSize: 13, color: T.ink, whiteSpace: 'pre-wrap' }}>{n.text}</div>
+                </div>
+            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                <textarea style={S.noteArea} value={draft} placeholder="Add a manual note…"
+                          onChange={e => setDraft(e.target.value)} />
+                <button style={S.noteSave} onClick={save}>Add note</button>
+            </div>
+        </div>
+    );
+};
+
 const CohortDashboard = () => {
     const [states, setStates] = React.useState({});   // studentID -> full payload
     const [roster, setRoster] = React.useState([]);
@@ -449,6 +474,7 @@ const CohortDashboard = () => {
                     <div style={S.modal} onClick={e => e.stopPropagation()}>
                         <button style={S.modalX} onClick={() => setSelected(null)}>×</button>
                         <Detail s={detail} sid={selected} />
+                        <NotesPanel notes={notes} onAdd={text => addNote(selected, text, null)} />
                     </div>
                 </div>
             )}

@@ -182,7 +182,7 @@ const NotesPanel = ({ notes, onAdd }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
                 <textarea style={S.noteArea} value={draft} placeholder="Add a manual note…"
                           onChange={e => setDraft(e.target.value)} />
-                <button style={S.noteSave} onClick={save}>Add note</button>
+                <button style={S.noteSave} onClick={save}>Add Notes</button>
             </div>
         </div>
     );
@@ -426,10 +426,6 @@ const CohortDashboard = () => {
                                 <div key={t.id} style={S.colItem(meta.c)} onClick={() => setSelected(t.studentID)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <span style={S.colSid}>{t.studentID}</span>
-                                        <button style={S.noteBtn} title="Add a note for this learner"
-                                                onClick={e => { e.stopPropagation(); setNoteText(''); setNoteOpen(noteOpen === t.id ? null : t.id); }}>
-                                            📝 note
-                                        </button>
                                         {(() => {
                                             const picked = !!(roster.find(r => r.studentID === t.studentID) || {}).picked;
                                             return (
@@ -440,6 +436,10 @@ const CohortDashboard = () => {
                                                 </button>
                                             );
                                         })()}
+                                        <button style={S.noteBtn} title="Add a note for this learner"
+                                                onClick={e => { e.stopPropagation(); setNoteText(''); setNoteOpen(noteOpen === t.id ? null : t.id); }}>
+                                            Notes
+                                        </button>
                                         <button style={S.ackBtn} title="Dismiss alert (also closes the note box)"
                                                 onClick={e => { e.stopPropagation(); ackTrigger(t.id); }}>
                                             ✕

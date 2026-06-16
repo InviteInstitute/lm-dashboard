@@ -17,24 +17,18 @@ Here's the shape of it. Read it top to bottom: production feeds the daemon, the
 daemon writes everything, and the API serves it back out to the dashboard.
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 60, "rankSpacing": 75}}}%%
-flowchart TB
+%%{init: {"flowchart": {"nodeSpacing": 35, "rankSpacing": 50}}}%%
+flowchart LR
     prod[("Reflecks production<br/>read-only source")]
 
-    subgraph WRITE["WRITE side: daemon, the single writer"]
-        direction TB
-        poll["Cursor poller<br/>with idle backoff"]
-        log[("vex_log<br/>append-only event log")]
-        workers["In-memory workers<br/>HMM, episodes, prompt"]
-        proj[("student_state + trigger_event<br/>materialized view")]
-        poll --> log --> workers --> proj
+    subgraph WRITE["WRITE side: daemon (single writer)"]
+        direction LR
+        poll["Cursor poller<br/>idle backoff"] --> log[("vex_log")] --> workers["In-memory workers<br/>HMM · episodes · prompt"] --> proj[("student_state +<br/>trigger_event")]
     end
 
-    subgraph READ["READ side: API, many readers"]
-        direction TB
-        api["FastAPI read API"]
-        ui["React dashboard"]
-        api --> ui
+    subgraph READ["READ side: API (many readers)"]
+        direction LR
+        api["FastAPI"] --> ui["React dashboard"]
     end
 
     prod -. "poll" .-> poll

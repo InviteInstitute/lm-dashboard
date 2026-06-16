@@ -12,6 +12,7 @@ raises **intervention flags** when someone's wheel-spinning, idle, or rewriting
 everything, and puts it all on one screen for you.
 
 ```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 90, "rankSpacing": 110}, "themeVariables": {"fontSize": "22px"}}}%%
 flowchart LR
     students["Students coding<br/>in VEX"] --> prod[("Reflecks<br/>production server")]
     prod -. "polls, read-only" .-> daemon["Local daemon<br/>mirror and analyze"]

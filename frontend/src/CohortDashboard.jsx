@@ -121,6 +121,11 @@ const S = {
     reset: { background: '#ef44441a', color: '#ef4444', border: '1px solid #ef444466', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     pollPause: { background: '#f59e0b1a', color: '#f59e0b', border: '1px solid #f59e0b66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     pollResume: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    toggleRow: { display: 'flex', gap: 6, marginTop: 10 },
+    tgPresent: { flex: 1, background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e55', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgAbsent: { flex: 1, background: '#6b72801a', color: '#9ca3af', border: '1px solid #6b728055', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgPicked: { flex: 1, background: '#a855f71f', color: '#c084fc', border: '1px solid #a855f766', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgUnpicked: { flex: 1, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
     rosterBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', background: T.panel, flexShrink: 0 },
     rchip: { display: 'inline-flex', alignItems: 'center', gap: 7, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 999, padding: '5px 6px 5px 11px', fontSize: 12.5, fontFamily: MONO, color: T.ink, cursor: 'pointer' },
     rx: { border: 'none', background: 'transparent', color: T.faint, fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: '0 2px' },
@@ -190,6 +195,16 @@ const CohortDashboard = () => {
         try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
         catch { fetchPolling(); }
     };
+    // Interview-workflow toggles. Optimistic update, then persist (and the state
+    // exports to CSV because it lives on the tracked_student table).
+    const setPresence = async (sid, present) => {
+        setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, present } : r));
+        try { await api.post('/api/presence/', { studentID: sid, present }); } catch { fetchRoster(); }
+    };
+    const setPicked = async (sid, picked) => {
+        setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, picked } : r));
+        try { await api.post('/api/picked/', { studentID: sid, picked }); } catch { fetchRoster(); }
+    };
 
     const ackTrigger = async (id) => {
         // Optimistic: drop the row immediately so the click feels instant.
@@ -231,8 +246,15 @@ const CohortDashboard = () => {
     // STABLE order (by studentID) so a box never jumps when its own data
     // updates on a new event — surfacing who needs help is the right column's job.
     const boxes = roster
-        .map(r => ({ studentID: r.studentID, has_data: r.has_data, st: states[r.studentID] || null }))
-        .sort((a, b) => a.studentID.localeCompare(b.studentID));
+        .map(r => ({
+            studentID: r.studentID,
+            has_data: r.has_data,
+            present: r.present !== false,   // default present for older roster payloads
+            picked: !!r.picked,
+            st: states[r.studentID] || null,
+        }))
+        // present students first, then stable by studentID so a card never jumps
+        .sort((a, b) => (a.present === b.present ? a.studentID.localeCompare(b.studentID) : (a.present ? -1 : 1)));
 
     // Restrict the alert feed to students the user is currently tracking --
     // the backend evaluator runs over every student_state row, but we don't
@@ -293,7 +315,7 @@ const CohortDashboard = () => {
                                 const sm = stateMeta(b.st);
                                 const accent = b.st ? sm.c : '#2a2d3a';
                                 return (
-                                    <div key={b.studentID} style={S.box(accent)} onClick={() => setSelected(b.studentID)}
+                                    <div key={b.studentID} style={{ ...S.box(accent), opacity: b.present ? 1 : 0.5 }} onClick={() => setSelected(b.studentID)}
                                          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = accent + '66'; }}
                                          onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = T.border; }}>
                                         <div style={S.boxHead}>
@@ -318,6 +340,18 @@ const CohortDashboard = () => {
                                                 {b.has_data ? 'Loading…' : 'Waiting for activity…'}
                                             </div>
                                         )}
+                                        <div style={S.toggleRow}>
+                                            <button style={b.present ? S.tgPresent : S.tgAbsent}
+                                                    onClick={e => { e.stopPropagation(); setPresence(b.studentID, !b.present); }}
+                                                    title={b.present ? 'Mark absent (drops to the bottom, dimmed)' : 'Mark present'}>
+                                                {b.present ? '● Present' : '○ Absent'}
+                                            </button>
+                                            <button style={b.picked ? S.tgPicked : S.tgUnpicked}
+                                                    onClick={e => { e.stopPropagation(); setPicked(b.studentID, !b.picked); }}
+                                                    title={b.picked ? 'Picked / interviewed — click to unmark' : 'Mark as picked / interviewed'}>
+                                                {b.picked ? '✓ Picked' : 'Mark picked'}
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })}

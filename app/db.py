@@ -143,6 +143,9 @@ CREATE TABLE IF NOT EXISTS tracked_student (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     studentID VARCHAR(128) NOT NULL UNIQUE,
     backfilled BOOL NOT NULL DEFAULT 0,
+    present BOOL NOT NULL DEFAULT 1,
+    picked BOOL NOT NULL DEFAULT 0,
+    picked_at DATETIME,
     created_at DATETIME NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trigger_event (
@@ -165,6 +168,15 @@ CREATE TABLE IF NOT EXISTS meta (
 def init_db():
     with closing(connect()) as con:
         con.executescript(_SCHEMA)
+        # Idempotent column adds so a DB created before the presence/picked
+        # toggles existed picks them up without a manual migration.
+        cols = {r[1] for r in con.execute("PRAGMA table_info(tracked_student)")}
+        if "present" not in cols:
+            con.execute("ALTER TABLE tracked_student ADD COLUMN present BOOL NOT NULL DEFAULT 1")
+        if "picked" not in cols:
+            con.execute("ALTER TABLE tracked_student ADD COLUMN picked BOOL NOT NULL DEFAULT 0")
+        if "picked_at" not in cols:
+            con.execute("ALTER TABLE tracked_student ADD COLUMN picked_at DATETIME")
         con.commit()
 
 
@@ -316,16 +328,37 @@ def tracked_list():
         for r in _query("SELECT studentID FROM student_state")
     }
     rows = _query(
-        "SELECT studentID, backfilled FROM tracked_student ORDER BY studentID"
+        "SELECT studentID, backfilled, present, picked, picked_at "
+        "FROM tracked_student ORDER BY studentID"
     )
     return [
         {
             "studentID": r["studentID"],
             "backfilled": bool(r["backfilled"]),
             "has_data": r["studentID"] in have,
+            "present": bool(r["present"]),
+            "picked": bool(r["picked"]),
+            "picked_at": r["picked_at"],
         }
         for r in rows
     ]
+
+
+def set_presence(sid, present):
+    """Researcher toggle: is this student in the room right now."""
+    _execute(
+        "UPDATE tracked_student SET present = ? WHERE studentID = ?",
+        (1 if present else 0, sid),
+    )
+
+
+def set_picked(sid, picked):
+    """Researcher toggle: has this student been interviewed/picked this session.
+    Stamps picked_at when marking, clears it when unmarking."""
+    _execute(
+        "UPDATE tracked_student SET picked = ?, picked_at = ? WHERE studentID = ?",
+        (1 if picked else 0, dt_to_db(now()) if picked else None, sid),
+    )
 
 
 def tracked_add(sid):

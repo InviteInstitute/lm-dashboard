@@ -204,6 +204,38 @@ def polling_status():
     return {"enabled": _polling_enabled()}
 
 
+class PresenceBody(BaseModel):
+    studentID: str
+    present: bool
+
+
+class PickedBody(BaseModel):
+    studentID: str
+    picked: bool
+
+
+@app.post("/api/presence/")
+def set_presence(body: PresenceBody):
+    """Toggle whether a tracked student is present in the room. Stored on
+    tracked_student, so it exports with the CSV snapshot."""
+    sid = (body.studentID or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="studentID required")
+    db.set_presence(sid, body.present)
+    return {"studentID": sid, "present": body.present}
+
+
+@app.post("/api/picked/")
+def set_picked(body: PickedBody):
+    """Toggle whether a tracked student has been picked/interviewed this session.
+    Stored on tracked_student (with picked_at), so it exports with the CSV."""
+    sid = (body.studentID or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="studentID required")
+    db.set_picked(sid, body.picked)
+    return {"studentID": sid, "picked": body.picked}
+
+
 @app.post("/api/polling/")
 def set_polling(body: PollingBody):
     """Pause or resume the daemon's production polling. When paused the daemon

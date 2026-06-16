@@ -22,12 +22,6 @@ not separately. They all read/write the same per-student, per-session state.
 | **Mark "picked"** | Flag a student as already interviewed (visual mark) so they drop out of the pick pool | FE + BE flag | S | ⬜ |
 | **Randomized pick (backup)** | "Pick a random student" button — chooses a random *present, not-yet-picked* student when no one is obviously flagged | FE (uses the flags above) | S | ⬜ |
 
-## 2. Trigger tuning
-
-| Feature | What it does | Effort | Status |
-|---|---|---|---|
-| **Configurable trigger timing** | Set how long before a trigger *fires* (e.g. the inactivity threshold, currently hard-coded at 5 min) and how long before it *expires/resolves* (currently 120s lingering). Today these are constants in `app/pipeline/triggers.py` / `app/main.py`. → expose as config (env/settings); a small live settings UI is a later add. | S (config) / M (UI) | ⬜ |
-
 ## 3. Student onboarding — playground deep-link
 
 | Feature | What it does | Effort | Status |
@@ -55,12 +49,6 @@ python scripts/export_csv.py --tables student_state,trigger_event
 > Tip: the interview-selection log (#1) lands in the DB, so it exports to CSV
 > automatically via this same script — no separate tooling needed.
 
-## 5. Documentation
-
-| Feature | What it does | Effort | Status |
-|---|---|---|---|
-| **Workflow readme** | A short "how interview day works": present-toggle → pick (flagged or random) → interview → it auto-logs → `export_csv.py` at the end of day. Basically writes itself once #1 is decided. | S | ⬜ |
-
 ---
 
 ## Decisions to make (before building #1)
@@ -82,8 +70,6 @@ python scripts/export_csv.py --tables student_state,trigger_event
 1. **Presence toggle** — smallest, immediately useful, unblocks the pick pool.
 2. **Pick + mark-picked + random-pick + selection logging** — one unit, the core loop.
 3. **CSV export of the interview log** — free once it's a DB table (use `export_csv.py`).
-4. **Configurable trigger timing.**
-5. **Playground deep-link** — pending VEX-side param confirmation.
-6. **Workflow readme.**
+4. **Playground deep-link** — pending VEX-side param confirmation.
 
 ✅ Already done: **end-of-day data export** (`scripts/export_csv.py`).

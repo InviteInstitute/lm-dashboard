@@ -1,9 +1,10 @@
 site_name: Learner Modeling Dashboard
 site_description: A live who-needs-help dashboard for a cohort of students coding in the VEX block environment.
+site_url: https://inviteinstitute.github.io/lm-dashboard/
 docs_dir: docs
 dev_addr: localhost:4000
-repo_url: https://github.com/InviteInstitute/luc-dashboard
-repo_name: InviteInstitute/luc-dashboard
+repo_url: https://github.com/InviteInstitute/lm-dashboard
+repo_name: InviteInstitute/lm-dashboard
 
 theme:
   name: material

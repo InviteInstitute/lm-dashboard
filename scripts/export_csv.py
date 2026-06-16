@@ -6,11 +6,10 @@ End-of-day data export: dump the local SQLite database to CSV files.
     python scripts/export_csv.py --tables student_state,trigger_event
     python scripts/export_csv.py --db /path/to/db.sqlite3
 
-Writes one CSV per table PLUS a single merged all_data.csv (wide union of all
-tables, with a leading source_table column). JSON columns (runs / episodes /
-detail) are written as raw JSON text; load them in pandas with json.loads. This
-script is READ-ONLY; it never modifies the database. Delegates to db.export_csv
-so the merged file and per-table files stay in sync with the API's Export button.
+Writes one CSV per table. JSON columns (runs / episodes / detail) are written as
+raw JSON text; load them in pandas with json.loads. This script is READ-ONLY; it
+never modifies the database. Delegates to db.export_csv so it stays in sync with
+the API's Export button.
 """
 import argparse
 import os

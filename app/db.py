@@ -227,6 +227,40 @@ def reset_all():
 _EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4"}
 
 
+def _tree_to_brackets(text):
+    """Collapse the indented playground_prompt tree into one line, showing
+    parent->child with nested braces. Section headers ([Active]/[Orphaned], at
+    depth 0) stay as plain inline labels; only blocks (depth >= 1) that have
+    children get wrapped in { }. Indentation in the prompt is one space per
+    depth level (see smart_delta_engine.build_tree)."""
+    lines = [(len(l) - len(l.lstrip(" ")), l.strip())
+             for l in text.split("\n") if l.strip()]
+    parts, open_depths = [], []
+    for i, (depth, label) in enumerate(lines):
+        while open_depths and open_depths[-1] >= depth:
+            parts.append("}")
+            open_depths.pop()
+        parts.append(label)
+        next_depth = lines[i + 1][0] if i + 1 < len(lines) else -1
+        if next_depth > depth and depth >= 1:
+            parts.append("{")
+            open_depths.append(depth)
+    parts.extend("}" for _ in open_depths)
+    return " ".join(parts)
+
+
+def _csv_value(col, val):
+    """Keep every CSV cell on a single physical line. The playground_prompt tree
+    is rebracketed; any other stray newline becomes a space."""
+    if not isinstance(val, str):
+        return val
+    if col == "playground_prompt":
+        val = _tree_to_brackets(val)
+    if "\n" in val or "\r" in val:
+        val = val.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return val
+
+
 def export_csv(out_dir, tables=None, db_path=None):
     """Dump tables to CSV (one file per table) into out_dir. Read-only.
     JSON columns are written as raw JSON text. Returns (out_dir, {table: rows})."""
@@ -248,7 +282,7 @@ def export_csv(out_dir, tables=None, db_path=None):
                 w.writerow(cols)
                 n = 0
                 for row in cur:
-                    w.writerow(row)
+                    w.writerow([_csv_value(cols[i], row[i]) for i in range(len(cols))])
                     n += 1
             written[t] = n
         return out_dir, written

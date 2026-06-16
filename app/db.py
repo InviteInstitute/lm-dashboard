@@ -251,6 +251,43 @@ def export_csv(out_dir, tables=None, db_path=None):
                     w.writerow(row)
                     n += 1
             written[t] = n
+
+        # Single merged file: every table's rows, wide union of columns, with a
+        # leading source_table column. Sorted by studentID then a best-effort
+        # timestamp so it reads as a per-learner chronology.
+        _TIME_COLS = ("ts", "started_at", "received_at", "recieved_at",
+                      "updated_at", "last_event_time", "created_at")
+        merged_cols, seen = [], set()
+        merged_rows = []
+        for t in tables:
+            cur = con.execute(f'SELECT * FROM "{t}"')
+            cols = [d[0] for d in cur.description]
+            for c in cols:
+                if c not in seen:
+                    seen.add(c)
+                    merged_cols.append(c)
+            for row in cur.fetchall():
+                d = {cols[i]: row[i] for i in range(len(cols))}
+                d["__table__"] = t
+                merged_rows.append(d)
+
+        def _sort_key(d):
+            sid = d.get("studentID") or "~"   # studentID-less rows sort last
+            ts = ""
+            for c in _TIME_COLS:
+                if d.get(c):
+                    ts = str(d[c])
+                    break
+            return (sid, ts)
+
+        merged_rows.sort(key=_sort_key)
+        with open(os.path.join(out_dir, "all_data.csv"), "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["source_table"] + merged_cols)
+            for d in merged_rows:
+                w.writerow([d["__table__"]] + [d.get(c, "") for c in merged_cols])
+        written["all_data.csv"] = len(merged_rows)
+
         return out_dir, written
     finally:
         con.close()

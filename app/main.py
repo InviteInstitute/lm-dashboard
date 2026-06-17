@@ -175,17 +175,21 @@ def export():
 
 @app.post("/api/reset/")
 def reset():
-    """Wipe all local student data (logs, episodes, HMM state, flags) and tell the
-    daemon to drop its in-memory workers. Students stay tracked; the board rebuilds
-    from new activity. NO backup -- call POST /api/export/ first for a CSV copy.
+    """Wipe all local student data (logs, episodes, HMM state, flags) AND the
+    researcher notes, and tell the daemon to drop its in-memory workers. Students
+    stay tracked; the board rebuilds from new activity. A CSV snapshot (including
+    the notes) is saved to exports/reset_<timestamp>/ first, so nothing is lost.
     Local only; production is untouched.
 
     Sets the meta flag (so the daemon drops its workers and re-wipes any row a race
     leaves behind) and wipes now so the UI clears immediately."""
-    stamp = db.now().isoformat()
-    db.set_meta("reset_requested_at", stamp)
+    stamp = db.now()
+    backup_dir, _ = db.export_csv(
+        str(config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}")
+    )
+    db.set_meta("reset_requested_at", stamp.isoformat())
     db.reset_all()
-    return {"reset": True, "at": stamp}
+    return {"reset": True, "at": stamp.isoformat(), "backup": backup_dir}
 
 
 def _polling_enabled() -> bool:

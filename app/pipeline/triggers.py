@@ -67,15 +67,25 @@ def _wheel_spin_started(state, fallback):
         return fallback
 
 
+def _disabled_types():
+    """Trigger types the researcher has switched off (meta flag, set via the API).
+    Comma-separated; empty means all enabled."""
+    raw = db.get_meta("disabled_triggers") or ""
+    return {t for t in raw.split(",") if t}
+
+
 def evaluate(now=None):
-    """One full pass over student_state; opens/updates/resolves trigger_events."""
+    """One full pass over student_state; opens/updates/resolves trigger_events.
+    Disabled trigger types are not fired; a disabled sustained type also resolves
+    any open rows (active=False) so it clears from the feed within a tick."""
     now = now or db.now()
+    disabled = _disabled_types()
     fired = 0
     for s in db.all_student_states():
         sid = s["studentID"]
 
         # ---- wheel_spin: HMM says stuck ----
-        wheel_active = s["current_state"] == WHEEL_SPIN_STATE
+        wheel_active = s["current_state"] == WHEEL_SPIN_STATE and "wheel_spin" not in disabled
         _sustain(sid, "wheel_spin",
                  active=wheel_active,
                  now=now,
@@ -87,7 +97,8 @@ def evaluate(now=None):
         idle = None
         if s["last_event_time"]:
             idle = (now - s["last_event_time"]).total_seconds()
-        is_inactive = idle is not None and idle >= INACTIVE_SECONDS
+        is_inactive = (idle is not None and idle >= INACTIVE_SECONDS
+                       and "inactive" not in disabled)
         _sustain(sid, "inactive",
                  active=is_inactive, now=now,
                  started=(s["last_event_time"] + timedelta(seconds=INACTIVE_SECONDS)
@@ -97,6 +108,8 @@ def evaluate(now=None):
         # ---- big_change: momentary, one per qualifying run ----
         # Scan every run -- not just runs[-1] -- so backfills / batch decodes
         # don't drop big_change events for intermediate qualifying runs.
+        if "big_change" in disabled:
+            continue
         for run in (s.get("runs") or {}).get("runs", []):
             score = run.get("change_score")
             if score is None or score < BIG_CHANGE_SCORE:

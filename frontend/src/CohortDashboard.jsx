@@ -22,6 +22,7 @@ const TRIGGERS = {
 };
 const TRIGGER_FALLBACK = { c: '#6b7280', icon: '•', label: 'Trigger' };
 const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
+const TRIGGER_ROWS = [['wheel_spin', 'Wheel-spinning'], ['inactive', 'Inactive'], ['big_change', 'Big rewrite']];
 const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
 const POLL_MS = 1500;
 const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
@@ -127,6 +128,13 @@ const S = {
     tgPicked: { flex: 1, background: '#a855f71f', color: '#c084fc', border: '1px solid #a855f766', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
     tgUnpicked: { flex: 1, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
     noteBtn: { flex: 1, background: '#4f46e51a', color: '#818cf8', border: '1px solid #4f46e566', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    triggersBtn: { background: T.panel, color: T.ink, border: `1px solid ${T.border}`, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    popOverlay: { position: 'fixed', inset: 0, background: 'transparent', zIndex: 40 },
+    popPanel: { position: 'fixed', top: 64, right: 28, width: 240, background: T.panel, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, boxShadow: '0 10px 30px #0008', zIndex: 41 },
+    popTitle: { fontSize: 12, fontWeight: 800, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+    popRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', fontSize: 13, color: T.ink },
+    tgOn: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '4px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgOff: { background: '#6b72801a', color: '#9ca3af', border: '1px solid #6b728055', borderRadius: 999, padding: '4px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
     noteEditor: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 },
     noteArea: { width: '100%', minHeight: 54, resize: 'vertical', background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, color: T.ink, padding: '7px 9px', fontSize: 12.5, fontFamily: FONT, outline: 'none', boxSizing: 'border-box' },
     noteSave: { alignSelf: 'flex-end', background: '#4f46e51a', color: '#818cf8', border: '1px solid #4f46e566', borderRadius: 8, padding: '5px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
@@ -198,6 +206,8 @@ const CohortDashboard = () => {
     const [notes, setNotes] = React.useState([]);        // notes for `selected`
     const [noteOpen, setNoteOpen] = React.useState(null); // trigger id with an open editor
     const [noteText, setNoteText] = React.useState('');
+    const [triggerCfg, setTriggerCfg] = React.useState({ wheel_spin: true, inactive: true, big_change: true });
+    const [triggerPanel, setTriggerPanel] = React.useState(false);
 
     const fetchStates = React.useCallback(async () => {
         try {
@@ -229,6 +239,18 @@ const CohortDashboard = () => {
         setPollingOn(next);   // optimistic
         try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
         catch { fetchPolling(); }
+    };
+    // Which trigger types fire. Toggling off tells the daemon to stop firing that
+    // type and clear its open alerts; we also hide it from the column immediately.
+    const fetchTriggerCfg = React.useCallback(async () => {
+        try { setTriggerCfg((await api.get('/api/triggers/config/')).data.enabled); } catch { /* keep */ }
+    }, []);
+    React.useEffect(() => { fetchTriggerCfg(); const id = setInterval(fetchTriggerCfg, POLL_MS); return () => clearInterval(id); }, [fetchTriggerCfg]);
+    const toggleTrigger = async (type) => {
+        const next = !triggerCfg[type];
+        setTriggerCfg(c => ({ ...c, [type]: next }));   // optimistic
+        try { setTriggerCfg((await api.post('/api/triggers/config/', { trigger_type: type, enabled: next })).data.enabled); }
+        catch { fetchTriggerCfg(); }
     };
     // Interview-workflow toggles. Optimistic update, then persist (and the state
     // exports to CSV because it lives on the tracked_student table).
@@ -312,7 +334,7 @@ const CohortDashboard = () => {
     // the backend evaluator runs over every student_state row, but we don't
     // want to surface alerts for students who were just removed.
     const tracked = new Set(roster.map(r => r.studentID));
-    const alerts = triggers.filter(t => tracked.has(t.studentID));
+    const alerts = triggers.filter(t => tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
     const headColor = TRIGGERS.wheel_spin.c;
     const detail = selected ? (states[selected] || null) : null;
 
@@ -341,7 +363,30 @@ const CohortDashboard = () => {
                         title="Save a CSV snapshot of all data to exports">
                     ⬇ Export
                 </button>
+                <button style={S.triggersBtn} onClick={() => setTriggerPanel(p => !p)}
+                        title="Turn trigger types on or off">
+                    ⚙ Triggers
+                </button>
             </div>
+
+            {triggerPanel && (
+                <div style={S.popOverlay} onClick={() => setTriggerPanel(false)}>
+                    <div style={S.popPanel} onClick={e => e.stopPropagation()}>
+                        <div style={S.popTitle}>Triggers</div>
+                        {TRIGGER_ROWS.map(([type, label]) => {
+                            const on = triggerCfg[type] !== false;
+                            return (
+                                <div key={type} style={S.popRow}>
+                                    <span>{label}</span>
+                                    <button style={on ? S.tgOn : S.tgOff} onClick={() => toggleTrigger(type)}>
+                                        {on ? 'On' : 'Off'}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             <div style={S.rosterBar}>
                 <span style={{ fontSize: 12, color: T.sub, fontWeight: 700 }}>Tracking {roster.length}:</span>

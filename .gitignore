@@ -27,3 +27,6 @@ site/
 .DS_Store
 .vscode/
 .idea/
+
+# Dev process logs (start.sh)
+.devlogs/

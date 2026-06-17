@@ -121,6 +121,18 @@ const S = {
     reset: { background: '#ef44441a', color: '#ef4444', border: '1px solid #ef444466', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     pollPause: { background: '#f59e0b1a', color: '#f59e0b', border: '1px solid #f59e0b66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     pollResume: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    toggleRow: { display: 'flex', gap: 6, marginTop: 10 },
+    tgPresent: { flex: 1, background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e55', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgAbsent: { flex: 1, background: '#6b72801a', color: '#9ca3af', border: '1px solid #6b728055', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgPicked: { flex: 1, background: '#a855f71f', color: '#c084fc', border: '1px solid #a855f766', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    tgUnpicked: { flex: 1, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    noteBtn: { flex: 1, background: '#4f46e51a', color: '#818cf8', border: '1px solid #4f46e566', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    noteEditor: { marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 },
+    noteArea: { width: '100%', minHeight: 54, resize: 'vertical', background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, color: T.ink, padding: '7px 9px', fontSize: 12.5, fontFamily: FONT, outline: 'none', boxSizing: 'border-box' },
+    noteSave: { alignSelf: 'flex-end', background: '#4f46e51a', color: '#818cf8', border: '1px solid #4f46e566', borderRadius: 8, padding: '5px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
+    notesPanel: { marginTop: 18, borderTop: `1px solid ${T.border}`, paddingTop: 14 },
+    notesItem: { padding: '8px 0', borderBottom: `1px solid ${T.border}` },
+    notesMeta: { fontSize: 11, color: T.faint, display: 'flex', gap: 8, marginBottom: 3 },
     rosterBar: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', background: T.panel, flexShrink: 0 },
     rchip: { display: 'inline-flex', alignItems: 'center', gap: 7, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 999, padding: '5px 6px 5px 11px', fontSize: 12.5, fontFamily: MONO, color: T.ink, cursor: 'pointer' },
     rx: { border: 'none', background: 'transparent', color: T.faint, fontSize: 15, cursor: 'pointer', lineHeight: 1, padding: '0 2px' },
@@ -151,6 +163,31 @@ const S = {
     modalX: { position: 'absolute', top: 14, right: 16, border: 'none', background: 'transparent', color: T.sub, fontSize: 22, cursor: 'pointer' },
 };
 
+const NotesPanel = ({ notes, onAdd }) => {
+    const [draft, setDraft] = React.useState('');
+    const save = () => { const t = draft.trim(); if (!t) return; onAdd(t); setDraft(''); };
+    return (
+        <div style={S.notesPanel}>
+            <div style={S.miniLbl}>Notes &amp; observations ({notes.length})</div>
+            {notes.length === 0 && <div style={{ color: T.faint, fontSize: 12.5, padding: '6px 0' }}>No notes yet.</div>}
+            {notes.map(n => (
+                <div key={n.id} style={S.notesItem}>
+                    <div style={S.notesMeta}>
+                        <span>{n.ts}</span>
+                        {n.trigger_type && <span style={{ color: '#818cf8' }}>· during {n.trigger_type}</span>}
+                    </div>
+                    <div style={{ fontSize: 13, color: T.ink, whiteSpace: 'pre-wrap' }}>{n.text}</div>
+                </div>
+            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                <textarea style={S.noteArea} value={draft} placeholder="Add a manual note…"
+                          onChange={e => setDraft(e.target.value)} />
+                <button style={S.noteSave} onClick={save}>Add Notes</button>
+            </div>
+        </div>
+    );
+};
+
 const CohortDashboard = () => {
     const [states, setStates] = React.useState({});   // studentID -> full payload
     const [roster, setRoster] = React.useState([]);
@@ -158,6 +195,9 @@ const CohortDashboard = () => {
     const [selected, setSelected] = React.useState(null);
     const [query, setQuery] = React.useState('');
     const [pollingOn, setPollingOn] = React.useState(true);   // daemon prod polling
+    const [notes, setNotes] = React.useState([]);        // notes for `selected`
+    const [noteOpen, setNoteOpen] = React.useState(null); // trigger id with an open editor
+    const [noteText, setNoteText] = React.useState('');
 
     const fetchStates = React.useCallback(async () => {
         try {
@@ -190,10 +230,37 @@ const CohortDashboard = () => {
         try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
         catch { fetchPolling(); }
     };
+    // Interview-workflow toggles. Optimistic update, then persist (and the state
+    // exports to CSV because it lives on the tracked_student table).
+    const setPresence = async (sid, present) => {
+        setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, present } : r));
+        try { await api.post('/api/presence/', { studentID: sid, present }); } catch { fetchRoster(); }
+    };
+    const setPicked = async (sid, picked) => {
+        setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, picked } : r));
+        try { await api.post('/api/picked/', { studentID: sid, picked }); } catch { fetchRoster(); }
+    };
+    // Notes for the currently-open learner; refetched when the modal opens or
+    // after a note is posted.
+    const fetchNotes = React.useCallback(async (sid) => {
+        if (!sid) { setNotes([]); return; }
+        try { setNotes((await api.get('/api/notes/', { params: { studentID: sid } })).data.notes || []); }
+        catch { setNotes([]); }
+    }, []);
+    React.useEffect(() => { fetchNotes(selected); }, [selected, fetchNotes]);
+    const addNote = async (sid, text, trigger) => {
+        const t = (text || '').trim();
+        if (!sid || !t) return;
+        const body = { studentID: sid, text: t };
+        if (trigger) { body.trigger_id = trigger.id; body.trigger_type = trigger.trigger_type; }
+        try { await api.post('/api/notes/', body); } catch { /* ignore */ }
+        if (sid === selected) fetchNotes(sid);
+    };
 
     const ackTrigger = async (id) => {
         // Optimistic: drop the row immediately so the click feels instant.
         setTriggers(ts => ts.filter(t => t.id !== id));
+        if (noteOpen === id) { setNoteOpen(null); setNoteText(''); }
         try { await api.post('/api/triggers/ack/', { id }); } catch { fetchTriggers(); }
     };
 
@@ -231,8 +298,15 @@ const CohortDashboard = () => {
     // STABLE order (by studentID) so a box never jumps when its own data
     // updates on a new event — surfacing who needs help is the right column's job.
     const boxes = roster
-        .map(r => ({ studentID: r.studentID, has_data: r.has_data, st: states[r.studentID] || null }))
-        .sort((a, b) => a.studentID.localeCompare(b.studentID));
+        .map(r => ({
+            studentID: r.studentID,
+            has_data: r.has_data,
+            present: r.present !== false,   // default present for older roster payloads
+            picked: !!r.picked,
+            st: states[r.studentID] || null,
+        }))
+        // present students first, then stable by studentID so a card never jumps
+        .sort((a, b) => (a.present === b.present ? a.studentID.localeCompare(b.studentID) : (a.present ? -1 : 1)));
 
     // Restrict the alert feed to students the user is currently tracking --
     // the backend evaluator runs over every student_state row, but we don't
@@ -293,7 +367,7 @@ const CohortDashboard = () => {
                                 const sm = stateMeta(b.st);
                                 const accent = b.st ? sm.c : '#2a2d3a';
                                 return (
-                                    <div key={b.studentID} style={S.box(accent)} onClick={() => setSelected(b.studentID)}
+                                    <div key={b.studentID} style={{ ...S.box(accent), opacity: b.present ? 1 : 0.5 }} onClick={() => setSelected(b.studentID)}
                                          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = accent + '66'; }}
                                          onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = T.border; }}>
                                         <div style={S.boxHead}>
@@ -318,6 +392,18 @@ const CohortDashboard = () => {
                                                 {b.has_data ? 'Loading…' : 'Waiting for activity…'}
                                             </div>
                                         )}
+                                        <div style={S.toggleRow}>
+                                            <button style={b.present ? S.tgPresent : S.tgAbsent}
+                                                    onClick={e => { e.stopPropagation(); setPresence(b.studentID, !b.present); }}
+                                                    title={b.present ? 'Mark absent (drops to the bottom, dimmed)' : 'Mark present'}>
+                                                {b.present ? '● Present' : '○ Absent'}
+                                            </button>
+                                            <button style={b.picked ? S.tgPicked : S.tgUnpicked}
+                                                    onClick={e => { e.stopPropagation(); setPicked(b.studentID, !b.picked); }}
+                                                    title={b.picked ? 'Picked / interviewed — click to unmark' : 'Mark as picked / interviewed'}>
+                                                {b.picked ? '✓ Picked' : 'Mark picked'}
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })}
@@ -340,12 +426,36 @@ const CohortDashboard = () => {
                                 <div key={t.id} style={S.colItem(meta.c)} onClick={() => setSelected(t.studentID)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <span style={S.colSid}>{t.studentID}</span>
-                                        <button style={S.ackBtn}
-                                                title="Acknowledge / dismiss"
+                                        {(() => {
+                                            const picked = !!(roster.find(r => r.studentID === t.studentID) || {}).picked;
+                                            return (
+                                                <button style={picked ? S.tgPicked : S.tgUnpicked}
+                                                        title={picked ? 'Picked / interviewed — click to unmark' : 'Mark as picked / interviewed'}
+                                                        onClick={e => { e.stopPropagation(); setPicked(t.studentID, !picked); }}>
+                                                    {picked ? '✓ Picked' : 'Picked'}
+                                                </button>
+                                            );
+                                        })()}
+                                        <button style={S.noteBtn} title="Add a note for this learner"
+                                                onClick={e => { e.stopPropagation(); setNoteText(''); setNoteOpen(noteOpen === t.id ? null : t.id); }}>
+                                            Notes
+                                        </button>
+                                        <button style={S.ackBtn} title="Dismiss alert (also closes the note box)"
                                                 onClick={e => { e.stopPropagation(); ackTrigger(t.id); }}>
-                                            ack
+                                            ✕
                                         </button>
                                     </div>
+                                    {noteOpen === t.id && (
+                                        <div style={S.noteEditor} onClick={e => e.stopPropagation()}>
+                                            <textarea style={S.noteArea} value={noteText} autoFocus
+                                                      placeholder="Observation during this alert…"
+                                                      onChange={e => setNoteText(e.target.value)} />
+                                            <button style={S.noteSave}
+                                                    onClick={() => { addNote(t.studentID, noteText, t); setNoteOpen(null); setNoteText(''); }}>
+                                                Save note
+                                            </button>
+                                        </div>
+                                    )}
                                     <div style={S.colSub(meta.c)}>
                                         {meta.icon} {t.label || meta.label}
                                         {t.value ? ` · ${t.value}` : ''}
@@ -365,6 +475,7 @@ const CohortDashboard = () => {
                     <div style={S.modal} onClick={e => e.stopPropagation()}>
                         <button style={S.modalX} onClick={() => setSelected(null)}>×</button>
                         <Detail s={detail} sid={selected} />
+                        <NotesPanel notes={notes} onAdd={text => addNote(selected, text, null)} />
                     </div>
                 </div>
             )}

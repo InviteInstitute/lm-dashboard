@@ -14,10 +14,10 @@ flowchart LR
     api --> dash["Researcher<br/>dashboard"]
 ```
 
-> Full docs: run `mkdocs serve` and open http://localhost:4000, or read
-> [`docs/DESIGN.md`](docs/DESIGN.md).
+> Full docs are published at <https://inviteinstitute.github.io/lm-dashboard/>
+> (or run `mkdocs serve` for them locally).
 
-## Quick start
+## Quick Start
 
 Python 3.12+ and Node 18+.
 
@@ -31,7 +31,7 @@ cp .env.example .env.mirror     # add PROD_USERNAME / PROD_PASSWORD
 Open http://localhost:3000, add a student ID, then click **Resume polling** for live
 data. Stop everything with `./scripts/stop.sh`.
 
-## What you get
+## What You Get
 
 - A card per student: strategy state (Iterator / Explorer / Stuck), strategy and
   episode sparklines, and **Present** / **Picked** toggles.
@@ -40,8 +40,8 @@ data. Stop everything with `./scripts/stop.sh`.
 - Top bar: pause/resume polling, CSV **export** (one file per table in `exports/`),
   and reset.
 
-## Under the hood
+## Under the Hood
 
 The daemon is the only writer; the API and dashboard only read a rebuildable SQLite
-cache. Details live in [`docs/`](docs/): [Configuration](docs/guides/configuration.md),
-[API](docs/reference/api.md), and [DESIGN](docs/DESIGN.md).
+cache. Full documentation, configuration, API, and architecture, is published at
+<https://inviteinstitute.github.io/lm-dashboard/>.

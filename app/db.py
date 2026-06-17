@@ -207,13 +207,14 @@ def get_meta(key):
 
 
 def reset_all():
-    """Wipe the local mirror's raw + derived data (keeps the tracked roster,
-    the ingest cursor, and meta). The cursor is left in place so old events are
-    NOT re-pulled -- the board rebuilds only from new activity going forward."""
+    """Wipe the local mirror's raw + derived data AND the researcher notes (keeps
+    the tracked roster, the ingest cursor, and meta). The reset endpoint saves a
+    CSV backup first, so the notes are preserved before they are cleared here. The
+    cursor is left in place so old events are NOT re-pulled."""
     with closing(connect()) as con:
         con.execute("BEGIN")
         try:
-            for t in ("trigger_event", "student_state", "vex_log", "message"):
+            for t in ("trigger_event", "student_state", "vex_log", "message", "note"):
                 con.execute(f"DELETE FROM {t}")
             con.commit()
         except Exception:

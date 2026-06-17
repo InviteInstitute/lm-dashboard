@@ -306,10 +306,11 @@ const CohortDashboard = () => {
         }
     };
     const resetAll = async () => {
-        if (!window.confirm("Reset ALL student data?\n\nThis permanently clears every student's logs, episodes, strategy state, and flags from the local database. There is NO backup, so click Export first if you want a CSV copy.\n\nStudents stay tracked and the board rebuilds from new activity. Local only, production is untouched.")) return;
+        if (!window.confirm("Reset the board?\n\nThis clears every student's logs, episodes, strategy state, flags, AND your notes & observations. A CSV backup (including the notes) is saved to exports/ automatically first, so nothing is lost.\n\nStudents stay tracked and the board rebuilds from new activity. Local only, production is untouched.")) return;
         try {
-            await api.post('/api/reset/');
-            setSelected(null); setStates({});
+            const { data } = await api.post('/api/reset/');
+            setSelected(null); setStates({}); setNotes([]);
+            window.alert('Reset done. Backup saved to:\n' + (data.backup || 'exports/'));
         } catch {
             window.alert('Reset failed, data was NOT cleared.');
         }

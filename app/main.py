@@ -204,6 +204,69 @@ def polling_status():
     return {"enabled": _polling_enabled()}
 
 
+class PresenceBody(BaseModel):
+    studentID: str
+    present: bool
+
+
+class PickedBody(BaseModel):
+    studentID: str
+    picked: bool
+
+
+@app.post("/api/presence/")
+def set_presence(body: PresenceBody):
+    """Toggle whether a tracked student is present in the room. Stored on
+    tracked_student, so it exports with the CSV snapshot."""
+    sid = (body.studentID or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="studentID required")
+    db.set_presence(sid, body.present)
+    return {"studentID": sid, "present": body.present}
+
+
+@app.post("/api/picked/")
+def set_picked(body: PickedBody):
+    """Toggle whether a tracked student has been picked/interviewed this session.
+    Stored on tracked_student (with picked_at), so it exports with the CSV."""
+    sid = (body.studentID or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="studentID required")
+    db.set_picked(sid, body.picked)
+    return {"studentID": sid, "picked": body.picked}
+
+
+class NoteBody(BaseModel):
+    studentID: str
+    text: str
+    trigger_id: int | None = None
+    trigger_type: str | None = None
+
+
+@app.post("/api/notes/")
+def add_note(body: NoteBody):
+    """Append an observation for a learner. trigger_id/trigger_type link it to the
+    alert it was written from (omit both for a manual note). Stored on the note
+    table, so it exports with the CSV."""
+    sid = (body.studentID or "").strip()
+    text = (body.text or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="studentID required")
+    if not text:
+        raise HTTPException(status_code=400, detail="text required")
+    return db.add_note(sid, text, body.trigger_id, body.trigger_type)
+
+
+@app.get("/api/notes/")
+def list_notes(studentID: str | None = None):
+    """All notes for a learner, oldest first."""
+    sid = (studentID or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="studentID required")
+    notes = db.list_notes(sid)
+    return {"notes": notes, "count": len(notes)}
+
+
 @app.post("/api/polling/")
 def set_polling(body: PollingBody):
     """Pause or resume the daemon's production polling. When paused the daemon

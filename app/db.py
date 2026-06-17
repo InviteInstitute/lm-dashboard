@@ -143,6 +143,9 @@ CREATE TABLE IF NOT EXISTS tracked_student (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     studentID VARCHAR(128) NOT NULL UNIQUE,
     backfilled BOOL NOT NULL DEFAULT 0,
+    present BOOL NOT NULL DEFAULT 1,
+    picked BOOL NOT NULL DEFAULT 0,
+    picked_at DATETIME,
     created_at DATETIME NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trigger_event (
@@ -159,12 +162,31 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS note (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    studentID VARCHAR(128) NOT NULL,
+    ts DATETIME NOT NULL,
+    text TEXT NOT NULL,
+    trigger_id INTEGER,
+    trigger_type VARCHAR(24),
+    created_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_note_student ON note(studentID, ts);
 """
 
 
 def init_db():
     with closing(connect()) as con:
         con.executescript(_SCHEMA)
+        # Idempotent column adds so a DB created before the presence/picked
+        # toggles existed picks them up without a manual migration.
+        cols = {r[1] for r in con.execute("PRAGMA table_info(tracked_student)")}
+        if "present" not in cols:
+            con.execute("ALTER TABLE tracked_student ADD COLUMN present BOOL NOT NULL DEFAULT 1")
+        if "picked" not in cols:
+            con.execute("ALTER TABLE tracked_student ADD COLUMN picked BOOL NOT NULL DEFAULT 0")
+        if "picked_at" not in cols:
+            con.execute("ALTER TABLE tracked_student ADD COLUMN picked_at DATETIME")
         con.commit()
 
 
@@ -205,6 +227,40 @@ def reset_all():
 _EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4"}
 
 
+def _tree_to_brackets(text):
+    """Collapse the indented playground_prompt tree into one line, showing
+    parent->child with nested braces. Section headers ([Active]/[Orphaned], at
+    depth 0) stay as plain inline labels; only blocks (depth >= 1) that have
+    children get wrapped in { }. Indentation in the prompt is one space per
+    depth level (see smart_delta_engine.build_tree)."""
+    lines = [(len(l) - len(l.lstrip(" ")), l.strip())
+             for l in text.split("\n") if l.strip()]
+    parts, open_depths = [], []
+    for i, (depth, label) in enumerate(lines):
+        while open_depths and open_depths[-1] >= depth:
+            parts.append("}")
+            open_depths.pop()
+        parts.append(label)
+        next_depth = lines[i + 1][0] if i + 1 < len(lines) else -1
+        if next_depth > depth and depth >= 1:
+            parts.append("{")
+            open_depths.append(depth)
+    parts.extend("}" for _ in open_depths)
+    return " ".join(parts)
+
+
+def _csv_value(col, val):
+    """Keep every CSV cell on a single physical line. The playground_prompt tree
+    is rebracketed; any other stray newline becomes a space."""
+    if not isinstance(val, str):
+        return val
+    if col == "playground_prompt":
+        val = _tree_to_brackets(val)
+    if "\n" in val or "\r" in val:
+        val = val.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return val
+
+
 def export_csv(out_dir, tables=None, db_path=None):
     """Dump tables to CSV (one file per table) into out_dir. Read-only.
     JSON columns are written as raw JSON text. Returns (out_dir, {table: rows})."""
@@ -226,7 +282,7 @@ def export_csv(out_dir, tables=None, db_path=None):
                 w.writerow(cols)
                 n = 0
                 for row in cur:
-                    w.writerow(row)
+                    w.writerow([_csv_value(cols[i], row[i]) for i in range(len(cols))])
                     n += 1
             written[t] = n
         return out_dir, written
@@ -316,16 +372,66 @@ def tracked_list():
         for r in _query("SELECT studentID FROM student_state")
     }
     rows = _query(
-        "SELECT studentID, backfilled FROM tracked_student ORDER BY studentID"
+        "SELECT studentID, backfilled, present, picked, picked_at "
+        "FROM tracked_student ORDER BY studentID"
     )
     return [
         {
             "studentID": r["studentID"],
             "backfilled": bool(r["backfilled"]),
             "has_data": r["studentID"] in have,
+            "present": bool(r["present"]),
+            "picked": bool(r["picked"]),
+            "picked_at": r["picked_at"],
         }
         for r in rows
     ]
+
+
+def set_presence(sid, present):
+    """Researcher toggle: is this student in the room right now."""
+    _execute(
+        "UPDATE tracked_student SET present = ? WHERE studentID = ?",
+        (1 if present else 0, sid),
+    )
+
+
+def set_picked(sid, picked):
+    """Researcher toggle: has this student been interviewed/picked this session.
+    Stamps picked_at when marking, clears it when unmarking."""
+    _execute(
+        "UPDATE tracked_student SET picked = ?, picked_at = ? WHERE studentID = ?",
+        (1 if picked else 0, dt_to_db(now()) if picked else None, sid),
+    )
+
+
+def add_note(student_id, text, trigger_id=None, trigger_type=None):
+    """Append one note for a student. trigger_id/trigger_type are set when the
+    note is written from an active alert; both None for a manual note. Returns
+    the created row as a dict."""
+    ts = dt_to_db(now())
+    with closing(connect()) as con:
+        cur = con.execute(
+            "INSERT INTO note (studentID, ts, text, trigger_id, trigger_type, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (student_id, ts, text, trigger_id, trigger_type, ts),
+        )
+        nid = cur.lastrowid
+        con.commit()
+    return {
+        "id": nid, "studentID": student_id, "ts": ts, "text": text,
+        "trigger_id": trigger_id, "trigger_type": trigger_type, "created_at": ts,
+    }
+
+
+def list_notes(student_id):
+    """All notes for a student, oldest first."""
+    rows = _query(
+        "SELECT id, studentID, ts, text, trigger_id, trigger_type, created_at "
+        "FROM note WHERE studentID = ? ORDER BY ts, id",
+        (student_id,),
+    )
+    return [dict(r) for r in rows]
 
 
 def tracked_add(sid):

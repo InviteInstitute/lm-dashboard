@@ -236,6 +236,47 @@ def set_picked(body: PickedBody):
     return {"studentID": sid, "picked": body.picked}
 
 
+TRIGGER_TYPES = ("wheel_spin", "inactive", "big_change")
+TRIGGER_LABELS = {"wheel_spin": "Wheel-spinning", "inactive": "Inactive",
+                  "big_change": "Big rewrite"}
+
+
+def _disabled_triggers() -> set[str]:
+    raw = db.get_meta("disabled_triggers") or ""
+    return {t for t in raw.split(",") if t}
+
+
+class TriggerConfigBody(BaseModel):
+    trigger_type: str
+    enabled: bool
+
+
+@app.get("/api/triggers/config/")
+def triggers_config():
+    """Which trigger types are currently enabled. Default: all on."""
+    disabled = _disabled_triggers()
+    return {
+        "enabled": {t: (t not in disabled) for t in TRIGGER_TYPES},
+        "labels": TRIGGER_LABELS,
+    }
+
+
+@app.post("/api/triggers/config/")
+def set_triggers_config(body: TriggerConfigBody):
+    """Enable or disable a trigger type. When disabled, the daemon stops firing it
+    and clears its open alerts on the next tick. Stored in meta; the raw event log
+    is untouched, so re-enabling resumes immediately."""
+    if body.trigger_type not in TRIGGER_TYPES:
+        raise HTTPException(status_code=400, detail="unknown trigger_type")
+    disabled = _disabled_triggers()
+    if body.enabled:
+        disabled.discard(body.trigger_type)
+    else:
+        disabled.add(body.trigger_type)
+    db.set_meta("disabled_triggers", ",".join(sorted(disabled)))
+    return {"enabled": {t: (t not in disabled) for t in TRIGGER_TYPES}}
+
+
 class NoteBody(BaseModel):
     studentID: str
     text: str

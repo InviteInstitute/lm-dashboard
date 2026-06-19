@@ -197,7 +197,8 @@ const NotesPanel = ({ notes, onAdd }) => {
 };
 
 const CohortDashboard = () => {
-    const [states, setStates] = React.useState({});   // studentID -> full payload
+    const [states, setStates] = React.useState({});   // studentID -> light payload (grid)
+    const [detailFull, setDetailFull] = React.useState(null);  // heavy payload for the open student
     const [roster, setRoster] = React.useState([]);
     const [triggers, setTriggers] = React.useState([]);   // backend-fired alerts
     const [selected, setSelected] = React.useState(null);
@@ -270,6 +271,22 @@ const CohortDashboard = () => {
         catch { setNotes([]); }
     }, []);
     React.useEffect(() => { fetchNotes(selected); }, [selected, fetchNotes]);
+
+    // Heavy detail (incl. the playground prompt) for the open student only --
+    // fetched on open and kept live on the poll timer, so the cohort list stays
+    // light. `alive` guards against a stale response landing after you switch.
+    React.useEffect(() => {
+        setDetailFull(null);
+        if (!selected) return;
+        let alive = true;
+        const load = async () => {
+            try { const d = (await api.get(`/api/student_states/${encodeURIComponent(selected)}/`)).data; if (alive) setDetailFull(d); }
+            catch { if (alive) setDetailFull(null); }
+        };
+        load();
+        const id = setInterval(load, POLL_MS);
+        return () => { alive = false; clearInterval(id); };
+    }, [selected]);
     const addNote = async (sid, text, trigger) => {
         const t = (text || '').trim();
         if (!sid || !t) return;
@@ -337,7 +354,7 @@ const CohortDashboard = () => {
     const tracked = new Set(roster.map(r => r.studentID));
     const alerts = triggers.filter(t => tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
     const headColor = TRIGGERS.wheel_spin.c;
-    const detail = selected ? (states[selected] || null) : null;
+    const detail = detailFull;   // heavy payload fetched per-open student
 
     return (
         <div style={S.page}>

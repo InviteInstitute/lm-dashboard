@@ -75,12 +75,13 @@ def _disabled_types():
 
 
 def evaluate(now=None):
-    """One full pass over student_state; opens/updates/resolves trigger_events.
-    Disabled trigger types are not fired; a disabled sustained type also resolves
-    any open rows (active=False) so it clears from the feed within a tick."""
+    """One full pass over student_state for the SUSTAINED triggers (wheel_spin,
+    inactive): opens/updates/resolves trigger_events. A disabled type also
+    resolves any open rows (active=False) so it clears from the feed within a
+    tick. big_change is momentary and fires from the worker the moment a run is
+    decoded (see workers.recompute_and_write), not from this per-tick pass."""
     now = now or db.now()
     disabled = _disabled_types()
-    fired = 0
     for s in db.all_student_states():
         sid = s["studentID"]
 
@@ -104,26 +105,6 @@ def evaluate(now=None):
                  started=(s["last_event_time"] + timedelta(seconds=INACTIVE_SECONDS)
                           if s["last_event_time"] else now),
                  detail={"label": LABELS["inactive"], "value": _fmt_idle(idle)})
-
-        # ---- big_change: momentary, one per qualifying run ----
-        # Scan every run -- not just runs[-1] -- so backfills / batch decodes
-        # don't drop big_change events for intermediate qualifying runs.
-        if "big_change" in disabled:
-            continue
-        for run in (s.get("runs") or {}).get("runs", []):
-            score = run.get("change_score")
-            if score is None or score < BIG_CHANGE_SCORE:
-                continue
-            idx = run.get("index")
-            if db.big_change_exists(sid, idx):
-                continue
-            db.create_trigger(
-                sid, "big_change",
-                started_at=now, last_seen_at=now, resolved_at=now,
-                detail={"label": LABELS["big_change"],
-                        "value": f"change {score:.2f}", "run_index": idx})
-            fired += 1
-    return fired
 
 
 def _sustain(student_id, ttype, active, now, started, detail):

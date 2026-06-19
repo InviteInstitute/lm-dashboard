@@ -14,6 +14,7 @@ from app import db
 from app.strategy_hmm.pipeline import compute_strategy_states
 from app.smart_delta_engine import generate_llm_prompt_from_project
 from app.episode_engine import segment_session
+from app.pipeline.triggers import BIG_CHANGE_SCORE, LABELS, _disabled_types
 
 logger = logging.getLogger("pipeline")
 
@@ -34,6 +35,7 @@ class StudentWorker:
         self.had_new_run = False
         self.dirty = False
         self._runs_cache = None                  # last strategy result (runs+labels)
+        self.fired_big_change = set()            # run indices already alerted (in-memory dedupe)
 
     # -- ingest ----------------------------------------------------------
     def ingest(self, ev):
@@ -66,6 +68,26 @@ class StudentWorker:
         runs = self._runs_cache["runs"]
         obs_labels = self._runs_cache["obs_labels"]
         run_count = sum(1 for r in runs)  # one entry per runProject
+
+        # Big-change alerts: fire once per qualifying run, the moment it's
+        # decoded. In-memory dedupe (seeded from the DB on rehydrate) replaces
+        # the old per-tick scan over every student's full history in
+        # triggers.evaluate(). The loop covers backfills (several runs at once);
+        # the live case is one new run. Honors the daemon-side disable flag.
+        if "big_change" not in _disabled_types():
+            ts = db.now()
+            for r in runs:
+                idx, score = r.get("index"), r.get("change_score")
+                if (idx is not None and score is not None
+                        and score >= BIG_CHANGE_SCORE
+                        and idx not in self.fired_big_change):
+                    db.create_trigger(
+                        self.student_id, "big_change",
+                        started_at=ts, last_seen_at=ts, resolved_at=ts,
+                        detail={"label": LABELS["big_change"],
+                                "value": f"change {score:.2f}", "run_index": idx})
+                    self.fired_big_change.add(idx)
+
         states = [r["hmm_state"] for r in runs if r["hmm_state"] is not None]
         current_state = states[-1] if states else None
         consecutive_stuck = 0
@@ -169,6 +191,7 @@ def has_worker(student_id):
 def _rehydrate(worker):
     """Cold start: reload a student's tail from raw logs (the only SQL read on
     the hot path). db.student_tail returns rows oldest-first already."""
+    worker.fired_big_change = db.big_change_indices(worker.student_id)
     for row in db.student_tail(worker.student_id, BUFFER_MAX):
         et = row["eventType"] or ""
         ts = None

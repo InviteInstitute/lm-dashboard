@@ -100,7 +100,7 @@ def _execute(sql, params=()):
 
 
 # --------------------------------------------------------------------------
-# schema (so a *fresh* DB works; the existing DB is migrated by scripts/migrate_db.py)
+# schema (CREATE IF NOT EXISTS, so a fresh DB works and an existing one is left alone)
 # --------------------------------------------------------------------------
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS message (

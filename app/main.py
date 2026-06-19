@@ -240,9 +240,9 @@ def set_picked(body: PickedBody):
     return {"studentID": sid, "picked": body.picked}
 
 
-TRIGGER_TYPES = ("wheel_spin", "inactive", "big_change")
-TRIGGER_LABELS = {"wheel_spin": "Wheel-spinning", "inactive": "Inactive",
-                  "big_change": "Big rewrite"}
+from app.pipeline.triggers import LABELS as TRIGGER_LABELS
+
+TRIGGER_TYPES = tuple(TRIGGER_LABELS)
 
 
 def _disabled_triggers() -> set[str]:

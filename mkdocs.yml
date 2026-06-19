@@ -69,6 +69,3 @@ markdown_extensions:
 validation:
   links:
     anchors: warn
-
-exclude_docs: |
-  DESIGN.md

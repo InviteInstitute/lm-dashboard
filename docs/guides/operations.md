@@ -36,27 +36,6 @@ The derived tables are just a cache of the raw logs. Delete them, or hit
 | Daemon restart | workers rehydrate from `vex_log`, cursor was persisted |
 | Two daemons by mistake | the cursor races; this is the one thing that breaks, so run exactly one |
 
-## Migrating an old Reflecks database
-
-You only need this if you're bringing over an old `reflecks` SQLite file. A fresh
-clone doesn't need it. The migration renames the legacy `rabbitmq_*` tables to the
-clean names and reclaims the space they were sitting on.
-
-1.  **Back up the database first**
-
-    ```bash
-    cp db.sqlite3 db.backup.sqlite3
-    ```
-
-2.  **Run the migration**
-
-    ```bash
-    python scripts/migrate_db.py
-    ```
-
-    It renames the tables in place and vacuums the file, reclaiming the big block of
-    free pages an old Reflecks database tends to carry.
-
 ## Exporting data
 
 Use the **Export** button on the dashboard, or run the standalone script, to dump

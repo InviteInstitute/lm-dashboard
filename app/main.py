@@ -42,12 +42,17 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _shape_state(s):
-    """Materialized student_state row -> the viewer's payload."""
+def _shape_state(s, heavy=False):
+    """Materialized student_state row -> the viewer's payload.
+
+    The cohort list sends the light shape (grid cards need the strategy + episode
+    tracks, but not the playground dump). `heavy=True` adds `block` -- the large
+    playground_prompt tree -- which is only rendered in the detail modal, so it's
+    fetched per-student on open instead of for the whole cohort every poll."""
     runs_blob = s["runs"] or {}
     run_list = runs_blob.get("runs", [])
     state_sequence = [r["hmm_state"] for r in run_list if r.get("hmm_state") is not None]
-    return {
+    out = {
         "studentID": s["studentID"],
         "classCode": s["classCode"],
         "current_state": s["current_state"],
@@ -60,10 +65,12 @@ def _shape_state(s):
         "state_sequence": state_sequence,
         "hmm": runs_blob,                                   # {runs, obs_labels, run_count}
         "episodes": s["episodes"],                          # {events, episodes, pauses,...}
-        "block": {"llm_prompt": s["playground_prompt"],
-                  "timestamp": _iso(s["playground_time"])},
         "updated_at": _iso(s["updated_at"]),
     }
+    if heavy:
+        out["block"] = {"llm_prompt": s["playground_prompt"],
+                        "timestamp": _iso(s["playground_time"])}
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -93,6 +100,17 @@ def student_states(students: str | None = None, classCode: str | None = None):
         "stuck_state": STUCK_STATE,
         "state_labels": STATE_LABELS,
     }
+
+
+@app.get("/api/student_states/{student_id}/")
+def student_state_detail(student_id: str):
+    """The full (heavy) payload for ONE student -- includes the playground prompt
+    the cohort list omits. Fetched when the detail modal opens. 404 if the
+    student has no materialized state yet (tracked but no activity)."""
+    rows = db.list_student_states([student_id])
+    if not rows:
+        raise HTTPException(status_code=404, detail="no state for that student")
+    return _shape_state(rows[0], heavy=True)
 
 
 @app.get("/api/triggers/")

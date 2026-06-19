@@ -172,6 +172,13 @@ CREATE TABLE IF NOT EXISTS note (
     created_at DATETIME NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_note_student ON note(studentID, ts);
+CREATE TABLE IF NOT EXISTS pick_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    studentID VARCHAR(128) NOT NULL,
+    picked BOOL NOT NULL,
+    ts DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_pick_student ON pick_event(studentID, ts);
 """
 
 
@@ -225,7 +232,12 @@ def reset_all():
 # --------------------------------------------------------------------------
 # CSV export (used by scripts/export_csv.py and by reset to back up first)
 # --------------------------------------------------------------------------
-_EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4"}
+# Tables left out of the CSV export: sqlite internals, pipeline bookkeeping
+# (ingest_cursor), control flags (meta), and the raw envelope (message) whose
+# only research field, content, is already duplicated in vex_log.raw_message.
+
+_EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4",
+                "ingest_cursor", "meta", "message"}
 
 
 def _tree_to_brackets(text):
@@ -399,11 +411,20 @@ def set_presence(sid, present):
 
 def set_picked(sid, picked):
     """Researcher toggle: has this student been interviewed/picked this session.
-    Stamps picked_at when marking, clears it when unmarking."""
-    _execute(
-        "UPDATE tracked_student SET picked = ?, picked_at = ? WHERE studentID = ?",
-        (1 if picked else 0, dt_to_db(now()) if picked else None, sid),
-    )
+    Stamps picked_at when marking, clears it when unmarking. Also appends a
+    pick_event row so every pick/unpick is timestamped for post-hoc analysis
+    (picked_at keeps only the latest; pick_event keeps the full history)."""
+    ts = dt_to_db(now())
+    with closing(connect()) as con:
+        con.execute(
+            "UPDATE tracked_student SET picked = ?, picked_at = ? WHERE studentID = ?",
+            (1 if picked else 0, ts if picked else None, sid),
+        )
+        con.execute(
+            "INSERT INTO pick_event (studentID, picked, ts) VALUES (?, ?, ?)",
+            (sid, 1 if picked else 0, ts),
+        )
+        con.commit()
 
 
 def add_note(student_id, text, trigger_id=None, trigger_type=None):

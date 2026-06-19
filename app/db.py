@@ -681,12 +681,13 @@ def resolve_trigger(trigger_id, resolved_at):
     )
 
 
-def big_change_exists(student_id, run_index):
-    return bool(
-        _query(
-            "SELECT 1 FROM trigger_event "
-            "WHERE studentID = ? AND trigger_type = 'big_change' "
-            "AND json_extract(detail, '$.run_index') = ? LIMIT 1",
-            (student_id, run_index),
-        )
+def big_change_indices(student_id):
+    """Run indices a big_change alert already fired for. Seeds a worker's
+    in-memory dedupe set once on cold start, so it never re-alerts a run after a
+    restart (and the trigger evaluator no longer scans history every tick)."""
+    rows = _query(
+        "SELECT json_extract(detail, '$.run_index') AS i FROM trigger_event "
+        "WHERE studentID = ? AND trigger_type = 'big_change'",
+        (student_id,),
     )
+    return {r["i"] for r in rows if r["i"] is not None}

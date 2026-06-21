@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Stop the LM Dashboard stack started by scripts/start.sh.
+# Tear down the LM Dashboard stack that scripts/start.sh brought up: free the
+# three ports, kill the daemon/docs/api processes, then report what's left.
 echo "Stopping LM Dashboard stack ..."
 for p in 8000 3000 4000; do
   pids=$(lsof -ti tcp:$p 2>/dev/null)

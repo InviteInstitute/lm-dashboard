@@ -1,10 +1,12 @@
 """
-Ingestion poller: the single writer to raw logs.
+The ingestion poller: the half of the daemon that fills the raw event log.
 
-Bulk poll prod (timestamp cursor via dateFrom, with overlap), persist each
-event idempotently (UNIQUE source_event_id), route to the student's worker, and
-advance the cursor only after a full drain is durably written (persist-then-
-advance). A crash mid-drain re-fetches the overlap window; idempotency dedupes.
+It bulk-pages prod using a timestamp cursor (the `dateFrom` filter, with a small
+overlap window), persists each event idempotently against a UNIQUE
+source_event_id, routes the new ones to the right student's worker, and only
+advances the cursor once a full drain is safely written, persist first, then
+advance. That ordering is what makes a crash mid-drain harmless: on restart it
+re-fetches the overlap window and idempotency throws away the duplicates.
 """
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -18,7 +20,8 @@ CURSOR_NAME = "vex_poll"
 
 
 class Cursor:
-    """Mutable in-memory view of the persisted ingest cursor."""
+    """A mutable in-memory copy of the persisted ingest cursor. Mutate its
+    fields during a drain, then call save() to write them back."""
 
     def __init__(self, name, last_source_id, last_event_time):
         self.name = name
@@ -35,7 +38,8 @@ def get_cursor():
 
 
 def get_cursor_lag(cursor):
-    """How far behind the last persisted event we are."""
+    """How far behind real time the last persisted event is, as a display
+    string. Returns "n/a" before the cursor has seen anything."""
     if not cursor.last_event_time:
         return "n/a"
     secs = (db.now() - cursor.last_event_time).total_seconds()
@@ -55,9 +59,9 @@ def _parse_ts(s):
 
 
 def _event_ts_raw(ev):
-    """Prod's serializer historically had a typo ('recieved_at'); accept the
-    correctly-spelled key too so a future fix doesn't silently stop advancing
-    the cursor."""
+    """Read an event's received timestamp, tolerating the historical misspelling.
+    Prod's serializer shipped the key as 'recieved_at'; we check the correct
+    'received_at' too so the cursor keeps advancing if prod ever fixes it."""
     return ev.get("recieved_at") or ev.get("received_at")
 
 
@@ -74,7 +78,9 @@ def _normalize(ev):
 
 
 def persist(ev):
-    """Idempotent insert. Returns (inserted: bool, normalized: dict)."""
+    """Normalize a raw prod event and insert it idempotently. Skips the write if
+    we've already stored that source_event_id. Returns (inserted, normalized)
+    where inserted is False for a duplicate."""
     norm = _normalize(ev)
     src_id = norm["source_event_id"]
     if src_id is not None and db.log_exists(src_id):
@@ -84,9 +90,10 @@ def persist(ev):
 
 
 def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
-    """Page until caught up. Persist + route only events for `tracked` students
-    (None = all). The cursor still advances over EVERY event so we stay caught
-    up on the full stream even while ingesting a subset."""
+    """Page through prod until caught up. Only events for `tracked` students are
+    persisted and routed (None means all of them), but the cursor still advances
+    past EVERY event seen, so ingesting a subset never leaves us perpetually
+    behind on the full stream. Returns the number of newly-inserted events."""
     date_from = None
     if cursor.last_event_time:
         date_from = (cursor.last_event_time - timedelta(seconds=overlap_seconds)).isoformat()
@@ -114,10 +121,10 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
                     route(norm)
                     new_count += 1
                 except Exception:
-                    # The event landed in vex_log but we failed to push it
-                    # into the in-memory worker. Drop the worker so the next
-                    # tick rehydrates from the DB (which now includes this
-                    # event) instead of serving a buffer that's missing it.
+                    # The row is already in vex_log, but routing it into the
+                    # in-memory worker failed. Discard that worker so the next
+                    # tick rebuilds it from the DB (which now has this event),
+                    # rather than keep serving a buffer that's silently missing it.
                     from app.pipeline import workers
                     workers._workers.pop(norm["studentID"], None)
                     logger.exception(
@@ -129,7 +136,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
             break
         offset += limit
 
-    # caught up -> persist-then-advance
+    # Drain finished and everything is durably written, now advance the cursor.
     if max_et != cursor.last_event_time or max_id != (cursor.last_source_id or 0):
         cursor.last_event_time = max_et
         cursor.last_source_id = max_id
@@ -138,8 +145,10 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
 
 
 def backfill_student(client, student_id, max_events=600, page_size=200):
-    """Pull a newly-tracked student's recent history (idempotent) so their
-    state materializes immediately on add."""
+    """Pull up to `max_events` of a newly-tracked student's recent history,
+    idempotently, so their state can materialize the moment they're added rather
+    than waiting for new live activity. Separate from the cursor. Returns the
+    number of events inserted."""
     inserted = 0
     for offset in range(0, max_events, page_size):
         results = client.page_student(student_id, page_size, offset)

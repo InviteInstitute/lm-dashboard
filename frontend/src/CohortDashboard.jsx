@@ -1,7 +1,17 @@
+// The entire dashboard, in one component file.
+//
+// It polls the read API on a fixed timer and renders three things from what it
+// gets back: a grid of per-student cards (strategy + episode sparklines, plus
+// present/picked toggles), a "who needs help" alert column on the right, and a
+// drill-down modal with the full detail and the notes log. Everything the user
+// does writes straight through to the API; nothing is computed here, the daemon
+// already did the work.
 import React from 'react';
 import api from './api';
 
 // ===================== dark slate theme =====================
+// Shared palette, per-state colors, and trigger metadata. Kept up top so the
+// look of the whole dashboard is tunable from one place.
 const T = {
     bg: '#0b0e13', panel: '#0f131a', border: '#1f2530', borderSoft: '#171c24',
     ink: '#e6e9ef', sub: '#7d8694', faint: '#5a626e', track: '#0d1117',
@@ -13,8 +23,8 @@ const STATE = {
 };
 const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
 const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
-// All intervention signals, the right column shows everything the backend
-// fires (wheel_spin + inactive + big_change), not just wheel-spinning.
+// Every intervention type the backend can fire. The right-hand column surfaces
+// all three (wheel_spin, inactive, big_change), not just wheel-spinning.
 const TRIGGERS = {
     wheel_spin: { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' },
     inactive:   { c: '#f59e0b', icon: '⏸', label: 'Inactive' },
@@ -48,7 +58,10 @@ function stateMeta(st) {
 }
 
 // ---------------- timelines (per-event boundaries) ----------------
-// `compact` renders just the bar (no legend, shorter) for the cohort boxes.
+// Two little sparkline components. EpisodeTrack draws one tick per event,
+// colored by its episode, with hatched bands for pauses; HmmTrack draws one
+// block per run, colored by strategy state. `compact` drops the legend and
+// shrinks the bar for the cohort cards; the full version is used in the modal.
 const EpisodeTrack = ({ data, compact }) => {
     if (!data || data.event_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No events yet.</div>;
     const events = data.events || [], episodes = data.episodes || [];
@@ -88,6 +101,8 @@ const legend = { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 9, fontS
 const sw = (bg) => ({ display: 'inline-block', width: 11, height: 11, borderRadius: 3, marginRight: 6, verticalAlign: 'middle', background: bg });
 
 // ---------------- detail (inside modal) ----------------
+// The body of the drill-down modal for one student: header + state badge, the
+// playground prompt, and full-size episode and strategy timelines.
 const Detail = ({ s, sid }) => {
     if (!s) return <div style={{ color: T.sub, padding: 30 }}>No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>.</div>;
     const cur = stateMeta(s);
@@ -113,6 +128,8 @@ const lbl = { fontSize: 11, fontWeight: 700, letterSpacing: 1, color: T.sub, tex
 const pre = { margin: 0, padding: 14, background: T.track, border: `1px solid ${T.border}`, borderRadius: 10, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#c9d1d9', maxHeight: 280, overflow: 'auto', marginBottom: 4 };
 
 // ---------------- layout ----------------
+// One big style object for the whole screen. Plain inline-style dicts (some are
+// functions of an accent color), no CSS framework.
 const S = {
     page: { background: T.bg, height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: FONT, color: T.ink, overflow: 'hidden' },
     bar: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', flexShrink: 0 },
@@ -171,6 +188,7 @@ const S = {
     modalX: { position: 'absolute', top: 14, right: 16, border: 'none', background: 'transparent', color: T.sub, fontSize: 22, cursor: 'pointer' },
 };
 
+// The notes list plus a composer, shown at the bottom of the detail modal.
 const NotesPanel = ({ notes, onAdd }) => {
     const [draft, setDraft] = React.useState('');
     const save = () => { const t = draft.trim(); if (!t) return; onAdd(t); setDraft(''); };
@@ -196,6 +214,9 @@ const NotesPanel = ({ notes, onAdd }) => {
     );
 };
 
+// The top-level component: holds all the polled state and wires up every
+// action. Each data source has its own fetch callback on the shared POLL_MS
+// timer so the views stay current without a single giant request.
 const CohortDashboard = () => {
     const [states, setStates] = React.useState({});   // studentID -> light payload (grid)
     const [detailFull, setDetailFull] = React.useState(null);  // heavy payload for the open student
@@ -229,8 +250,8 @@ const CohortDashboard = () => {
     }, []);
     React.useEffect(() => { fetchTriggers(); const id = setInterval(fetchTriggers, POLL_MS); return () => clearInterval(id); }, [fetchTriggers]);
 
-    // Daemon polling state. Polled on the same timer so the toggle stays in sync
-    // across multiple open dashboards.
+    // Whether the daemon is polling prod. Read on the same timer so the pause
+    // toggle agrees across every open dashboard, not just the one that clicked it.
     const fetchPolling = React.useCallback(async () => {
         try { setPollingOn((await api.get('/api/polling/')).data.enabled); } catch { /* keep */ }
     }, []);
@@ -241,8 +262,8 @@ const CohortDashboard = () => {
         try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
         catch { fetchPolling(); }
     };
-    // Which trigger types fire. Toggling off tells the daemon to stop firing that
-    // type and clear its open alerts; we also hide it from the column immediately.
+    // Which trigger types are enabled. Switching one off tells the daemon to
+    // stop firing it and clear its open alerts; we also hide it locally at once.
     const fetchTriggerCfg = React.useCallback(async () => {
         try { setTriggerCfg((await api.get('/api/triggers/config/')).data.enabled); } catch { /* keep */ }
     }, []);
@@ -253,8 +274,8 @@ const CohortDashboard = () => {
         try { setTriggerCfg((await api.post('/api/triggers/config/', { trigger_type: type, enabled: next })).data.enabled); }
         catch { fetchTriggerCfg(); }
     };
-    // Interview-workflow toggles. Optimistic update, then persist (and the state
-    // exports to CSV because it lives on the tracked_student table).
+    // Present / picked toggles for the interview workflow. Update the UI first,
+    // then persist; because both live on tracked_student they show up in the CSV.
     const setPresence = async (sid, present) => {
         setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, present } : r));
         try { await api.post('/api/presence/', { studentID: sid, present }); } catch { fetchRoster(); }
@@ -263,8 +284,8 @@ const CohortDashboard = () => {
         setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, picked } : r));
         try { await api.post('/api/picked/', { studentID: sid, picked }); } catch { fetchRoster(); }
     };
-    // Notes for the currently-open learner; refetched when the modal opens or
-    // after a note is posted.
+    // Notes for whichever learner is currently open; reloaded when the modal
+    // opens and after a note is added.
     const fetchNotes = React.useCallback(async (sid) => {
         if (!sid) { setNotes([]); return; }
         try { setNotes((await api.get('/api/notes/', { params: { studentID: sid } })).data.notes || []); }
@@ -272,9 +293,10 @@ const CohortDashboard = () => {
     }, []);
     React.useEffect(() => { fetchNotes(selected); }, [selected, fetchNotes]);
 
-    // Heavy detail (incl. the playground prompt) for the open student only --
-    // fetched on open and kept live on the poll timer, so the cohort list stays
-    // light. `alive` guards against a stale response landing after you switch.
+    // The heavy payload (playground prompt included) for just the open student,
+    // fetched on open and refreshed on the poll timer so the cohort list itself
+    // stays light. `alive` discards a late response that arrives after you've
+    // already switched to a different student.
     React.useEffect(() => {
         setDetailFull(null);
         if (!selected) return;
@@ -297,7 +319,7 @@ const CohortDashboard = () => {
     };
 
     const ackTrigger = async (id) => {
-        // Optimistic: drop the row immediately so the click feels instant.
+        // Drop the row right away so the click feels instant, then persist.
         setTriggers(ts => ts.filter(t => t.id !== id));
         if (noteOpen === id) { setNoteOpen(null); setNoteText(''); }
         try { await api.post('/api/triggers/ack/', { id }); } catch { fetchTriggers(); }
@@ -334,9 +356,10 @@ const CohortDashboard = () => {
         fetchStates(); fetchRoster();
     };
 
-    // one box per tracked student, merged with their materialized state.
-    // STABLE order (by studentID) so a box never jumps when its own data
-    // updates on a new event — surfacing who needs help is the right column's job.
+    // One card per tracked student, each merged with its materialized state.
+    // Present students come first; within each group the order is stable (by
+    // studentID) so a card never jumps when its own data refreshes. Deciding who
+    // needs attention is the alert column's job, not the grid's.
     const boxes = roster
         .map(r => ({
             studentID: r.studentID,
@@ -348,9 +371,9 @@ const CohortDashboard = () => {
         // present students first, then stable by studentID so a card never jumps
         .sort((a, b) => (a.present === b.present ? a.studentID.localeCompare(b.studentID) : (a.present ? -1 : 1)));
 
-    // Restrict the alert feed to students the user is currently tracking --
-    // the backend evaluator runs over every student_state row, but we don't
-    // want to surface alerts for students who were just removed.
+    // Keep the alert feed to currently-tracked students with the type enabled.
+    // The backend evaluates every student_state row, so this filters out alerts
+    // for someone who was just untracked (and any muted trigger type).
     const tracked = new Set(roster.map(r => r.studentID));
     const alerts = triggers.filter(t => tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
     const headColor = TRIGGERS.wheel_spin.c;

@@ -4,12 +4,12 @@ description: A live who-needs-help dashboard for a cohort of students coding in 
 
 # LM Dashboard
 
-LM Dashboard is a live "who needs help" view for a room full of students coding in
+LM Dashboard is a live "who needs help" board for a room full of students coding in
 the VEX block environment. It mirrors what they're doing from the Reflecks
-production backend onto your own machine, figures out each student's coding
-**strategy** with a Hidden Markov Model, breaks their session into **episodes**,
-raises **intervention flags** when someone's wheel-spinning, idle, or rewriting
-everything, and puts it all on one screen for you.
+production backend onto your own machine, works out each student's coding
+**strategy** with a Hidden Markov Model, splits their session into **episodes**,
+raises **intervention flags** when someone is wheel-spinning, idle, or rewriting
+everything, and lays it all out on one screen.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 90, "rankSpacing": 110}, "themeVariables": {"fontSize": "22px"}}}%%
@@ -21,21 +21,21 @@ flowchart LR
     api --> dash["Researcher<br/>dashboard"]
 ```
 
-## How it works, in one paragraph
+## How It Works, In One Paragraph
 
-Students code in VEX, and their logs land in the Reflecks production server. A
-local **daemon** asks that server's REST API for new events (it keeps a cursor and
-backs off when things are quiet), drops the raw logs into a local SQLite file, and
-keeps each tracked student's derived state (strategy, episodes, flags) up to date
-in a **materialized table**. A small **read API** hands that table to a **React
-dashboard**. The daemon is the only thing that writes; the dashboard never
-recomputes anything, it just reads what's already there. And nothing ever goes
-back to production. It's a read-only mirror, full stop.
+Students code in VEX, and their logs land in the Reflecks production server. A local
+**daemon** asks that server's REST API for new events (keeping a cursor and backing
+off when things go quiet), drops the raw logs into a local SQLite file, and keeps
+each tracked student's derived state, strategy, episodes, and flags, up to date in a
+**materialized table**. A small **read API** serves that table to a **React
+dashboard**. Only the daemon writes; the dashboard recomputes nothing, it just reads
+what's already there. And nothing ever flows back to production. It's a read-only
+mirror, full stop.
 
-## What you get
+## What You Get
 
-For each student you track, the daemon takes a raw stream of VEX events and turns
-it into three things you can actually act on:
+For each student you track, the daemon takes a raw stream of VEX events and turns it
+into three things you can actually act on:
 
 ```mermaid
 flowchart LR
@@ -45,9 +45,10 @@ flowchart LR
     d --> flags["Intervention flags<br/>wheel-spin · idle · big rewrite"]
 ```
 
-All of it runs on one laptop with one SQLite file, and production is never touched.
+The whole thing runs on one laptop with a single SQLite file, and production is never
+touched.
 
-## Where to go next
+## Where To Go Next
 
 <div class="grid cards" markdown>
 
@@ -63,13 +64,13 @@ All of it runs on one laptop with one SQLite file, and production is never touch
 
     The CQRS plus materialized-view design and the polled micro-batch model.
 
--   :material-monitor:{ .lg .middle } **[Using the dashboard](guides/using-the-dashboard.md)**
+-   :material-monitor:{ .lg .middle } **[Using The Dashboard](guides/using-the-dashboard.md)**
 
     ---
 
     Student cards, the who-needs-help column, drill-down, and reset.
 
--   :material-code-tags:{ .lg .middle } **[API reference](reference/api.md)**
+-   :material-code-tags:{ .lg .middle } **[API Reference](reference/api.md)**
 
     ---
 

@@ -1,8 +1,10 @@
 """
-FastAPI read API for the cohort dashboard.
+The read API behind the cohort dashboard, built on FastAPI.
 
-Reads the materialized state the daemon writes (student_state, trigger_event)
-and owns the tracked allowlist + acks. No ML here -- that's the daemon's job.
+This side does no machine learning. It serves the state the daemon already
+materialized (student_state, trigger_event) and handles the handful of small
+writes the dashboard needs: the tracked roster, acks, notes, presence/picked
+toggles, and the reset and polling control flags.
 
     uvicorn app.main:app --port 8000 --reload
 """
@@ -16,10 +18,11 @@ from app import config, db
 
 STUCK_STATE = 2
 STATE_LABELS = {0: "iterator", 1: "explorer", 2: "stuck"}
-# Resolved triggers linger this long in the feed before dropping off.
+# How long a resolved trigger keeps showing in the feed before it drops off.
 TRIGGER_RECENT_SECONDS = 120
-# Cap how many ids /api/student_states/?students= can request -- well under
-# SQLite's SQLITE_MAX_VARIABLE_NUMBER and large enough to cover any real cohort.
+# Upper bound on the number of ids one /api/student_states/?students= call may
+# request. Comfortably under SQLite's bound-variable limit, yet far larger than
+# any classroom cohort.
 MAX_STUDENT_IDS = 500
 
 app = FastAPI(title="LUC Cohort Dashboard")
@@ -30,8 +33,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Ensure the schema exists (no-op on an existing DB) so a fresh clone works
-# whether the API or the daemon starts first.
+# Create the schema if it isn't there yet (a no-op otherwise), so a fresh clone
+# works no matter whether the API or the daemon happens to start first.
 db.init_db()
 
 
@@ -43,12 +46,13 @@ def _iso(dt):
 
 
 def _shape_state(s, heavy=False):
-    """Materialized student_state row -> the viewer's payload.
+    """Turn a materialized student_state row into the dashboard's JSON payload.
 
-    The cohort list sends the light shape (grid cards need the strategy + episode
-    tracks, but not the playground dump). `heavy=True` adds `block` -- the large
-    playground_prompt tree -- which is only rendered in the detail modal, so it's
-    fetched per-student on open instead of for the whole cohort every poll."""
+    By default this is the light shape the cohort grid uses: it carries the
+    strategy and episode tracks but omits the bulky playground dump. Passing
+    heavy=True adds `block`, the large playground_prompt tree, which only the
+    detail modal renders, so it's fetched one student at a time on open instead
+    of for the whole cohort on every poll."""
     runs_blob = s["runs"] or {}
     run_list = runs_blob.get("runs", [])
     state_sequence = [r["hmm_state"] for r in run_list if r.get("hmm_state") is not None]
@@ -83,7 +87,9 @@ def health():
 
 @app.get("/api/student_states/")
 def student_states(students: str | None = None, classCode: str | None = None):
-    """Read the materialized student_state table (written by the daemon)."""
+    """The dashboard's primary read: the materialized per-student state. Optional
+    `students` (comma-separated) and `classCode` narrow the result. Stuck
+    students sort to the top, then by most recent activity."""
     ids = [x.strip() for x in students.split(",") if x.strip()] if students else None
     if ids and len(ids) > MAX_STUDENT_IDS:
         raise HTTPException(
@@ -104,9 +110,9 @@ def student_states(students: str | None = None, classCode: str | None = None):
 
 @app.get("/api/student_states/{student_id}/")
 def student_state_detail(student_id: str):
-    """The full (heavy) payload for ONE student -- includes the playground prompt
-    the cohort list omits. Fetched when the detail modal opens. 404 if the
-    student has no materialized state yet (tracked but no activity)."""
+    """The heavy payload for a single student, the cohort fields plus the
+    playground prompt the grid leaves out. The detail modal calls this on open.
+    Returns 404 when the student is tracked but has no materialized state yet."""
     rows = db.list_student_states([student_id])
     if not rows:
         raise HTTPException(status_code=404, detail="no state for that student")
@@ -115,8 +121,8 @@ def student_state_detail(student_id: str):
 
 @app.get("/api/triggers/")
 def triggers():
-    """Active triggers + ones resolved in the last TRIGGER_RECENT_SECONDS,
-    newest first, unacknowledged only."""
+    """The intervention feed: still-open triggers plus any resolved within the
+    last TRIGGER_RECENT_SECONDS, newest first, unacknowledged only."""
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
     items, counts = [], {}
@@ -146,7 +152,7 @@ class AckBody(BaseModel):
 
 @app.post("/api/triggers/ack/")
 def ack_trigger(body: AckBody):
-    """Acknowledge (dismiss) a trigger by id, or all open ones for a student."""
+    """Dismiss a single trigger by id, or every open trigger for a student."""
     if body.id is not None:
         n = db.ack_by_id(body.id)
     elif body.studentID:
@@ -169,7 +175,8 @@ def tracked_list():
 
 @app.post("/api/tracked/")
 def tracked_mutate(body: TrackBody):
-    """POST {studentID} -> track (daemon backfills); {studentID, remove:true} -> stop + delete."""
+    """Start or stop tracking a student. {studentID} adds them (the daemon then
+    backfills); {studentID, remove: true} stops tracking and deletes their data."""
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
@@ -182,8 +189,8 @@ def tracked_mutate(body: TrackBody):
 
 @app.post("/api/export/")
 def export():
-    """Save a CSV snapshot of all current data to exports/<timestamp>/. Read-only;
-    never modifies the database."""
+    """Write a CSV snapshot of all current data to exports/<timestamp>/. A pure
+    read, the database is never touched."""
     stamp = db.now()
     out_dir, rows = db.export_csv(
         str(config.BASE_DIR / "exports" / f"export_{stamp.strftime('%Y-%m-%d_%H%M%S')}")
@@ -193,14 +200,15 @@ def export():
 
 @app.post("/api/reset/")
 def reset():
-    """Wipe all local student data (logs, episodes, HMM state, flags) AND the
-    researcher notes, and tell the daemon to drop its in-memory workers. Students
-    stay tracked; the board rebuilds from new activity. A CSV snapshot (including
-    the notes) is saved to exports/reset_<timestamp>/ first, so nothing is lost.
-    Local only; production is untouched.
+    """Clear all local student data (logs, episodes, HMM state, flags) and the
+    researcher notes, and signal the daemon to drop its in-memory workers.
+    Tracked students stay tracked and the board rebuilds from new activity. A CSV
+    snapshot, notes included, is written to exports/reset_<timestamp>/ first, so
+    nothing is actually lost. Local only; production is never touched.
 
-    Sets the meta flag (so the daemon drops its workers and re-wipes any row a race
-    leaves behind) and wipes now so the UI clears immediately."""
+    The order matters: we stamp meta['reset_requested_at'] (which the daemon
+    watches, so it drops its workers and re-wipes any row a race leaves behind)
+    and also wipe right away here, so the dashboard clears immediately."""
     stamp = db.now()
     backup_dir, _ = db.export_csv(
         str(config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}")
@@ -211,7 +219,8 @@ def reset():
 
 
 def _polling_enabled() -> bool:
-    """Default ON: only an explicit "0" pauses polling."""
+    """Polling is on unless the flag is explicitly "0"; anything else (including
+    a missing flag) counts as enabled."""
     return db.get_meta("polling_enabled") != "0"
 
 
@@ -221,8 +230,8 @@ class PollingBody(BaseModel):
 
 @app.get("/api/polling/")
 def polling_status():
-    """Whether the daemon is currently polling production (the dashboard's pause
-    toggle reads this)."""
+    """Report whether the daemon is currently polling production. The dashboard's
+    pause toggle reads this to stay in sync across open tabs."""
     return {"enabled": _polling_enabled()}
 
 
@@ -238,8 +247,8 @@ class PickedBody(BaseModel):
 
 @app.post("/api/presence/")
 def set_presence(body: PresenceBody):
-    """Toggle whether a tracked student is present in the room. Stored on
-    tracked_student, so it exports with the CSV snapshot."""
+    """Set whether a tracked student is present in the room. Persisted on
+    tracked_student, so it's included in the CSV export."""
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
@@ -249,8 +258,8 @@ def set_presence(body: PresenceBody):
 
 @app.post("/api/picked/")
 def set_picked(body: PickedBody):
-    """Toggle whether a tracked student has been picked/interviewed this session.
-    Stored on tracked_student (with picked_at), so it exports with the CSV."""
+    """Set whether a tracked student has been picked/interviewed this session.
+    Persisted on tracked_student (with picked_at), so it's in the CSV export."""
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
@@ -275,7 +284,8 @@ class TriggerConfigBody(BaseModel):
 
 @app.get("/api/triggers/config/")
 def triggers_config():
-    """Which trigger types are currently enabled. Default: all on."""
+    """Report which trigger types are enabled (all on by default) along with
+    their display labels."""
     disabled = _disabled_triggers()
     return {
         "enabled": {t: (t not in disabled) for t in TRIGGER_TYPES},
@@ -285,9 +295,9 @@ def triggers_config():
 
 @app.post("/api/triggers/config/")
 def set_triggers_config(body: TriggerConfigBody):
-    """Enable or disable a trigger type. When disabled, the daemon stops firing it
-    and clears its open alerts on the next tick. Stored in meta; the raw event log
-    is untouched, so re-enabling resumes immediately."""
+    """Turn a trigger type on or off. Disabling it makes the daemon stop firing
+    that type and resolve its open alerts on the next tick. The setting lives in
+    meta and the raw event log is left alone, so re-enabling takes effect at once."""
     if body.trigger_type not in TRIGGER_TYPES:
         raise HTTPException(status_code=400, detail="unknown trigger_type")
     disabled = _disabled_triggers()
@@ -308,9 +318,9 @@ class NoteBody(BaseModel):
 
 @app.post("/api/notes/")
 def add_note(body: NoteBody):
-    """Append an observation for a learner. trigger_id/trigger_type link it to the
-    alert it was written from (omit both for a manual note). Stored on the note
-    table, so it exports with the CSV."""
+    """Record an observation for a learner. trigger_id/trigger_type tie it to the
+    alert it was written from; omit both for a free-standing note. Persisted on
+    the note table, so it's included in the CSV export."""
     sid = (body.studentID or "").strip()
     text = (body.text or "").strip()
     if not sid:
@@ -322,7 +332,7 @@ def add_note(body: NoteBody):
 
 @app.get("/api/notes/")
 def list_notes(studentID: str | None = None):
-    """All notes for a learner, oldest first."""
+    """Every note for a learner, in chronological order."""
     sid = (studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
@@ -332,9 +342,10 @@ def list_notes(studentID: str | None = None):
 
 @app.post("/api/polling/")
 def set_polling(body: PollingBody):
-    """Pause or resume the daemon's production polling. When paused the daemon
-    makes ZERO requests to prod -- it keeps running locally and resumes within a
-    second of being re-enabled. Lets you stop loading prod between sessions
-    without killing the process. Local control flag only; prod is untouched."""
+    """Pause or resume the daemon's production polling. While paused the daemon
+    makes no requests to prod at all; it keeps running locally and picks back up
+    within about a second of being re-enabled. This is how you stop loading prod
+    between sessions without killing the process. Purely a local control flag,
+    prod is untouched either way."""
     db.set_meta("polling_enabled", "1" if body.enabled else "0")
     return {"enabled": body.enabled}

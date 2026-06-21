@@ -1,20 +1,28 @@
 """
-Raw-sqlite3 data layer. Replaces the old Django ORM/models.
+The whole data layer, on top of the standard-library sqlite3 module (no ORM).
 
-One file owns the schema, the connection (WAL + the pragmas the old AppConfig
-set), and every query the API and the pipeline need. Two processes share the
-DB: the daemon is the only writer of derived state; the API reads it (+ writes
-the tracked allowlist / acks). WAL + busy_timeout keep them from blocking.
+Everything about the database is concentrated here: the schema, the one shared
+connection and its pragmas, and every read and write the API and pipeline make.
+Keeping the SQL in a single module is deliberate, it's the seam that would let
+a move to Postgres be a self-contained rewrite of this file.
 
-Datetime contract: the existing rows were written by Django as UTC-naive
-strings '%Y-%m-%d %H:%M:%S.%f'. We read/write that exact format so lexical
-string comparison stays chronological (ORDER BY started_at, resolved_at >= cutoff).
+Who writes what: the daemon owns all the derived state, while the API is mostly
+a reader that also makes a few small writes (the tracked roster, acks, notes,
+control flags). WAL mode plus a busy_timeout let the writer and the readers run
+at the same time without blocking each other.
+
+Datetime contract: rows are stored as UTC-naive strings in the fixed-width
+format '%Y-%m-%d %H:%M:%S.%f', a legacy of the original Django writer. Because
+the width is fixed, comparing the strings lexically is the same as comparing the
+instants, which is what lets the cursor and cutoff SQL (ORDER BY started_at,
+resolved_at >= cutoff) work directly on the stored text.
 """
 import csv
 import json
 import os
 import sqlite3
-from contextlib import closing
+import threading
+import time
 from datetime import datetime, timezone
 
 from app.config import DB_PATH
@@ -32,7 +40,8 @@ def now():
 
 
 def dt_to_db(dt):
-    """aware/naive datetime -> the UTC-naive string SQLite holds (or None)."""
+    """Serialize a datetime (aware or naive) into the UTC-naive string the DB
+    stores. Returns None for None."""
     if dt is None:
         return None
     if dt.tzinfo is not None:
@@ -41,7 +50,9 @@ def dt_to_db(dt):
 
 
 def db_to_dt(s):
-    """stored string -> aware UTC datetime (or None)."""
+    """Parse a stored timestamp string back into an aware UTC datetime. Accepts
+    the canonical format, the fraction-less variant, and ISO-8601 as a fallback;
+    returns None when there's nothing parseable."""
     if not s:
         return None
     if isinstance(s, datetime):
@@ -73,34 +84,82 @@ def _jdump(o):
 
 
 # --------------------------------------------------------------------------
-# connection
+# connection (one shared handle per process; sqlite3 forbids cross-thread use
+# by default, so we opt out of that check)
 # --------------------------------------------------------------------------
+_con = None
+_con_lock = threading.Lock()
+# Guards multi-statement transactions. sqlite3 already serializes a single
+# execute/fetchall with its own mutex, but a BEGIN..COMMIT spanning several
+# statements is not atomic against other threads on the shared connection, so
+# those transactions take this lock to stay atomic under FastAPI's threadpool.
+_write_lock = threading.Lock()
+
+
 def connect():
-    """A fresh, configured connection. Cheap; callers open per operation
-    (sqlite3 connections aren't shareable across threads)."""
-    con = sqlite3.connect(DB_PATH, timeout=5.0)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA synchronous=NORMAL")
-    con.execute("PRAGMA busy_timeout=5000")
-    return con
+    """Return the process's single configured connection, creating it on first
+    call. WAL is a file-level pragma that persists, so setting it once is enough;
+    busy_timeout is per-connection but harmless to re-assert. The lock only
+    guards the lazy initialization. check_same_thread=False lets the daemon's
+    thread and FastAPI's worker threads share this one handle."""
+    global _con
+    if _con is not None:
+        return _con
+    with _con_lock:
+        if _con is None:
+            _con = sqlite3.connect(DB_PATH, timeout=5.0, check_same_thread=False)
+            _con.row_factory = sqlite3.Row
+            _con.execute("PRAGMA journal_mode=WAL")
+            _con.execute("PRAGMA synchronous=NORMAL")
+            _con.execute("PRAGMA busy_timeout=5000")
+    return _con
 
 
 def _query(sql, params=()):
-    with closing(connect()) as con:
-        return con.execute(sql, params).fetchall()
+    return connect().execute(sql, params).fetchall()
 
 
 def _execute(sql, params=()):
-    """Single write; returns affected rowcount."""
-    with closing(connect()) as con:
-        cur = con.execute(sql, params)
-        con.commit()
-        return cur.rowcount
+    """Run one self-contained write and commit it; returns the affected
+    rowcount. Safe to call from multiple threads because a single statement on
+    the shared connection is serialized by SQLite's own mutex."""
+    con = connect()
+    cur = con.execute(sql, params)
+    con.commit()
+    return cur.rowcount
+
+
+class _WriteTxn:
+    """A context manager for a multi-statement transaction on the shared
+    connection. It holds _write_lock for the duration so the BEGIN..COMMIT stays
+    atomic against other worker threads, commits on a clean exit, and rolls back
+    if the block raises. Use it as `with db.write_txn() as con:`."""
+
+    def __enter__(self):
+        _write_lock.acquire()
+        self.con = connect()
+        self.con.execute("BEGIN")
+        return self.con
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None:
+                self.con.commit()
+            else:
+                self.con.rollback()
+        finally:
+            _write_lock.release()
+        return False
+
+
+def write_txn():
+    return _WriteTxn()
 
 
 # --------------------------------------------------------------------------
-# schema (CREATE IF NOT EXISTS, so a fresh DB works and an existing one is left alone)
+# schema. Every statement is CREATE ... IF NOT EXISTS, so this is safe to run
+# on every startup: it builds the tables on a fresh DB and is a no-op on one
+# that already has them.
 # --------------------------------------------------------------------------
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS message (
@@ -183,10 +242,11 @@ CREATE INDEX IF NOT EXISTS ix_pick_student ON pick_event(studentID, ts);
 
 
 def init_db():
-    with closing(connect()) as con:
+    with write_txn() as con:
         con.executescript(_SCHEMA)
-        # Idempotent column adds so a DB created before the presence/picked
-        # toggles existed picks them up without a manual migration.
+        # Lightweight in-place migration: add the presence/picked columns if an
+        # older database predates them. Guarded by a column check so it's
+        # idempotent and needs no separate migration step.
         cols = {r[1] for r in con.execute("PRAGMA table_info(tracked_student)")}
         if "present" not in cols:
             con.execute("ALTER TABLE tracked_student ADD COLUMN present BOOL NOT NULL DEFAULT 1")
@@ -194,11 +254,11 @@ def init_db():
             con.execute("ALTER TABLE tracked_student ADD COLUMN picked BOOL NOT NULL DEFAULT 0")
         if "picked_at" not in cols:
             con.execute("ALTER TABLE tracked_student ADD COLUMN picked_at DATETIME")
-        con.commit()
 
 
 # --------------------------------------------------------------------------
-# meta key/value (used for the cross-process reset signal)
+# meta: a tiny key/value store the two processes use to signal each other
+# (the reset trigger, the polling pause flag, the disabled-trigger list)
 # --------------------------------------------------------------------------
 def set_meta(key, value):
     _execute(
@@ -206,6 +266,7 @@ def set_meta(key, value):
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+    _meta_cache.pop(key, None)
 
 
 def get_meta(key):
@@ -213,39 +274,96 @@ def get_meta(key):
     return rows[0]["value"] if rows else None
 
 
+# In-process cache for the control flags. polling_enabled, reset_requested_at,
+# and disabled_triggers only change when a human clicks something, yet the
+# daemon would otherwise re-read them every tick. The 200ms TTL keeps a UI
+# action visible almost immediately while collapsing those repeated reads; a
+# local set_meta drops the entry so a write is never masked by a stale cache.
+_meta_ttl_s = 0.2
+_meta_cache = {}  # key -> (value, expires_at)
+_meta_lock = threading.Lock()
+
+
+def get_meta_cached(key):
+    now_t = time.monotonic()
+    cached = _meta_cache.get(key)
+    if cached is not None and cached[1] > now_t:
+        return cached[0]
+    with _meta_lock:
+        cached = _meta_cache.get(key)
+        if cached is not None and cached[1] > time.monotonic():
+            return cached[0]
+        value = get_meta(key)
+        _meta_cache[key] = (value, time.monotonic() + _meta_ttl_s)
+        return value
+
+
+def get_meta_many(keys):
+    """Fetch several control flags at once. Serves whatever is still within its
+    TTL from the cache and reads only the rest in a single query, so a tick that
+    wants all three flags costs at most one round-trip."""
+    out = {}
+    missing = []
+    now_t = time.monotonic()
+    for k in keys:
+        c = _meta_cache.get(k)
+        if c is not None and c[1] > now_t:
+            out[k] = c[0]
+        else:
+            missing.append(k)
+    if missing:
+        with _meta_lock:
+            # re-check after lock (another thread may have filled it)
+            now_t = time.monotonic()
+            still_missing = []
+            for k in missing:
+                c = _meta_cache.get(k)
+                if c is not None and c[1] > now_t:
+                    out[k] = c[0]
+                else:
+                    still_missing.append(k)
+            if still_missing:
+                placeholders = ",".join("?" * len(still_missing))
+                rows = _query(f"SELECT key, value FROM meta WHERE key IN ({placeholders})",
+                              tuple(still_missing))
+                present = {r["key"]: r["value"] for r in rows}
+                for k in still_missing:
+                    value = present.get(k)
+                    out[k] = value
+                    _meta_cache[k] = (value, time.monotonic() + _meta_ttl_s)
+    return out
+
+
 def reset_all():
-    """Wipe the local mirror's raw + derived data AND the researcher notes (keeps
-    the tracked roster, the ingest cursor, and meta). The reset endpoint saves a
-    CSV backup first, so the notes are preserved before they are cleared here. The
-    cursor is left in place so old events are NOT re-pulled."""
-    with closing(connect()) as con:
-        con.execute("BEGIN")
-        try:
-            for t in ("trigger_event", "student_state", "vex_log", "message", "note"):
-                con.execute(f"DELETE FROM {t}")
-            con.commit()
-        except Exception:
-            con.rollback()
-            raise
+    """Clear the local mirror: raw events, derived state, and the researcher
+    notes. Deliberately spared are the tracked roster, the ingest cursor, and
+    meta, so the board keeps its students and rebuilds only from activity that
+    arrives after the reset rather than re-pulling old events. The /api/reset/
+    endpoint writes a CSV backup (notes included) before calling this."""
+    with write_txn() as con:
+        for t in ("trigger_event", "student_state", "vex_log", "message", "note"):
+            con.execute(f"DELETE FROM {t}")
 
 
 # --------------------------------------------------------------------------
-# CSV export (used by scripts/export_csv.py and by reset to back up first)
+# CSV export. Two callers share this: scripts/export_csv.py for an end-of-day
+# dump, and the reset endpoint to snapshot everything before it wipes.
 # --------------------------------------------------------------------------
-# Tables left out of the CSV export: sqlite internals, pipeline bookkeeping
-# (ingest_cursor), control flags (meta), and the raw envelope (message) whose
-# only research field, content, is already duplicated in vex_log.raw_message.
+# Tables excluded from the dump: SQLite's own internal tables, the cursor
+# bookkeeping (ingest_cursor), the control flags (meta), and the raw envelope
+# (message), whose only research-relevant field is content, already copied into
+# vex_log.raw_message.
 
 _EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4",
                 "ingest_cursor", "meta", "message"}
 
 
 def _tree_to_brackets(text):
-    """Collapse the indented playground_prompt tree into one line, showing
-    parent->child with nested braces. Section headers ([Active]/[Orphaned], at
-    depth 0) stay as plain inline labels; only blocks (depth >= 1) that have
-    children get wrapped in { }. Indentation in the prompt is one space per
-    depth level (see smart_delta_engine.build_tree)."""
+    """Flatten the indented playground_prompt tree onto a single line so it fits
+    in one CSV cell, using nested braces to keep the parent/child structure.
+    The depth-0 section headers ([Active]/[Orphaned]) stay as bare inline labels;
+    only blocks at depth >= 1 that actually have children get wrapped in { }.
+    Indentation is one space per level (matches smart_delta_engine.build_tree)."""
     lines = [(len(l) - len(l.lstrip(" ")), l.strip())
              for l in text.split("\n") if l.strip()]
     parts, open_depths = [], []
@@ -263,8 +381,9 @@ def _tree_to_brackets(text):
 
 
 def _csv_value(col, val):
-    """Keep every CSV cell on a single physical line. The playground_prompt tree
-    is rebracketed; any other stray newline becomes a space."""
+    """Normalize one cell so it never spans multiple physical lines. The
+    playground_prompt column is re-bracketed into one line; for everything else,
+    any embedded newline is replaced with a space."""
     if not isinstance(val, str):
         return val
     if col == "playground_prompt":
@@ -275,8 +394,9 @@ def _csv_value(col, val):
 
 
 def export_csv(out_dir, tables=None, db_path=None):
-    """Dump tables to CSV (one file per table) into out_dir. Read-only.
-    JSON columns are written as raw JSON text. Returns (out_dir, {table: rows})."""
+    """Write one CSV file per table into out_dir (created if missing). Purely a
+    read of the database, nothing is modified. JSON columns come out as their
+    raw JSON text. Returns (out_dir, {table: row_count})."""
     os.makedirs(out_dir, exist_ok=True)
     con = sqlite3.connect(db_path or DB_PATH)
     try:
@@ -340,7 +460,8 @@ def _trigger_row(r):
 
 
 # ==========================================================================
-# API reads / writes
+# Queries the API layer calls: reads of the materialized state plus the small
+# writes it owns (roster, acks, presence/picked toggles, notes).
 # ==========================================================================
 def list_student_states(students=None, class_code=None):
     sql = "SELECT * FROM student_state"
@@ -357,7 +478,8 @@ def list_student_states(students=None, class_code=None):
 
 
 def triggers_feed(cutoff, limit=100):
-    """Unacked triggers that are active OR resolved since `cutoff`, newest first."""
+    """The intervention feed: unacknowledged triggers that are either still open
+    or were resolved at/after `cutoff`, newest first."""
     rows = _query(
         "SELECT * FROM trigger_event "
         "WHERE acknowledged = 0 AND (resolved_at IS NULL OR resolved_at >= ?) "
@@ -380,19 +502,21 @@ def ack_by_student(sid):
 
 
 def tracked_list():
-    have = {
-        r["studentID"]
-        for r in _query("SELECT studentID FROM student_state")
-    }
+    # A single LEFT JOIN rather than a roster query followed by per-student
+    # lookups: has_data is just whether a matching student_state row exists.
+    # studentID is UNIQUE on both tables, so the join is strictly 1:1.
     rows = _query(
-        "SELECT studentID, backfilled, present, picked, picked_at "
-        "FROM tracked_student ORDER BY studentID"
+        "SELECT t.studentID, t.backfilled, t.present, t.picked, t.picked_at, "
+        "       (s.studentID IS NOT NULL) AS has_data "
+        "FROM tracked_student t "
+        "LEFT JOIN student_state s ON s.studentID = t.studentID "
+        "ORDER BY t.studentID"
     )
     return [
         {
             "studentID": r["studentID"],
             "backfilled": bool(r["backfilled"]),
-            "has_data": r["studentID"] in have,
+            "has_data": bool(r["has_data"]),
             "present": bool(r["present"]),
             "picked": bool(r["picked"]),
             "picked_at": r["picked_at"],
@@ -402,7 +526,7 @@ def tracked_list():
 
 
 def set_presence(sid, present):
-    """Researcher toggle: is this student in the room right now."""
+    """Researcher toggle for whether the student is physically in the room."""
     _execute(
         "UPDATE tracked_student SET present = ? WHERE studentID = ?",
         (1 if present else 0, sid),
@@ -410,12 +534,12 @@ def set_presence(sid, present):
 
 
 def set_picked(sid, picked):
-    """Researcher toggle: has this student been interviewed/picked this session.
-    Stamps picked_at when marking, clears it when unmarking. Also appends a
-    pick_event row so every pick/unpick is timestamped for post-hoc analysis
-    (picked_at keeps only the latest; pick_event keeps the full history)."""
+    """Researcher toggle for whether the student has been picked/interviewed this
+    session. Marking stamps picked_at; unmarking clears it. Either way it also
+    appends a pick_event row, so the full pick/unpick history is timestamped for
+    later analysis (picked_at only holds the latest state; pick_event is the log)."""
     ts = dt_to_db(now())
-    with closing(connect()) as con:
+    with write_txn() as con:
         con.execute(
             "UPDATE tracked_student SET picked = ?, picked_at = ? WHERE studentID = ?",
             (1 if picked else 0, ts if picked else None, sid),
@@ -424,22 +548,20 @@ def set_picked(sid, picked):
             "INSERT INTO pick_event (studentID, picked, ts) VALUES (?, ?, ?)",
             (sid, 1 if picked else 0, ts),
         )
-        con.commit()
 
 
 def add_note(student_id, text, trigger_id=None, trigger_type=None):
-    """Append one note for a student. trigger_id/trigger_type are set when the
-    note is written from an active alert; both None for a manual note. Returns
-    the created row as a dict."""
+    """Record one note for a student. Pass trigger_id/trigger_type to link it to
+    the alert it was written from; leave both None for a free-standing manual
+    note. Returns the new row as a dict."""
     ts = dt_to_db(now())
-    with closing(connect()) as con:
+    with write_txn() as con:
         cur = con.execute(
             "INSERT INTO note (studentID, ts, text, trigger_id, trigger_type, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (student_id, ts, text, trigger_id, trigger_type, ts),
         )
         nid = cur.lastrowid
-        con.commit()
     return {
         "id": nid, "studentID": student_id, "ts": ts, "text": text,
         "trigger_id": trigger_id, "trigger_type": trigger_type, "created_at": ts,
@@ -447,7 +569,7 @@ def add_note(student_id, text, trigger_id=None, trigger_type=None):
 
 
 def list_notes(student_id):
-    """All notes for a student, oldest first."""
+    """Every note for a student, in chronological order."""
     rows = _query(
         "SELECT id, studentID, ts, text, trigger_id, trigger_type, created_at "
         "FROM note WHERE studentID = ? ORDER BY ts, id",
@@ -457,7 +579,8 @@ def list_notes(student_id):
 
 
 def tracked_add(sid):
-    """get_or_create: the daemon picks new rows up and backfills them."""
+    """Add a student to the roster (no-op if already there). The daemon notices
+    the new, not-yet-backfilled row on its next tick and pulls their history."""
     _execute(
         "INSERT OR IGNORE INTO tracked_student (studentID, backfilled, created_at) "
         "VALUES (?, 0, ?)",
@@ -470,32 +593,27 @@ def mark_backfilled(sid):
 
 
 def tracked_remove(sid):
-    """Stop tracking + delete the student's raw + derived data so they vanish."""
-    with closing(connect()) as con:
-        con.execute("BEGIN")
-        try:
-            msg_ids = [
-                row[0]
-                for row in con.execute(
-                    "SELECT from_message_id FROM vex_log WHERE studentID = ?", (sid,)
-                ).fetchall()
-            ]
-            con.execute("DELETE FROM vex_log WHERE studentID = ?", (sid,))
-            if msg_ids:
-                con.executemany(
-                    "DELETE FROM message WHERE id = ?", [(m,) for m in msg_ids]
-                )
-            con.execute("DELETE FROM student_state WHERE studentID = ?", (sid,))
-            con.execute("DELETE FROM trigger_event WHERE studentID = ?", (sid,))
-            con.execute("DELETE FROM tracked_student WHERE studentID = ?", (sid,))
-            con.commit()
-        except Exception:
-            con.rollback()
-            raise
+    """Untrack a student and delete everything tied to them, raw events and
+    derived state alike, so they disappear from the board entirely."""
+    with write_txn() as con:
+        msg_ids = [
+            row[0]
+            for row in con.execute(
+                "SELECT from_message_id FROM vex_log WHERE studentID = ?", (sid,)
+            ).fetchall()
+        ]
+        con.execute("DELETE FROM vex_log WHERE studentID = ?", (sid,))
+        if msg_ids:
+            con.executemany(
+                "DELETE FROM message WHERE id = ?", [(m,) for m in msg_ids]
+            )
+        con.execute("DELETE FROM student_state WHERE studentID = ?", (sid,))
+        con.execute("DELETE FROM trigger_event WHERE studentID = ?", (sid,))
+        con.execute("DELETE FROM tracked_student WHERE studentID = ?", (sid,))
 
 
 # ==========================================================================
-# pipeline: cursor
+# Pipeline queries: the ingest cursor (how far the poller has consumed)
 # ==========================================================================
 def get_or_create_cursor(name):
     rows = _query("SELECT * FROM ingest_cursor WHERE name = ?", (name,))
@@ -523,7 +641,7 @@ def save_cursor(name, last_event_time, last_source_id):
 
 
 # ==========================================================================
-# pipeline: raw logs (the only writer is the daemon's poller)
+# Pipeline queries: the append-only raw event log (written only by the poller)
 # ==========================================================================
 def log_exists(source_event_id):
     if source_event_id is None:
@@ -534,11 +652,13 @@ def log_exists(source_event_id):
 
 
 def insert_message_and_log(norm):
-    """Idempotent insert of one event (envelope + parsed log) in a transaction.
-    Returns True if inserted, False if the UNIQUE source_event_id raced/duped."""
-    with closing(connect()) as con:
-        con.execute("BEGIN")
-        try:
+    """Insert one event, envelope row plus parsed log row, in a single
+    transaction. Idempotent: returns True on insert, False when the UNIQUE
+    source_event_id already exists (a duplicate or a race). Callers normally
+    skip the write via log_exists() first; the IntegrityError catch here is the
+    backstop for the rare concurrent duplicate."""
+    try:
+        with write_txn() as con:
             cur = con.execute(
                 "INSERT INTO message (queue_name, routing_key, exchange, content, received_at) "
                 "VALUES ('pipeline', '', '', ?, ?)",
@@ -559,16 +679,15 @@ def insert_message_and_log(norm):
                     norm["source_event_id"],
                 ),
             )
-            con.commit()
-            return True
-        except sqlite3.IntegrityError:
-            con.rollback()
-            return False
+        return True
+    except sqlite3.IntegrityError:
+        return False
 
 
 def student_tail(sid, limit):
-    """A student's most recent `limit` events (with envelope received_at for the
-    timestamp fallback), oldest-first for chronological rehydration."""
+    """A student's last `limit` events, returned oldest-first so a worker can
+    replay them in order on rehydrate. Joins in the envelope's received_at to use
+    as a timestamp fallback when the parsed event_time is missing."""
     rows = _query(
         "SELECT v.eventType, v.classCode, v.project, v.raw_message, v.event_time, "
         "       v.source_event_id, m.received_at "
@@ -593,7 +712,8 @@ def student_tail(sid, limit):
 
 
 # ==========================================================================
-# pipeline: materialized student state (daemon writes, API reads)
+# Pipeline queries: the materialized student_state view (daemon writes it,
+# the API reads it)
 # ==========================================================================
 _STATE_DT_FIELDS = ("playground_time", "last_event_time")
 _STATE_JSON_FIELDS = ("runs", "episodes")
@@ -620,10 +740,11 @@ def upsert_student_state(student_id, defaults):
 
 
 # ==========================================================================
-# pipeline: triggers
+# Pipeline queries: trigger_event lifecycle (open / touch / resolve)
 # ==========================================================================
 def all_student_states():
-    """Light projection the trigger evaluator iterates over."""
+    """A trimmed projection of every student_state row, just the columns the
+    trigger evaluator needs to sweep over."""
     rows = _query(
         "SELECT studentID, current_state, consecutive_stuck, last_event_time, runs "
         "FROM student_state"
@@ -682,9 +803,10 @@ def resolve_trigger(trigger_id, resolved_at):
 
 
 def big_change_indices(student_id):
-    """Run indices a big_change alert already fired for. Seeds a worker's
-    in-memory dedupe set once on cold start, so it never re-alerts a run after a
-    restart (and the trigger evaluator no longer scans history every tick)."""
+    """The set of run indices that have already produced a big_change alert. A
+    worker loads this once on cold start to seed its in-memory dedupe, so a
+    restart never re-fires an old run, and the per-tick trigger sweep doesn't
+    have to re-scan history to figure that out."""
     rows = _query(
         "SELECT json_extract(detail, '$.run_index') AS i FROM trigger_event "
         "WHERE studentID = ? AND trigger_type = 'big_change'",

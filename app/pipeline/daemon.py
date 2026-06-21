@@ -1,12 +1,15 @@
 """
-Single-writer ingestion + inference daemon.
+The ingestion + inference daemon. This is the system's single writer.
 
     python -m app.pipeline [--interval 0.5] [--limit 500] [--backfill-hours 0]
 
-Each tick: drain prod into raw logs (idempotent, cursor-advanced), run inference
-on the workers whose state changed and materialize student_state, then evaluate
-triggers. Run exactly ONE instance (it is the only writer); cursor + idempotency
-make a crash-restart lossless. Needs prod creds (.env.mirror or env).
+It runs one blocking loop. Each tick drains new events from prod into the raw
+log (idempotently, advancing a cursor), re-runs inference for the students whose
+state changed and writes the result into student_state, then evaluates the
+intervention triggers. Run exactly ONE instance, since the cursor and the
+idempotency logic both assume a single writer; together they make a
+crash-and-restart lossless. Needs prod credentials (from .env.mirror or the
+environment).
 """
 import argparse
 import logging
@@ -21,8 +24,8 @@ from app.pipeline.client import ProdClient, ProdClientError
 
 log = logging.getLogger("pipeline")
 
-# While paused, re-check the local pause flag this often (cheap SQLite read, no
-# prod request) so a Resume click takes effect within ~1s.
+# How often to re-read the pause flag while paused. It's a cheap local SQLite
+# read with no prod request, kept short so a Resume click is honored within ~1s.
 PAUSED_POLL_S = 1.0
 
 
@@ -56,11 +59,12 @@ def main(argv=None):
     opts = _parse_args(argv)
     interval, limit, overlap, idle_max = opts.interval, opts.limit, opts.overlap, opts.idle_max
 
-    db.init_db()  # no-op on the existing DB; creates tables on a fresh one
+    db.init_db()  # builds the schema on a fresh DB, no-op on an existing one
     client = ProdClient()
     cursor = poller.get_cursor()
 
-    # Seed an empty cursor so a fresh start doesn't replay months of history.
+    # On a brand-new cursor, anchor it back only `backfill_hours` so the first
+    # drain doesn't try to replay months of history.
     if cursor.last_event_time is None and opts.backfill_hours > 0:
         cursor.last_event_time = db.now() - timedelta(hours=opts.backfill_hours)
         cursor.save()
@@ -69,28 +73,35 @@ def main(argv=None):
     log.info("Pipeline up. interval=%ss limit=%s cursor.last_event_time=%s",
              interval, limit, cursor.last_event_time)
 
-    # Reset signal: the API stamps meta['reset_requested_at']; we drop in-memory
-    # workers (so buffered events don't re-materialize) when it changes. Prime it
-    # to the current value so a stale flag doesn't fire a reset on boot.
+    # Reset handshake: the API stamps meta['reset_requested_at'], and when we see
+    # that value change we drop the in-memory workers so their buffered events
+    # don't re-materialize the state that was just wiped. Prime last_reset with
+    # the current value so an already-set flag doesn't fire a spurious reset on
+    # boot.
     last_reset = db.get_meta("reset_requested_at")
     last_paused = None
+    # Remembered across ticks only to log pause transitions; the disabled set is
+    # re-read each tick (it changes at human speed and is cheaply cached).
+    last_disabled = None
 
     fails = idle = 0
     while True:
         t0 = time.monotonic()
         backfilled_now = False
 
-        rr = db.get_meta("reset_requested_at")
+        # Read all three control flags in a single round-trip per tick. Their
+        # cache TTL is 200ms, so a dashboard click still lands within ~200ms.
+        flags = db.get_meta_many(("reset_requested_at", "polling_enabled", "disabled_triggers"))
+        rr = flags["reset_requested_at"]
+        paused = (flags["polling_enabled"] == "0")
+        disabled = {t for t in (flags["disabled_triggers"] or "").split(",") if t}
+
         if rr != last_reset:
             workers.reset()
             db.reset_all()
             last_reset = rr
             log.info("reset handled (%s) — cleared in-memory workers + local data", rr)
 
-        # Polling pause switch (dashboard button). When paused, make ZERO prod
-        # requests: skip backfill + drain + inference entirely and idle locally
-        # until re-enabled. Reset (above) is still honored while paused.
-        paused = db.get_meta("polling_enabled") == "0"
         if paused != last_paused:
             log.info("polling %s (dashboard toggle)", "PAUSED" if paused else "RESUMED")
             last_paused = paused
@@ -100,12 +111,14 @@ def main(argv=None):
             continue
 
         try:
-            # roster: only ingest + compute the studentIDs the user tracks
+            # The roster is the allowlist: we only ingest and compute the
+            # students the researcher is tracking.
             roster = db.tracked_list()
             tracked = {r["studentID"] for r in roster}
             workers.reconcile(tracked)
 
-            # newly-added students: backfill their history once, materialize now
+            # A freshly-added student gets a one-time history backfill, then an
+            # immediate materialize so their card fills in right away.
             for r in roster:
                 if not r["backfilled"]:
                     try:
@@ -129,31 +142,33 @@ def main(argv=None):
             time.sleep(delay)
             continue
         except Exception:
-            # Not a known-transient prod error -- this is almost certainly a bug
-            # in our own code. Don't perpetually back off and hide it: log and
-            # re-raise so the process supervisor restarts (and the error stays
-            # visible) instead of silently sleeping in a loop.
+            # Anything that isn't a known-transient prod error is almost
+            # certainly a bug on our side. Backing off would just hide it in a
+            # silent sleep loop, so instead we log it and re-raise, letting the
+            # process supervisor restart us with the error still visible.
             log.exception("daemon tick crashed on a non-transient error -- exiting")
             raise
 
-        # Inference clock: run on changed workers, materialize state.
+        # Inference: recompute only the workers that took new events this tick,
+        # writing each result into student_state.
         changed = workers.dirty_workers()
         for w in changed:
             try:
-                w.recompute_and_write()
+                w.recompute_and_write(disabled=disabled)
             except Exception as e:
                 log.exception("inference failed for %s: %s", w.student_id, e)
 
-        # Trigger clock: evaluate rules over ALL students (inactivity needs
-        # students who aren't producing events).
+        # Triggers: sweep over EVERY student, not just the changed ones, because
+        # inactivity is about students who have stopped producing events.
         try:
-            triggers.evaluate()
+            triggers.evaluate(disabled=disabled)
         except Exception as e:
             log.exception("trigger eval failed: %s", e)
 
-        # Idle backoff: poll at the base interval while events flow; when a tick
-        # does nothing, exponentially grow the wait toward --idle-max so we stop
-        # hammering prod with empty polls. Any activity snaps back to responsive.
+        # Idle backoff: while events are flowing, sleep the base interval; once a
+        # tick finds nothing to do, grow the wait exponentially toward --idle-max
+        # so quiet stretches don't keep hammering prod with empty polls. The
+        # first sign of activity snaps the interval straight back to responsive.
         busy = bool(new or changed or backfilled_now)
         idle = 0 if busy else idle + 1
         target = interval if busy else min(idle_max, interval * (2 ** min(idle, 6)))

@@ -4,10 +4,10 @@ description: Install dependencies, configure production credentials, and run the
 
 # Quickstart
 
-Let's get the dashboard running locally against a mirror of the Reflecks
-production backend.
+This walks you through getting the dashboard running locally against a mirror of the
+Reflecks production backend.
 
-## Before you start
+## Before You Start
 
 !!! info
     You'll need **Python 3.12+** and **Node 18+**. The daemon also needs network
@@ -15,15 +15,16 @@ production backend.
 
 ## Install
 
-1.  **Make a virtual environment and install the Python deps**
+1.  **Create a virtual environment and install the Python dependencies**
 
     ```bash
     python -m venv .venv && source .venv/bin/activate
     pip install -r requirements.txt
     ```
 
-    The API itself has no ML dependencies; all the heavy lifting lives in the
-    daemon. They install together here, so you don't have to think about it.
+    The API has no ML dependencies of its own; all the heavy lifting lives in the
+    daemon. Everything installs together here, so you don't have to think about which
+    process needs what.
 
 2.  **Add your production credentials**
 
@@ -34,11 +35,11 @@ production backend.
     Then fill in `PROD_USERNAME` and `PROD_PASSWORD` in `.env.mirror`.
 
     !!! note
-        Only the daemon reads `.env.mirror`, and only to authenticate to
-        production. The API and dashboard never touch it.
+        Only the daemon actually uses `.env.mirror`, and only to authenticate to
+        production. The API and dashboard never call prod.
 
-The SQLite database creates itself on first run, so there's nothing to migrate on
-a fresh clone.
+The SQLite database creates itself on first run, so there's nothing to migrate on a
+fresh clone.
 
 ## Run
 
@@ -60,7 +61,7 @@ Three processes, one terminal each.
 
     !!! warning
         Run exactly one daemon. The cursor and idempotency logic assume a single
-        writer, so a second one will fight the first. There's more on this in
+        writer, so a second daemon will fight the first. There's more on this in
         [Operations](guides/operations.md).
 
 3.  **Start the dashboard**
@@ -71,39 +72,44 @@ Three processes, one terminal each.
 
     This opens the dashboard at `http://localhost:3000`.
 
-## Track your first student
+!!! tip
+    Prefer one command? `./scripts/start.sh` brings up all four processes (API,
+    daemon started paused, dashboard, and these docs) in the background, and
+    `./scripts/stop.sh` tears them down.
 
-Open [http://localhost:3000](http://localhost:3000), type a student ID into **Track
-a student**, and the daemon backfills their recent history, materializes their
-state, and their card shows up within a tick or two.
+## Track Your First Student
+
+Open [http://localhost:3000](http://localhost:3000), type a student ID into **Track a
+student**, and the daemon backfills their recent history, materializes their state,
+and their card appears within a tick or two.
 
 !!! success
     The dashboard is read-only against your local mirror. Tracking, analyzing, and
     resetting never reach back to production.
 
-## Run these docs locally
+## Run These Docs Locally
 
-This documentation site is built with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/),
+This site is built with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/),
 installed in the same virtual environment.
 
 ```bash
 mkdocs serve
 ```
 
-It always serves on [http://localhost:4000](http://localhost:4000) (that's pinned
-with `dev_addr` in `mkdocs.yml`), so it won't collide with the API on port 8000.
-The preview live-reloads as you edit anything under `docs/`.
+It always serves on [http://localhost:4000](http://localhost:4000) (pinned via
+`dev_addr` in `mkdocs.yml`), so it won't collide with the API on port 8000. The
+preview live-reloads as you edit anything under `docs/`.
 
 !!! note
-    If you cloned fresh and `mkdocs` isn't there, install it into the venv with
-    `pip install mkdocs-material`. For a static build instead of the live preview,
-    run `mkdocs build` (the output lands in `site/`, which is gitignored).
+    Cloned fresh and `mkdocs` isn't there? Install it into the venv with
+    `pip install mkdocs-material`. For a one-off static build instead of the live
+    preview, run `mkdocs build`; the output lands in `site/`, which is gitignored.
 
-## Next steps
+## Next Steps
 
 <div class="grid cards" markdown>
 
--   :material-monitor:{ .lg .middle } **[Using the dashboard](guides/using-the-dashboard.md)**
+-   :material-monitor:{ .lg .middle } **[Using The Dashboard](guides/using-the-dashboard.md)**
 
     ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Start the LM Dashboard stack:
-#   read API (:8000), ingestion daemon (paused), dashboard (:3000), docs (:4000)
-# Logs go to .devlogs/. Stop everything with scripts/stop.sh.
+# Bring up the whole LM Dashboard stack in the background:
+#   read API (:8000), ingestion daemon (started PAUSED), dashboard (:3000), docs (:4000).
+# Each process logs to .devlogs/. Tear it all back down with scripts/stop.sh.
 cd "$(dirname "$0")/.." || exit 1
 ROOT="$PWD"
 VENV="$ROOT/.venv/bin"
@@ -20,9 +20,9 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 
-# Bring the daemon up PAUSED so it makes zero requests to production until you
-# click "Resume polling" in the dashboard. Protects prod's CPU between sessions.
-# To start live instead, delete this curl line.
+# Start the daemon PAUSED: it makes no requests to production until you click
+# "Resume polling" in the dashboard, which keeps load off prod between sessions.
+# Want it live from the start? Just delete this curl call.
 curl -s -X POST http://localhost:8000/api/polling/ \
   -H 'Content-Type: application/json' -d '{"enabled":false}' >/dev/null 2>&1
 

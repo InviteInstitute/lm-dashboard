@@ -1,8 +1,11 @@
 """
-AST dict -> APTED tree, custom cost config, change-score computation.
+Turning two block ASTs into a change_score via tree-edit distance.
 
-Ported from Hyeongjo's Colab. Costs and normalization match training
-exactly (see constants.py). Do not change without re-aligning the model.
+This converts an AST dict into an APTED tree, applies a Blockly-specific edit
+cost configuration, and normalizes the resulting edit distance into a score in
+[0, 1]. The costs and the normalization are reproduced from Hyeongjo's Colab and
+must match training exactly (see constants.py), so don't touch them without
+re-aligning the model.
 """
 import hashlib
 from collections import defaultdict
@@ -14,9 +17,9 @@ from .constants import (
 )
 
 
-# Append-only score cache. Keyed on the SHA1 pair of the two workspace XMLs;
-# since change_score is deterministic in its inputs, entries never need
-# invalidation. In-memory per-process — lives for the daemon process lifetime.
+# Score cache, append-only and never invalidated: change_score is a pure
+# function of its two XML inputs, so a result is good forever. Keyed by the SHA1
+# pair of the two workspace XMLs and kept in memory for the life of the process.
 _score_cache = {}
 
 
@@ -25,7 +28,8 @@ def _xml_hash(xml_string):
 
 
 def cached_change_score(prev_xml, curr_xml, prev_ast, curr_ast):
-    """Cached wrapper around compute_change_score keyed on the XML pair."""
+    """compute_change_score with memoization on the XML pair. Identical XML
+    short-circuits to 0.0 without building any tree."""
     if prev_xml == curr_xml:
         return 0.0
     key = (_xml_hash(prev_xml), _xml_hash(curr_xml))
@@ -62,6 +66,12 @@ def _make_node_label(node_info, include_fields=True, field_keys=None):
 
 
 def ast_to_apted_tree(ast_dict, include_fields=True, field_keys=None, include_edge_nodes=True):
+    """Convert an AST dict ({nodes, edges, roots}) into an APTED tree of
+    AptedNodes. Children are ordered deterministically (value, then statement,
+    then next, each by their recorded order). With include_edge_nodes set, every
+    edge becomes its own intermediate node so the edit distance also accounts for
+    how blocks are connected, not just which blocks exist. Multiple roots are
+    gathered under a synthetic ROOT node."""
     nodes = ast_dict.get("nodes", {})
     edges = ast_dict.get("edges", [])
     roots = ast_dict.get("roots", [])
@@ -109,6 +119,11 @@ def ast_to_apted_tree(ast_dict, include_fields=True, field_keys=None, include_ed
 
 
 class BlocklyConfig(Config):
+    """APTED cost model for Blockly trees. Insert/delete cost a flat amount; a
+    rename is free when labels match, cheap (field_change_cost) when only fields
+    differ within the same block type, and full price (type_change_cost) when the
+    block type itself changes. Edge nodes use their own edge_change_cost."""
+
     def __init__(self,
                  deletion_cost=DELETION_COST,
                  insertion_cost=INSERTION_COST,
@@ -145,7 +160,10 @@ def _count_tree_nodes(node):
 
 
 def compute_change_score(ast_prev, ast_curr):
-    """Return change_score in [0, 1]. 0 = identical, higher = more change."""
+    """Score how much two consecutive runs differ, in [0, 1]: 0 means identical,
+    larger means more rewritten. Computes the APTED edit distance between the two
+    trees, turns it into a size-normalized similarity (with SIMILARITY_SMOOTHING
+    to keep tiny trees from swinging the score), and returns 1 - similarity."""
     t1 = ast_to_apted_tree(ast_prev)
     t2 = ast_to_apted_tree(ast_curr)
     dist = APTED(t1, t2, BlocklyConfig()).compute_edit_distance()

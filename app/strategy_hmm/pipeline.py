@@ -1,5 +1,8 @@
 """
-Strategy HMM pipeline: events -> change scores -> input buckets -> HMM states.
+The strategy HMM pipeline, end to end: it turns a student's event stream into a
+per-run sequence of latent strategy states. The chain is
+
+    runs -> change scores (vs the previous run) -> input buckets -> HMM states.
 
 Public API:
     compute_strategy_states(events) -> {
@@ -8,9 +11,9 @@ Public API:
         "obs_labels": {0: "...", 1: "...", 2: "..."},
     }
 
-`events` is a list of dicts in chronological order, each with at least:
+`events` is a chronologically-ordered list of dicts, each carrying at least
     {"event_type": "...", "content": {...parsed VEX log content...}}
-Only events with event_type == "runProject" are considered.
+and only the runProject events take part; everything else is ignored.
 """
 import json
 import numpy as np
@@ -32,7 +35,8 @@ def _get_model():
 
 
 def bucket_change_score(score):
-    """Map a change_score to one of the 3 input categories. None passes through."""
+    """Quantize a change_score into one of three HMM input categories: 0 for an
+    identical run, 1 for a sub-threshold edit, 2 for a rewrite. None stays None."""
     if score is None:
         return None
     if score == 0:
@@ -43,7 +47,9 @@ def bucket_change_score(score):
 
 
 def _extract_runs(events):
-    """Pull (xml, ast, ts) per runProject event in chronological order."""
+    """For each runProject event, in order, pull out the workspace XML, parse it
+    into a block AST, and pair both with the event timestamp. Returns a list of
+    (xml, ast, ts) tuples."""
     runs = []
     for ev in events:
         if ev.get("event_type") != "runProject":
@@ -61,7 +67,10 @@ def _extract_runs(events):
 
 
 def compute_strategy_states(events):
-    """Run the full pipeline on a chronological event list."""
+    """Run the whole pipeline over a chronological event list and return the
+    per-run records plus the observation labels. Each run after the first gets a
+    change_score against its predecessor, a bucket, and an HMM-decoded state; the
+    first run has no predecessor, so its score, bucket, and state stay None."""
     runs = _extract_runs(events)
     runs_out = []
     obs_seq = []

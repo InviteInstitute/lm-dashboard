@@ -1,28 +1,35 @@
 """
-Lightweight Smart-Delta Engine for VEX block state parsing.
+A pared-down Smart-Delta Engine for reading VEX block-workspace state.
 
-Ported from Vex-LM-Pipeline/state_engine/smart_delta/engine.py.
-Uses stdlib only (json, xml.etree) instead of orjson/lxml.
+Adapted from Vex-LM-Pipeline/state_engine/smart_delta/engine.py, but kept to
+the standard library (json, xml.etree) rather than orjson/lxml so it has no
+extra dependencies.
 
-Parses VEX project XML into flat block/parent/orphan maps and generates
-a token-efficient pseudo-code representation for LLM consumption.
+It reconstructs a workspace two ways: by replaying create/move/delete/change
+deltas from the event stream, or by bootstrapping straight from a project's XML.
+Either way it ends up with flat block / parent / orphan maps, and can render
+them as a compact pseudo-code "prompt" that's cheap to feed to an LLM.
 """
 import json
 import xml.etree.ElementTree as ET
 
 
 class SmartDeltaEngine:
-    # Top-level block types that are program entry points (hat blocks).
-    # Only these are "active" when found at the root of the XML workspace.
-    # Everything else floating at the top level is an orphan.
+    # The "hat" block types that can start a program (event handlers and
+    # procedure definitions). At the workspace root, only these count as active;
+    # any other block sitting loose at the top level is treated as an orphan.
     HAT_BLOCK_PATTERNS = ('events_', 'procedures_definition')
 
     def __init__(self):
         self.blocks = {}         # block_id -> {type, x, y, fields}
-        self.parent_map = {}     # parent_id -> list of child_ids
-        self.orphan_status = {}  # block_id -> bool
+        self.parent_map = {}     # parent_id -> [child_id, ...]
+        self.orphan_status = {}  # block_id -> bool (True == not reachable from a hat)
 
     def process_log(self, log_event):
+        """Fold a single VEX log event into the current workspace state. A
+        loadProject/newProject event rebuilds from scratch; the block-level
+        create/move/delete/change events mutate the maps incrementally. Anything
+        unparseable or irrelevant is silently ignored."""
         try:
             content = json.loads(log_event.get('content', '{}'))
         except Exception:
@@ -30,12 +37,12 @@ class SmartDeltaEngine:
 
         event_type = content.get('eventType')
 
-        # 1. Bootstrap on Load or New Project
+        # A load/new event resets everything and re-derives state from the XML.
         if event_type in ('loadProject', 'newProject'):
             self._bootstrap_from_xml(content)
             return
 
-        # 2. Delta Processing
+        # Otherwise it's an incremental block delta.
         raw_block_data = content.get('blockEventData')
         if not raw_block_data:
             return
@@ -110,6 +117,9 @@ class SmartDeltaEngine:
             del self.parent_map[k]
 
     def _bootstrap_from_xml(self, content):
+        """Throw away the current maps and rebuild them by walking the project's
+        workspace XML. A block at the root is active only if it's a hat block;
+        children inherit their parent's orphan status as the walk descends."""
         self.blocks.clear()
         self.parent_map.clear()
         self.orphan_status.clear()
@@ -209,7 +219,10 @@ class SmartDeltaEngine:
         return len(self.blocks)
 
     def generate_llm_prompt(self):
-        """Generates a token-efficient pseudo-code representation of the workspace for LLM ingestion."""
+        """Render the current workspace as compact pseudo-code for an LLM. Roots
+        are split into an [Active] section (reachable from a hat block) and an
+        [Orphaned] section, each block printed with its fields and indented by
+        depth. Common VEX type prefixes are stripped to save tokens."""
         all_children = set()
         for children in self.parent_map.values():
             all_children.update(children)
@@ -267,12 +280,9 @@ class SmartDeltaEngine:
 
 
 def generate_llm_prompt_from_project(project_json_str):
-    """
-    Given a raw project JSON string (as stored in VexActivityLog.project),
-    bootstrap an engine and return the LLM-optimized prompt.
-
-    Returns the prompt string, or None if the project data can't be parsed.
-    """
+    """One-shot helper: take a raw project JSON string (the kind stored in a
+    VEX log's `project` field), bootstrap a fresh engine from it, and return the
+    rendered prompt. Returns None if the input is None or yields no blocks."""
     if project_json_str is None:
         return None
 

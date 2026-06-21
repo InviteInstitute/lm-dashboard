@@ -4,13 +4,13 @@ description: Every environment variable and CLI flag for the API and the ingesti
 
 # Configuration
 
-Everything is configured through environment variables. Put the daemon's
-credentials in `.env.mirror`, and leave the rest alone unless you have a reason;
-the defaults are sane for local use.
+Everything is configured through environment variables. Put the daemon's credentials
+in `.env.mirror`, and leave the rest alone unless you have a reason; the defaults are
+sane for local use.
 
-## Environment variables
+## Environment Variables
 
-| Variable | Used by | Default | What it does |
+| Variable | Used By | Default | What It Does |
 |---|---|---|---|
 | `PROD_USERNAME` / `PROD_PASSWORD` | daemon | (none) | auth to the prod server |
 | `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | prod server base URL |
@@ -25,19 +25,20 @@ the defaults are sane for local use.
     Both processes load `.env.mirror`, but only the daemon actually uses the prod
     credentials. It's harmless for the API, which never calls prod.
 
-## CLI flags
+## CLI Flags
 
-The daemon settings are also flags, and the flags win over the environment:
+The daemon's settings are also available as flags, and a flag wins over the matching
+environment variable:
 
 ```bash
 python -m app.pipeline --interval 1 --idle-max 8 --backfill-hours 2
 ```
 
-The full set is `--interval`, `--idle-max`, `--limit` (events per page),
-`--overlap` (cursor overlap seconds), and `--backfill-hours`. Run `python -m
-app.pipeline --help` for the inline reference.
+The full set is `--interval`, `--idle-max`, `--limit` (events per page), `--overlap`
+(cursor overlap seconds), and `--backfill-hours`. Run `python -m app.pipeline --help`
+for the inline reference.
 
-## Polling and idle backoff
+## Polling And Idle Backoff
 
 While students are active, the daemon polls every `PIPELINE_INTERVAL` seconds. When
 nothing's happening, it backs off exponentially toward `PIPELINE_IDLE_MAX` (so

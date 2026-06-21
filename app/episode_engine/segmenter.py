@@ -1,20 +1,20 @@
 """
-Batch episode segmenter.
+Batch episode segmentation: carving a session into CODE / RUN / RESET episodes.
 
-Walks a sorted event sequence and carves it into CODE / RUN / RESET episodes,
-respecting hard-pause boundaries and absorbing soft events into the
-surrounding episode. Mirrors the segmentation rules from Caitlin's repo.
+It walks a time-sorted event sequence and groups it into episodes, stopping at
+hard-pause boundaries and pulling "soft" UI events into whatever episode
+surrounds them. The rules mirror the segmentation logic in Caitlin's repo.
 
-Inputs:
-- events: list of dicts with at minimum {'event_type', 'ts'} (sorted by ts).
-- hard_pause_after_idx: set[int]  - indices i such that a hard pause sits
-  between events[i] and events[i+1]. (Computed elsewhere from the pause
-  detector; gaps >= PAUSE_THRESHOLD_S or POST_RUN_PAUSE.)
+segment_episodes inputs:
+- events: dicts with at least {'event_type', 'ts'}, sorted by ts.
+- hard_pause_after_idx: a set of indices i where a hard pause sits between
+  events[i] and events[i+1]. Computed by the pause detectors below from gaps
+  >= PAUSE_THRESHOLD_S (INACTIVE_PAUSE) or from POST_RUN_PAUSE.
 
-Output:
-- list of Episode dicts: {episode_type, boundary, start_idx, end_idx,
-  start_ts, end_ts, event_count, soft_indices}.
-  start_idx inclusive, end_idx exclusive (matches Caitlin's repo convention).
+segment_episodes output:
+- a list of episode dicts: {episode_type, boundary, start_idx, end_idx,
+  start_ts, end_ts, event_count, soft_indices}, where start_idx is inclusive and
+  end_idx is exclusive (Caitlin's repo convention).
 """
 from .pipeline_config import (
     boundary_kind,
@@ -32,7 +32,8 @@ RESET_EVENTS = frozenset({'loadProject', 'newProject'})
 
 
 def _classify_event(event_type: str) -> str:
-    """Return the episode kind a non-soft event opens, or '' if it doesn't open one."""
+    """Map an event type to the episode kind it would open (CODE, RUN, or RESET),
+    or '' if it opens nothing on its own."""
     if event_type in CODE_EVENTS:
         return 'CODE'
     if event_type in RUN_START_EVENTS:
@@ -43,6 +44,10 @@ def _classify_event(event_type: str) -> str:
 
 
 def segment_episodes(events: list[dict], hard_pause_after_idx: set[int]) -> list[dict]:
+    """Pass 2: scan the events once and emit episodes. RESET is a single event;
+    RUN runs until projectEnd (inclusive), another actionful event, or a hard
+    pause; CODE runs through consecutive code events. Soft events are absorbed
+    into the open episode, and orphan soft/unknown events are skipped."""
     episodes: list[dict] = []
     i = 0
     n = len(events)
@@ -121,7 +126,9 @@ def segment_episodes(events: list[dict], hard_pause_after_idx: set[int]) -> list
 
 
 def _detect_inactive_pauses(events: list[dict]) -> list[dict]:
-    """Pass 1: gaps >= PAUSE_THRESHOLD_S become INACTIVE_PAUSE hard boundaries."""
+    """Pass 1: turn long idle gaps into INACTIVE_PAUSE hard boundaries. A gap of
+    at least PAUSE_THRESHOLD_S qualifies; gaps that are trivially short or absurdly
+    long (> PAUSE_MAX_S, i.e. across sessions) are ignored."""
     pauses = []
     for i in range(1, len(events)):
         prev_ts = events[i - 1].get('ts')
@@ -142,9 +149,10 @@ def _detect_inactive_pauses(events: list[dict]) -> list[dict]:
 
 
 def _detect_post_run_pauses(events: list[dict], episodes: list[dict]) -> list[dict]:
-    """Pass 3: a RUN that closed with `projectEnd` followed (after transparent
-    UI events) by a non-soft event within (SHORT_PAUSE_MIN_S, PAUSE_THRESHOLD_S)
-    becomes a POST_RUN_PAUSE. Mirrors Caitlin's _identify_post_run_pauses."""
+    """Pass 3: detect the "watched it run, then paused" gap. For each RUN that
+    closed cleanly with projectEnd, skip past any transparent UI events and, if
+    the next real event lands within (SHORT_PAUSE_MIN_S, PAUSE_THRESHOLD_S), mark
+    a POST_RUN_PAUSE. Mirrors Caitlin's _identify_post_run_pauses."""
     pauses = []
     for ep in episodes:
         if ep['episode_type'] != 'RUN':
@@ -176,21 +184,22 @@ def _detect_post_run_pauses(events: list[dict], episodes: list[dict]) -> list[di
 
 
 def segment_session(events: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Run the full 3-pass episode segmentation pipeline.
+    """The public entry point: run all three passes in the order Caitlin's repo
+    uses.
 
-    Order matches Caitlin's repo:
-    1. Detect INACTIVE_PAUSE gaps (>= PAUSE_THRESHOLD_S) as hard boundaries.
-    2. Segment CODE/RUN/RESET episodes, respecting those boundaries; absorb
-       soft events into the surrounding episode.
-    3. Derive POST_RUN_PAUSE only for RUN episodes that ended with projectEnd
-       and have a qualifying gap (>SHORT_PAUSE_MIN_S, <PAUSE_THRESHOLD_S)
-       to the next non-transparent event.
+    1. Find INACTIVE_PAUSE gaps (>= PAUSE_THRESHOLD_S) and treat them as hard
+       boundaries.
+    2. Segment CODE/RUN/RESET episodes honoring those boundaries, absorbing soft
+       events into the surrounding episode.
+    3. Derive POST_RUN_PAUSE for RUN episodes that ended on projectEnd and have a
+       qualifying gap (> SHORT_PAUSE_MIN_S, < PAUSE_THRESHOLD_S) before the next
+       non-transparent event.
 
-    Each input event needs 'event_type' (str) and 'ts' (float seconds, may
-    be None - events with None ts can't anchor pauses but still segment).
+    Each event needs an 'event_type' (str) and a 'ts' (float seconds, or None,
+    an event with no ts still segments but can't anchor a pause).
 
-    Returns (episodes, pauses) with pauses sorted by after_idx so the
-    timeline renderer's lookup works.
+    Returns (episodes, pauses), with pauses sorted by after_idx so the timeline
+    renderer can look them up by position.
     """
     inactive = _detect_inactive_pauses(events)
     hard_after = {p['after_idx'] for p in inactive}

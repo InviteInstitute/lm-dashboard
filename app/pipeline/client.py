@@ -1,11 +1,13 @@
 """
-Production REST client for the ingestion pipeline.
+The REST client the pipeline uses to read prod's event stream.
 
-Bulk, cursor-based reads of prod's event stream. Today we cursor on the event
-timestamp via the existing `dateFrom` filter (works against prod unchanged); a
-clean `?since=<id>` path is included for when prod exposes an id cursor.
+It does bulk, cursor-based reads. The cursor is currently the event timestamp,
+expressed through prod's existing `dateFrom` filter so it works against the live
+API with no server changes; a cleaner `?since=<id>` path is stubbed in for the
+day prod exposes a proper id cursor.
 
-One reused keep-alive session; token cached and refreshed on 401.
+A single keep-alive session is reused across calls, and the auth token is cached
+and transparently refreshed whenever a request comes back 401.
 """
 import os
 import time
@@ -37,7 +39,8 @@ def _credentials():
 
 
 class ProdClient:
-    """Thin wrapper over prod's /api/rabbitmq/vex_logs/ with auth + keep-alive."""
+    """A thin wrapper over prod's /api/rabbitmq/vex_logs/ endpoint, handling
+    token auth, a keep-alive session, and re-auth on a 401."""
 
     def __init__(self, base=PROD_API_BASE, connect_timeout=3.0, read_timeout=8.0):
         self.base = base
@@ -63,7 +66,8 @@ class ProdClient:
 
     # -- reads ------------------------------------------------------------
     def _get(self, params):
-        """GET a page, re-authenticating once on 401. Raises on other errors."""
+        """Fetch one page of results. Retries once after re-authenticating if the
+        first attempt returns 401; any other non-200 raises ProdClientError."""
         headers = {'Authorization': f'Token {self.token()}'}
         resp = self.session.get(f'{self.base}/api/rabbitmq/vex_logs/',
                                 headers=headers, params=params, timeout=self.timeout)
@@ -76,16 +80,19 @@ class ProdClient:
         return resp.json().get('results', [])
 
     def page_by_time(self, date_from_iso, limit, offset):
-        """Bulk page across all students with received_at >= date_from."""
+        """A page of events across all students with received_at >= date_from.
+        This is what a normal drain uses."""
         params = {'limit': limit, 'offset': offset}
         if date_from_iso:
             params['dateFrom'] = date_from_iso
         return self._get(params)
 
     def page_by_id(self, since_id, limit):
-        """Clean id-cursor page (requires prod to support ?since). Future path."""
+        """A page using a proper id cursor (?since). Not used yet; here for when
+        prod supports it."""
         return self._get({'since': since_id, 'limit': limit})
 
     def page_student(self, student_id, limit, offset):
-        """One student's events (newest first) -- used to backfill on add."""
+        """A page of one student's events, newest first. Used to backfill a
+        student's history when they're added to the roster."""
         return self._get({'studentID': student_id, 'limit': limit, 'offset': offset})

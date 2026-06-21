@@ -1,11 +1,15 @@
 """
-Per-student workers. Each holds the student's recent events in memory and,
-when fed new events, recomputes derived state and materializes it into the
-student_state table. The viewer reads student_state only -- never raw logs.
+Per-student in-memory workers, the compute side of the daemon.
 
-Inference policy: the strategy HMM's unit is the RUN (runProject). We re-decode
-a student's run sequence the moment a new run lands; episodes + playground
-refresh on any new event. All cheap (~40ms/student).
+Each worker keeps a rolling buffer of one student's recent events. When new
+events arrive it recomputes that student's derived state, strategy, episodes,
+and the playground prompt, and writes it into the student_state table. The
+dashboard only ever reads student_state, never the raw logs.
+
+What gets recomputed when: the strategy HMM works at the granularity of a RUN
+(a runProject event), so the run sequence is only re-decoded when a new run
+lands; episodes and the playground prompt refresh on any new event. The whole
+recompute is cheap, on the order of tens of milliseconds per student.
 """
 import logging
 from collections import deque
@@ -39,8 +43,11 @@ class StudentWorker:
 
     # -- ingest ----------------------------------------------------------
     def ingest(self, ev):
-        """ev: dict with studentID, classCode, eventType, raw_message, project,
-        source_event_id, event_time(datetime)."""
+        """Fold one event into the buffer and update the running fields (class
+        code, latest project, last-seen markers). Flags the worker dirty, and
+        flags had_new_run when the event is a runProject so the next recompute
+        re-decodes the HMM. `ev` is a dict with studentID, classCode, eventType,
+        raw_message, project, source_event_id, and event_time (a datetime)."""
         et = ev.get("eventType") or ""
         ts = ev["event_time"].timestamp() if ev.get("event_time") else None
         self.events.append({"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts})
@@ -58,10 +65,22 @@ class StudentWorker:
         self.dirty = True
 
     # -- inference + materialize ----------------------------------------
-    def recompute_and_write(self):
+    def recompute_and_write(self, disabled=None):
+        """Recompute this student's full derived state from the buffered events
+        and upsert it into student_state. Decodes the strategy HMM (reusing the
+        cached decode when no new run arrived), fires any pending big_change
+        alerts, segments the session into episodes, rebuilds the playground
+        prompt, and clears the dirty flag.
+
+        `disabled` is the set of switched-off trigger types; the daemon passes
+        the copy it already fetched this tick, and we fall back to reading it
+        ourselves when called without one."""
+        if disabled is None:
+            disabled = _disabled_types()
         events = list(self.events)
 
-        # HMM (runs) -- only re-decode when a new run arrived (else reuse).
+        # Strategy HMM works per run, so only re-decode when a new run arrived;
+        # otherwise reuse the last decode.
         if self.had_new_run or self._runs_cache is None:
             self._runs_cache = compute_strategy_states(events)
             self.had_new_run = False
@@ -69,12 +88,13 @@ class StudentWorker:
         obs_labels = self._runs_cache["obs_labels"]
         run_count = sum(1 for r in runs)  # one entry per runProject
 
-        # Big-change alerts: fire once per qualifying run, the moment it's
-        # decoded. In-memory dedupe (seeded from the DB on rehydrate) replaces
-        # the old per-tick scan over every student's full history in
-        # triggers.evaluate(). The loop covers backfills (several runs at once);
-        # the live case is one new run. Honors the daemon-side disable flag.
-        if "big_change" not in _disabled_types():
+        # Big-change alerts fire once per qualifying run, right when it's decoded.
+        # The in-memory dedupe set (seeded from the DB on rehydrate) is what lets
+        # this replace the old approach of re-scanning every student's whole
+        # history inside triggers.evaluate() each tick. The loop handles a
+        # backfill that decodes several runs at once; live, it's just one new
+        # run. Respects the disabled-triggers flag.
+        if "big_change" not in disabled:
             ts = db.now()
             for r in runs:
                 idx, score = r.get("index"), r.get("change_score")
@@ -139,12 +159,14 @@ class StudentWorker:
 
 
 # ---------------------------------------------------------------------------
-# Registry + routing
+# Module-level worker registry and the routing/lifecycle helpers around it.
 # ---------------------------------------------------------------------------
-_workers = {}
+_workers = {}  # studentID -> StudentWorker
 
 
 def get_worker(student_id):
+    """Return the cached worker for a student, creating and rehydrating one from
+    the raw log on first access."""
     w = _workers.get(student_id)
     if w is None:
         w = _workers[student_id] = StudentWorker(student_id)
@@ -153,11 +175,12 @@ def get_worker(student_id):
 
 
 def route(ev):
-    """Route a freshly-persisted event to its student worker.
+    """Hand a freshly-persisted event to its student's worker.
 
-    If the worker isn't cached yet, _rehydrate already picks up the just-
-    inserted vex_log row, so we must NOT also ingest(ev) -- that would
-    double-count the same event in the in-memory buffer."""
+    If that worker doesn't exist yet, we create and rehydrate it instead, and
+    crucially do NOT also ingest(ev): rehydrate already reloads the just-inserted
+    vex_log row, so ingesting here too would double-count the event in the
+    buffer."""
     sid = ev["studentID"]
     w = _workers.get(sid)
     if w is None:
@@ -168,19 +191,21 @@ def route(ev):
 
 
 def dirty_workers():
+    """Every cached worker that took new events since its last recompute."""
     return [w for w in _workers.values() if w.dirty]
 
 
 def reconcile(tracked):
-    """Drop in-memory workers for students no longer tracked."""
+    """Evict cached workers for any student no longer on the tracked allowlist."""
     for sid in list(_workers.keys()):
         if sid not in tracked:
             _workers.pop(sid, None)
 
 
 def reset():
-    """Drop ALL in-memory workers (used by the dashboard reset). Without this,
-    a worker's buffered events would re-materialize state right after the wipe."""
+    """Evict every cached worker. The daemon calls this on a dashboard reset, so
+    that buffered events can't immediately re-materialize the state that was
+    just wiped."""
     _workers.clear()
 
 
@@ -189,8 +214,10 @@ def has_worker(student_id):
 
 
 def _rehydrate(worker):
-    """Cold start: reload a student's tail from raw logs (the only SQL read on
-    the hot path). db.student_tail returns rows oldest-first already."""
+    """Warm a cold worker by replaying the student's recent tail from the raw
+    log, the one SQL read on the hot path. Also seeds the big_change dedupe set
+    so a restart never re-fires past alerts. db.student_tail already returns
+    rows oldest-first, ready to replay in order."""
     worker.fired_big_change = db.big_change_indices(worker.student_id)
     for row in db.student_tail(worker.student_id, BUFFER_MAX):
         et = row["eventType"] or ""

@@ -1,15 +1,15 @@
 """
-End-of-day data export: dump the local SQLite database to CSV files.
+Command-line CSV export, handy for an end-of-day data dump from the terminal.
 
-    python scripts/export_csv.py                      # → exports/<YYYY-MM-DD_HHMM>/
-    python scripts/export_csv.py --out data/today     # choose the output folder
+    python scripts/export_csv.py                      # -> exports/<YYYY-MM-DD_HHMM>/
+    python scripts/export_csv.py --out data/today     # pick the output folder
     python scripts/export_csv.py --tables student_state,trigger_event
     python scripts/export_csv.py --db /path/to/db.sqlite3
 
-Writes one CSV per table. JSON columns (runs / episodes / detail) are written as
-raw JSON text; load them in pandas with json.loads. This script is READ-ONLY; it
-never modifies the database. Delegates to db.export_csv so it stays in sync with
-the API's Export button.
+It writes one CSV file per table. JSON columns (runs / episodes / detail) come
+out as raw JSON text, so load them back with json.loads in pandas. The script
+only reads the database, never writes it, and it calls the same db.export_csv as
+the dashboard's Export button so the two always produce identical output.
 """
 import argparse
 import os
@@ -22,7 +22,7 @@ from app import db  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Dump the SQLite DB to CSV (one file per table + all_data.csv)."
+        description="Dump the SQLite DB to CSV, one file per table."
     )
     ap.add_argument("--db", default="db.sqlite3",
                     help="SQLite file to export (default: db.sqlite3)")

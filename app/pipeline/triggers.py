@@ -1,15 +1,17 @@
 """
-Intervention triggers for the live feed.
+The intervention rules that feed the dashboard's "who needs help" column.
 
-Three simple, threshold-based rules evaluated each tick over all students:
+There are three, all threshold-based:
 
-  wheel_spin : HMM current state == stuck (re-running with no change)
-  inactive   : no event for >= INACTIVE_SECONDS
-  big_change : latest run's change_score >= BIG_CHANGE_SCORE (tossed/rewrote work)
+  wheel_spin : the HMM's current state is "stuck" (re-running with no real change)
+  inactive   : no event for at least INACTIVE_SECONDS
+  big_change : a run's change_score is at least BIG_CHANGE_SCORE (work tossed/rewritten)
 
-Sustained triggers (wheel_spin, inactive) stay open while the condition holds
-and resolve when it clears. big_change is momentary: one event per qualifying
-run. Acknowledged rows leave the feed.
+The two sustained rules, wheel_spin and inactive, stay open as long as their
+condition holds and resolve once it clears; this module evaluates them on every
+tick. big_change is momentary, one alert per qualifying run, and is fired from
+the worker the instant a run is decoded rather than from the sweep here.
+Acknowledged rows drop out of the feed.
 """
 import logging
 from datetime import datetime, timedelta, timezone
@@ -18,14 +20,14 @@ from app import db
 
 log = logging.getLogger("pipeline")
 
-# -- thresholds (set from observed data + your choices) --
+# -- thresholds (tuned from observed data + chosen defaults) --
 WHEEL_SPIN_STATE = 2
-INACTIVE_SECONDS = 300        # 5 min, matches segmenter INACTIVE_PAUSE
+INACTIVE_SECONDS = 300        # 5 min; lines up with the segmenter's INACTIVE_PAUSE
 BIG_CHANGE_SCORE = 0.5
-# After a TA acknowledges a sustained trigger, if the condition keeps holding
-# for this long the trigger is rotated: the acked row is resolved and a fresh
-# row is opened so the feed re-surfaces a student who never actually got
-# unstuck.
+# Re-alert window. Once a TA acks a sustained trigger, if the condition is still
+# holding this long after the alert first started, the trigger is rotated: the
+# acked row is resolved and a fresh one opened, so a student who never actually
+# got unstuck resurfaces in the feed instead of staying silently dismissed.
 RE_ALERT_SECONDS = 600        # 10 min
 
 LABELS = {"wheel_spin": "Wheel-spinning", "inactive": "Inactive", "big_change": "Big rewrite"}
@@ -47,11 +49,13 @@ def _latest_run(state):
 
 
 def _wheel_spin_started(state, fallback):
-    """When did the student enter their current stuck streak?
+    """Find when the student's current stuck streak began.
 
-    Looks back through runs while they're STUCK and returns the timestamp of
-    the first run in that consecutive streak. Falls back to `fallback` (now)
-    when run timestamps aren't available."""
+    Walks the runs from newest to oldest while they stay in the STUCK state and
+    returns the timestamp of the earliest run in that unbroken streak, so the
+    alert's age reflects how long they've actually been stuck rather than when we
+    noticed. Returns `fallback` (the caller passes now) if no run timestamps are
+    available."""
     runs = (state.get("runs") or {}).get("runs", [])
     streak_start_ts = None
     for r in reversed(runs):
@@ -68,20 +72,26 @@ def _wheel_spin_started(state, fallback):
 
 
 def _disabled_types():
-    """Trigger types the researcher has switched off (meta flag, set via the API).
-    Comma-separated; empty means all enabled."""
+    """The set of trigger types the researcher has switched off, read from the
+    comma-separated meta flag the API writes. An empty flag means all are on."""
     raw = db.get_meta("disabled_triggers") or ""
     return {t for t in raw.split(",") if t}
 
 
-def evaluate(now=None):
-    """One full pass over student_state for the SUSTAINED triggers (wheel_spin,
-    inactive): opens/updates/resolves trigger_events. A disabled type also
-    resolves any open rows (active=False) so it clears from the feed within a
-    tick. big_change is momentary and fires from the worker the moment a run is
-    decoded (see workers.recompute_and_write), not from this per-tick pass."""
+def evaluate(now=None, disabled=None):
+    """One sweep over student_state for the sustained triggers (wheel_spin and
+    inactive), opening, touching, and resolving trigger_event rows as conditions
+    change. A type that's been disabled is treated as inactive, so its open rows
+    resolve and clear from the feed within a tick. big_change is not handled here:
+    it's momentary and fires from the worker the moment a run is decoded (see
+    workers.recompute_and_write).
+
+    `disabled` is the set of switched-off trigger types; the daemon passes the
+    copy it already fetched this tick, and we fall back to reading it ourselves
+    when called without one."""
     now = now or db.now()
-    disabled = _disabled_types()
+    if disabled is None:
+        disabled = _disabled_types()
     for s in db.all_student_states():
         sid = s["studentID"]
 
@@ -108,15 +118,19 @@ def evaluate(now=None):
 
 
 def _sustain(student_id, ttype, active, now, started, detail):
+    """Reconcile one open trigger row against the current condition: open a new
+    one when the condition starts, keep an existing one fresh while it holds,
+    rotate an acked-but-still-holding one past the re-alert window, and resolve
+    it when the condition clears."""
     ev = db.current_open_trigger(student_id, ttype)
     if active and ev is None:
         db.create_trigger(student_id, ttype, started_at=started, last_seen_at=now,
                           resolved_at=None, detail=detail)
     elif active and ev is not None:
-        # If a TA has acked but the condition keeps holding past RE_ALERT_SECONDS,
-        # close the acked row and open a fresh unacked one so the student
-        # re-surfaces in the feed -- otherwise a persistently stuck student
-        # never alerts again until they leave + re-enter the state.
+        # Acked but still holding past the re-alert window: resolve the acked row
+        # and open a fresh, unacked one so the student comes back to the feed.
+        # Without this a persistently stuck student would never alert again until
+        # they left and re-entered the state.
         if ev["acknowledged"] and (now - ev["started_at"]).total_seconds() >= RE_ALERT_SECONDS:
             db.resolve_trigger(ev["id"], now)
             db.create_trigger(student_id, ttype, started_at=now, last_seen_at=now,

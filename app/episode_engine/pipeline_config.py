@@ -1,9 +1,11 @@
 """
-Pipeline-wide config: thresholds, hard/soft boundary taxonomy.
+Shared configuration for the episode engine: the pause thresholds and the
+hard/soft boundary taxonomy the segmenter reads.
 
-Mirrors the segmentation semantics from learner-model-pipeline/src/episodes.py:
-hard-boundary episode types prevent merging of surrounding episodes regardless
-of time gap; soft events are absorbed into surrounding episodes.
+These mirror the segmentation semantics in learner-model-pipeline/src/episodes.py.
+Hard-boundary episode types stop surrounding episodes from merging no matter the
+time gap; soft events never form an episode of their own and are folded into
+whatever episode surrounds them.
 """
 
 # Pause / merge thresholds (seconds)
@@ -55,7 +57,8 @@ POST_RUN_PAUSE_TRANSPARENT_TYPES: frozenset[str] = frozenset({
 
 
 def boundary_kind(episode_type: str) -> str:
-    """Return 'hard' or 'soft' for a given episode_type."""
+    """Classify an episode_type as a 'hard' or 'soft' boundary (only the pause
+    types count as hard here)."""
     return "hard" if episode_type.upper() in HARD_PAUSE_TYPES else "soft"
 
 

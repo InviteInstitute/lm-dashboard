@@ -1,9 +1,9 @@
 """
-XML (Blockly workspace) -> AST-like dict.
+Parsing a Blockly workspace XML into an AST-like dict.
 
-Ported from Hyeongjo's Colab (XML -> AST section). Same logic, cleaned up.
-The shape returned matches the Colab's `xml_to_block_ast` so downstream
-APTED conversion stays identical.
+This is the XML -> AST step from Hyeongjo's Colab, same logic with a cleanup
+pass. The returned shape deliberately matches the Colab's `xml_to_block_ast`, so
+the downstream APTED conversion behaves identically to training.
 """
 import json
 import xml.etree.ElementTree as ET
@@ -51,7 +51,11 @@ def _find_child_blocks(container_elem, allow_shadow=False):
 
 
 def xml_to_block_ast(xml_string, keep_shadow=False):
-    """Return {nodes, edges, roots} mirroring the Colab structure."""
+    """Parse workspace XML into {nodes, edges, roots}, the AST shape the Colab
+    used. nodes maps block id to type+fields, edges record parent/child links
+    tagged by connection kind (value/statement/next) and slot, and roots lists
+    the top-level blocks. Shadow blocks are dropped unless keep_shadow is set,
+    and a blank input yields an empty AST."""
     if not xml_string:
         return {"nodes": {}, "edges": [], "roots": []}
 
@@ -97,7 +101,9 @@ def xml_to_block_ast(xml_string, keep_shadow=False):
 
 
 def extract_workspace_xml(log_content):
-    """Pull the workspace XML string out of a parsed log content dict."""
+    """Dig the workspace XML string out of a parsed log content dict, handling
+    the project field arriving either as a nested dict or as a JSON string.
+    Returns "" when there's nothing usable."""
     project = log_content.get("project", {}) if isinstance(log_content, dict) else {}
     if isinstance(project, str):
         try:

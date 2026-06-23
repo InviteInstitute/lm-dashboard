@@ -200,11 +200,13 @@ def export():
 
 @app.post("/api/reset/")
 def reset():
-    """Clear all local student data (logs, episodes, HMM state, flags) and the
-    researcher notes, and signal the daemon to drop its in-memory workers.
-    Tracked students stay tracked and the board rebuilds from new activity. A CSV
-    snapshot, notes included, is written to exports/reset_<timestamp>/ first, so
-    nothing is actually lost. Local only; production is never touched.
+    """Clear all local student data (logs, episodes, HMM state, flags), the
+    researcher notes, and the interview-pick state (picked toggles + pick
+    history), and signal the daemon to drop its in-memory workers. Tracked
+    students stay tracked, presence is kept, and the board rebuilds from new
+    activity. A CSV snapshot, notes and picks included, is written to
+    exports/reset_<timestamp>/ first, so nothing is actually lost. Local only;
+    production is never touched.
 
     The order matters: we stamp meta['reset_requested_at'] (which the daemon
     watches, so it drops its workers and re-wipes any row a race leaves behind)

@@ -252,27 +252,44 @@ const CohortDashboard = () => {
 
     // Whether the daemon is polling prod. Read on the same timer so the pause
     // toggle agrees across every open dashboard, not just the one that clicked it.
+    // `pollingPending` guards against the poll clobbering a click that's still in
+    // flight: without it, a GET issued before the POST commits returns the old
+    // value and visibly flips the button back, so the toggle "fights" the user.
+    const pollingPending = React.useRef(false);
     const fetchPolling = React.useCallback(async () => {
-        try { setPollingOn((await api.get('/api/polling/')).data.enabled); } catch { /* keep */ }
+        try {
+            const v = (await api.get('/api/polling/')).data.enabled;
+            if (!pollingPending.current) setPollingOn(v);   // checked AFTER the await
+        } catch { /* keep */ }
     }, []);
     React.useEffect(() => { fetchPolling(); const id = setInterval(fetchPolling, POLL_MS); return () => clearInterval(id); }, [fetchPolling]);
     const togglePolling = async () => {
         const next = !pollingOn;
+        pollingPending.current = true;
         setPollingOn(next);   // optimistic
         try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
         catch { fetchPolling(); }
+        finally { pollingPending.current = false; }
     };
     // Which trigger types are enabled. Switching one off tells the daemon to
     // stop firing it and clear its open alerts; we also hide it locally at once.
+    // Same in-flight guard as the polling toggle, so the poll can't flip a switch
+    // back while its POST is still committing.
+    const triggerPending = React.useRef(false);
     const fetchTriggerCfg = React.useCallback(async () => {
-        try { setTriggerCfg((await api.get('/api/triggers/config/')).data.enabled); } catch { /* keep */ }
+        try {
+            const v = (await api.get('/api/triggers/config/')).data.enabled;
+            if (!triggerPending.current) setTriggerCfg(v);
+        } catch { /* keep */ }
     }, []);
     React.useEffect(() => { fetchTriggerCfg(); const id = setInterval(fetchTriggerCfg, POLL_MS); return () => clearInterval(id); }, [fetchTriggerCfg]);
     const toggleTrigger = async (type) => {
         const next = !triggerCfg[type];
+        triggerPending.current = true;
         setTriggerCfg(c => ({ ...c, [type]: next }));   // optimistic
         try { setTriggerCfg((await api.post('/api/triggers/config/', { trigger_type: type, enabled: next })).data.enabled); }
         catch { fetchTriggerCfg(); }
+        finally { triggerPending.current = false; }
     };
     // Present / picked toggles for the interview workflow. Update the UI first,
     // then persist; because both live on tracked_student they show up in the CSV.

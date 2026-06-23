@@ -30,3 +30,8 @@ site/
 
 # Dev process logs (start.sh)
 .devlogs/
+
+# Test coverage artifacts
+.coverage
+htmlcov/
+frontend/coverage/

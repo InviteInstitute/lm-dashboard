@@ -38,7 +38,7 @@ const POLL_MS = 1500;
 const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
 const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
-function relTime(iso) {
+export function relTime(iso) {
     if (!iso) return '—';
     const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
     if (s < 60) return `${Math.round(s)}s`;
@@ -46,13 +46,13 @@ function relTime(iso) {
     if (s < 86400) return `${Math.round(s / 3600)}h`;
     return `${Math.round(s / 86400)}d`;
 }
-function fmtDur(s) {
+export function fmtDur(s) {
     if (s == null) return '—';
     if (s < 60) return `${s.toFixed(1)}s`;
     if (s < 3600) return `${(s / 60).toFixed(1)}m`;
     return `${(s / 3600).toFixed(1)}h`;
 }
-function stateMeta(st) {
+export function stateMeta(st) {
     if (!st || st.current_state == null) return NOSTATE;
     return STATE[st.current_state] || NOSTATE;
 }

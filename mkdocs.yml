@@ -44,6 +44,7 @@ nav:
       - Using the dashboard: guides/using-the-dashboard.md
       - Configuration: guides/configuration.md
       - Operations: guides/operations.md
+      - Running the tests: guides/testing.md
   - Reference:
       - API reference: reference/api.md
 

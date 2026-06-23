@@ -13,3 +13,9 @@ hmmlearn>=0.3
 joblib>=1.5
 scikit-learn>=1.5
 apted>=1.0
+
+# tests (pytest tests/). httpx backs the FastAPI TestClient; pytest-cov for
+# coverage (pytest --cov=app). Frontend tests live under frontend/ (npm test).
+pytest
+pytest-cov
+httpx

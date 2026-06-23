@@ -78,21 +78,22 @@ describe('CohortDashboard', () => {
     });
   });
 
-  it('a poll cannot flip the pause toggle back while a click is in flight', async () => {
+  it('background polling never reverts the pause toggle (it is fetched once, not polled)', async () => {
     vi.useFakeTimers();
     try {
-      // server still reports "on"; the POST hangs so the toggle stays pending
+      // server reports "on"; the POST hangs so the click stays applied optimistically
       api.get.mockImplementation((url) =>
         Promise.resolve({ data: url === '/api/polling/' ? { enabled: true } : (ROUTES[url] ?? {}) }));
       api.post.mockImplementation(() => new Promise(() => {}));   // never resolves
       render(<CohortDashboard />);
-      await vi.advanceTimersByTimeAsync(0);                       // flush initial fetches
+      await vi.advanceTimersByTimeAsync(0);                       // mount fetch -> "on"
 
-      fireEvent.click(screen.getByText(/Pause polling/));         // optimistic -> off, pending=true
+      fireEvent.click(screen.getByText(/Pause polling/));         // optimistic -> off
       expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
 
-      await vi.advanceTimersByTimeAsync(1500);                    // a poll fires (GET says "on")
-      // the guard must keep the optimistic "off" instead of letting the poll flip it back
+      // advance well past several poll intervals: the other feeds re-poll, but the
+      // pause state is NOT on a timer, so nothing can flip it back to "on".
+      await vi.advanceTimersByTimeAsync(5000);
       expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -207,7 +208,7 @@ describe('CohortDashboard', () => {
 
   it('tracks a semicolon-separated list, ignoring whitespace and blanks/dupes', async () => {
     render(<CohortDashboard />);
-    const input = await screen.findByPlaceholderText(/semicolon-separated/);
+    const input = await screen.findByPlaceholderText(/Track student IDs/);
     fireEvent.change(input, { target: { value: ' alice ;bob; ;  carol ; bob ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => {

@@ -250,46 +250,33 @@ const CohortDashboard = () => {
     }, []);
     React.useEffect(() => { fetchTriggers(); const id = setInterval(fetchTriggers, POLL_MS); return () => clearInterval(id); }, [fetchTriggers]);
 
-    // Whether the daemon is polling prod. Read on the same timer so the pause
-    // toggle agrees across every open dashboard, not just the one that clicked it.
-    // `pollingPending` guards against the poll clobbering a click that's still in
-    // flight: without it, a GET issued before the POST commits returns the old
-    // value and visibly flips the button back, so the toggle "fights" the user.
-    const pollingPending = React.useRef(false);
+    // Pause state and trigger-config are values ONLY the user changes here (the
+    // daemon just reads them), so we do NOT poll them on a timer. Polling created
+    // a race: a GET already in flight when you click resolves a moment later with
+    // the pre-click value and flips the control back. We fetch each once on mount
+    // and let the toggle be the source of truth afterward. No competing GET, no
+    // flicker. (A second open dashboard won't auto-sync these two controls, which
+    // is fine for a single-researcher session.)
     const fetchPolling = React.useCallback(async () => {
-        try {
-            const v = (await api.get('/api/polling/')).data.enabled;
-            if (!pollingPending.current) setPollingOn(v);   // checked AFTER the await
-        } catch { /* keep */ }
+        try { setPollingOn((await api.get('/api/polling/')).data.enabled); } catch { /* keep */ }
     }, []);
-    React.useEffect(() => { fetchPolling(); const id = setInterval(fetchPolling, POLL_MS); return () => clearInterval(id); }, [fetchPolling]);
+    React.useEffect(() => { fetchPolling(); }, [fetchPolling]);   // once, no interval
     const togglePolling = async () => {
         const next = !pollingOn;
-        pollingPending.current = true;
-        setPollingOn(next);   // optimistic
+        setPollingOn(next);   // optimistic; the toggle owns this value
         try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
         catch { fetchPolling(); }
-        finally { pollingPending.current = false; }
     };
-    // Which trigger types are enabled. Switching one off tells the daemon to
-    // stop firing it and clear its open alerts; we also hide it locally at once.
-    // Same in-flight guard as the polling toggle, so the poll can't flip a switch
-    // back while its POST is still committing.
-    const triggerPending = React.useRef(false);
+
     const fetchTriggerCfg = React.useCallback(async () => {
-        try {
-            const v = (await api.get('/api/triggers/config/')).data.enabled;
-            if (!triggerPending.current) setTriggerCfg(v);
-        } catch { /* keep */ }
+        try { setTriggerCfg((await api.get('/api/triggers/config/')).data.enabled); } catch { /* keep */ }
     }, []);
-    React.useEffect(() => { fetchTriggerCfg(); const id = setInterval(fetchTriggerCfg, POLL_MS); return () => clearInterval(id); }, [fetchTriggerCfg]);
+    React.useEffect(() => { fetchTriggerCfg(); }, [fetchTriggerCfg]);   // once, no interval
     const toggleTrigger = async (type) => {
         const next = !triggerCfg[type];
-        triggerPending.current = true;
         setTriggerCfg(c => ({ ...c, [type]: next }));   // optimistic
         try { setTriggerCfg((await api.post('/api/triggers/config/', { trigger_type: type, enabled: next })).data.enabled); }
         catch { fetchTriggerCfg(); }
-        finally { triggerPending.current = false; }
     };
     // Present / picked toggles for the interview workflow. Update the UI first,
     // then persist; because both live on tracked_student they show up in the CSV.
@@ -424,7 +411,7 @@ const CohortDashboard = () => {
                     Learner Modeling Dashboard
                     {!pollingOn && <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>· Daemon Paused</span>}
                 </span>
-                <input style={S.input} placeholder="Track student IDs (semicolon-separated)…" value={query}
+                <input style={S.input} placeholder="Track student IDs" value={query}
                        onChange={e => setQuery(e.target.value)}
                        onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
                 <button style={pollingOn ? S.pollPause : S.pollResume} onClick={togglePolling}

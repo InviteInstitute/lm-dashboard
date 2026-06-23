@@ -139,6 +139,19 @@ describe('CohortDashboard', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/reset/'));
   });
 
+  it('tracks a semicolon-separated list, ignoring whitespace and blanks/dupes', async () => {
+    render(<CohortDashboard />);
+    const input = await screen.findByPlaceholderText(/semicolon-separated/);
+    fireEvent.change(input, { target: { value: ' alice ;bob; ;  carol ; bob ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => {
+      const tracked = api.post.mock.calls
+        .filter(([url]) => url === '/api/tracked/')
+        .map(([, body]) => body.studentID);
+      expect(new Set(tracked)).toEqual(new Set(['alice', 'bob', 'carol']));   // blank + dup dropped
+    });
+  });
+
   it('untracks a student from the roster chip', async () => {
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle('Stop tracking'));

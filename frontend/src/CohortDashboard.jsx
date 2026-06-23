@@ -342,9 +342,16 @@ const CohortDashboard = () => {
         try { await api.post('/api/triggers/ack/', { id }); } catch { fetchTriggers(); }
     };
 
+    // Track one or many: split on ';', strip ALL whitespace from each id (ids
+    // never contain spaces, so any whitespace is just noise), drop blanks, and
+    // de-dupe. Each is added independently so one failure doesn't sink the rest.
     const addTracked = async () => {
-        const sid = query.trim(); if (!sid) return;
-        try { await api.post('/api/tracked/', { studentID: sid }); } catch { /* */ }
+        const ids = [...new Set(
+            query.split(';').map(s => s.replace(/\s/g, '')).filter(Boolean)
+        )];
+        if (ids.length === 0) return;
+        await Promise.all(ids.map(sid =>
+            api.post('/api/tracked/', { studentID: sid }).catch(() => {})));
         setQuery(''); fetchRoster();
     };
     const removeTracked = async (sid) => {
@@ -404,7 +411,7 @@ const CohortDashboard = () => {
                     Learner Modeling Dashboard
                     {!pollingOn && <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>· Daemon Paused</span>}
                 </span>
-                <input style={S.input} placeholder="Track a student ID…" value={query}
+                <input style={S.input} placeholder="Track student IDs (semicolon-separated)…" value={query}
                        onChange={e => setQuery(e.target.value)}
                        onKeyDown={e => { if (e.key === 'Enter') addTracked(); }} />
                 <button style={pollingOn ? S.pollPause : S.pollResume} onClick={togglePolling}

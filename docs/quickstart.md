@@ -77,6 +77,18 @@ Three processes, one terminal each.
     daemon started paused, dashboard, and these docs) in the background, and
     `./scripts/stop.sh` tears them down.
 
+!!! note "Dev vs. production mode"
+    By default `./scripts/start.sh` runs the dashboard in **dev mode** (the Vite
+    dev server, with hot reload), which is what you want while editing the code.
+
+    For a real **data-collection session**, run `./scripts/start.sh --prod`. It
+    builds the dashboard and serves the static bundle instead. It's lighter, runs
+    React effects once, and (unlike dev mode) a stray file save can't hot-reload
+    the page and reset your open detail modal or a half-written note. Same API,
+    daemon, database, and ports either way; only the dashboard build differs. The
+    production build takes a few seconds, so the dashboard appears shortly after
+    the URLs are printed.
+
 ## Track Your First Student
 
 Open [http://localhost:3000](http://localhost:3000), type a student ID into **Track a

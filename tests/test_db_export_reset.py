@@ -52,6 +52,8 @@ def test_reset_all_wipes_data_but_keeps_roster_cursor_meta(seed_state):
     db.tracked_add("s1")
     seed_state("s1")
     db.add_note("s1", "note")
+    db.set_picked("s1", True)                       # picked + a pick_event row
+    db.set_presence("s1", False)                    # presence should survive reset
     db.get_or_create_cursor("vex_poll")
     db.set_meta("polling_enabled", "0")
     db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {"label": "x"})
@@ -62,7 +64,12 @@ def test_reset_all_wipes_data_but_keeps_roster_cursor_meta(seed_state):
     assert db.list_student_states(["s1"]) == []
     assert db.list_notes("s1") == []
     assert db._query("SELECT 1 FROM trigger_event") == []
-    # kept
+    # picks cleared: flag reset, timestamp gone, history wiped
+    row = db.tracked_list()[0]
+    assert row["picked"] is False and row["picked_at"] is None
+    assert db._query("SELECT 1 FROM pick_event") == []
+    # kept: roster, presence, cursor, meta
     assert [r["studentID"] for r in db.tracked_list()] == ["s1"]
+    assert row["present"] is False                  # presence is NOT reset
     assert db.get_meta("polling_enabled") == "0"
     assert db.get_or_create_cursor("vex_poll")["name"] == "vex_poll"

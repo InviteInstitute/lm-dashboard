@@ -335,14 +335,19 @@ def get_meta_many(keys):
 
 
 def reset_all():
-    """Clear the local mirror: raw events, derived state, and the researcher
-    notes. Deliberately spared are the tracked roster, the ingest cursor, and
-    meta, so the board keeps its students and rebuilds only from activity that
-    arrives after the reset rather than re-pulling old events. The /api/reset/
-    endpoint writes a CSV backup (notes included) before calling this."""
+    """Clear the local mirror for a fresh session: raw events, derived state, the
+    researcher notes, and the interview-pick state (the picked flags plus the
+    pick/unpick history). Deliberately spared are the tracked roster itself, each
+    student's presence flag, the ingest cursor, and meta -- so the board keeps its
+    students (and who's in the room) and rebuilds only from activity that arrives
+    after the reset rather than re-pulling old events. The /api/reset/ endpoint
+    writes a CSV backup (notes and pick history included) before calling this."""
     with write_txn() as con:
-        for t in ("trigger_event", "student_state", "vex_log", "message", "note"):
+        for t in ("trigger_event", "student_state", "vex_log", "message", "note",
+                  "pick_event"):
             con.execute(f"DELETE FROM {t}")
+        # Clear the picked toggles but keep the roster + presence.
+        con.execute("UPDATE tracked_student SET picked = 0, picked_at = NULL")
 
 
 # --------------------------------------------------------------------------

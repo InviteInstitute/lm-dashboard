@@ -369,15 +369,19 @@ const CohortDashboard = () => {
         }
     };
     const resetAll = async () => {
-        if (!window.confirm("Reset the board?\n\nThis clears every student's logs, episodes, strategy state, flags, AND your notes & observations. A CSV backup (including the notes) is saved to exports/ automatically first, so nothing is lost.\n\nStudents stay tracked and the board rebuilds from new activity. Local only, production is untouched.")) return;
+        if (!window.confirm("Reset the board?\n\nThis clears every student's logs, episodes, strategy state, flags, your notes & observations, AND the picked toggles + pick history. A CSV backup (notes and picks included) is saved to exports/ automatically first, so nothing is lost.\n\nStudents stay tracked and present/absent is kept; the board rebuilds from new activity. Local only, production is untouched.")) return;
         try {
             const { data } = await api.post('/api/reset/');
+            // Clear the local views at once so nothing lingers until the next
+            // poll: the cards, the open detail, the notes, the open note editor,
+            // AND the "Needs intervention" alerts (reset wiped trigger_event).
             setSelected(null); setStates({}); setNotes([]);
+            setTriggers([]); setNoteOpen(null); setNoteText('');
             window.alert('Reset done. Backup saved to:\n' + (data.backup || 'exports/'));
         } catch {
             window.alert('Reset failed, data was NOT cleared.');
         }
-        fetchStates(); fetchRoster();
+        fetchStates(); fetchRoster(); fetchTriggers();
     };
 
     // One card per tracked student, each merged with its materialized state.
@@ -398,8 +402,17 @@ const CohortDashboard = () => {
     // Keep the alert feed to currently-tracked students with the type enabled.
     // The backend evaluates every student_state row, so this filters out alerts
     // for someone who was just untracked (and any muted trigger type).
+    //
+    // Show "needs intervention RIGHT NOW": the sustained triggers (wheel_spin,
+    // inactive) only while active, so a recovered student drops off immediately
+    // instead of lingering in the resolved-feed window. big_change is momentary
+    // (it's created already-resolved), so it has no active phase -- show it for
+    // its window or it would never appear at all.
     const tracked = new Set(roster.map(r => r.studentID));
-    const alerts = triggers.filter(t => tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
+    const alerts = triggers.filter(t =>
+        tracked.has(t.studentID)
+        && triggerCfg[t.trigger_type] !== false
+        && (t.active || t.trigger_type === 'big_change'));
     const headColor = TRIGGERS.wheel_spin.c;
     const detail = detailFull;   // heavy payload fetched per-open student
 

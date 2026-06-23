@@ -78,6 +78,27 @@ describe('CohortDashboard', () => {
     });
   });
 
+  it('a poll cannot flip the pause toggle back while a click is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      // server still reports "on"; the POST hangs so the toggle stays pending
+      api.get.mockImplementation((url) =>
+        Promise.resolve({ data: url === '/api/polling/' ? { enabled: true } : (ROUTES[url] ?? {}) }));
+      api.post.mockImplementation(() => new Promise(() => {}));   // never resolves
+      render(<CohortDashboard />);
+      await vi.advanceTimersByTimeAsync(0);                       // flush initial fetches
+
+      fireEvent.click(screen.getByText(/Pause polling/));         // optimistic -> off, pending=true
+      expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
+
+      await vi.advanceTimersByTimeAsync(1500);                    // a poll fires (GET says "on")
+      // the guard must keep the optimistic "off" instead of letting the poll flip it back
+      expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('acks a trigger when its ✕ is clicked', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/triggers/') {
@@ -93,6 +114,26 @@ describe('CohortDashboard', () => {
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/api/triggers/ack/', { id: 7 });
     });
+  });
+
+  it('hides a recovered sustained alert but keeps a momentary big_change', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/triggers/') {
+        return Promise.resolve({ data: { triggers: [
+          // resolved wheel_spin (student recovered) -> should NOT show
+          { id: 1, studentID: 'alice', trigger_type: 'wheel_spin', label: 'Wheel-spinning',
+            value: '2 re-runs', active: false, age_seconds: 30 },
+          // big_change is momentary (always active:false) -> should still show
+          { id: 2, studentID: 'alice', trigger_type: 'big_change', label: 'Big rewrite',
+            value: 'change 0.80', active: false, age_seconds: 5 },
+        ], active_count: 0, counts: {} } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    // 2 triggers in (resolved wheel_spin + resolved big_change) -> exactly 1
+    // alert rendered: the big_change. The resolved sustained one is dropped.
+    await waitFor(() => expect(screen.getAllByTitle(/Dismiss alert/)).toHaveLength(1));
   });
 
   it('opens the detail modal and fetches the heavy payload on click', async () => {
@@ -139,6 +180,31 @@ describe('CohortDashboard', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/reset/'));
   });
 
+  it('warns and keeps data when reset fails', async () => {
+    api.post.mockImplementation((url) =>
+      url === '/api/reset/' ? Promise.reject(new Error('boom')) : Promise.resolve({ data: {} }));
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByText(/Reset/));
+    await waitFor(() =>
+      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Reset failed')));
+  });
+
+  it('shows "waiting for activity" for a tracked student with no state yet', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/tracked/') {
+        return Promise.resolve({ data: {
+          tracked: [{ studentID: 'newkid', backfilled: false, has_data: false, present: true, picked: false }],
+          count: 1 } });
+      }
+      if (url === '/api/student_states/') {
+        return Promise.resolve({ data: { students: [], student_count: 0, stuck_count: 0 } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    expect(await screen.findByText(/Waiting for activity/)).toBeInTheDocument();
+  });
+
   it('tracks a semicolon-separated list, ignoring whitespace and blanks/dupes', async () => {
     render(<CohortDashboard />);
     const input = await screen.findByPlaceholderText(/semicolon-separated/);
@@ -158,6 +224,41 @@ describe('CohortDashboard', () => {
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/tracked/',
         { studentID: 'alice', remove: true }));
+  });
+
+  it('closes the detail modal if the open student is untracked', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/student_states/alice/') {
+        return Promise.resolve({ data: { studentID: 'alice', current_state: 1, run_count: 0,
+          event_count: 0, block: { llm_prompt: null }, episodes: { events: [], episodes: [],
+          pauses: [], event_count: 0 }, hmm: { runs: [], run_count: 0, obs_labels: {} } } });
+      }
+      if (url === '/api/notes/') return Promise.resolve({ data: { notes: [], count: 0 } });
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle('alice'));        // open the modal
+    await screen.findByText('Playground');
+    fireEvent.click(screen.getByTitle('Stop tracking'));        // untrack the open student
+    await waitFor(() => expect(screen.queryByText('Playground')).not.toBeInTheDocument());
+  });
+
+  it('falls back to "no activity" when the detail fetch fails', async () => {
+    api.get.mockImplementation((url) =>
+      url === `/api/student_states/alice/`
+        ? Promise.reject(new Error('404'))
+        : Promise.resolve({ data: ROUTES[url] ?? {} }));
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle('alice'));
+    expect(await screen.findByText(/No activity yet/)).toBeInTheDocument();
+  });
+
+  it('warns when export fails', async () => {
+    api.post.mockImplementation((url) =>
+      url === '/api/export/' ? Promise.reject(new Error('boom')) : Promise.resolve({ data: {} }));
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByText(/Export/));
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Export failed.'));
   });
 
   it('toggles presence from a card', async () => {

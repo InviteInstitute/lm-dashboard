@@ -39,3 +39,28 @@ def test_nested_child_renders_indented_under_parent():
     child = next(ln for ln in lines if "spin" in ln)
     indent = lambda s: len(s) - len(s.lstrip(" "))
     assert indent(child) > indent(parent)
+
+
+def test_malformed_project_json_returns_none():
+    assert generate_llm_prompt_from_project("not valid json {{") is None
+
+
+def test_malformed_workspace_xml_returns_none():
+    assert generate_llm_prompt_from_project(_project("<xml><unclosed>")) is None
+
+
+def test_fields_and_type_prefix_render_in_prompt():
+    # a hat block carrying a field child, with a strippable VEX type prefix
+    xml = ('<xml><block type="pg_events_whenStarted" id="a">'
+           '<field name="OP">forward</field></block></xml>')
+    out = generate_llm_prompt_from_project(_project(xml))
+    assert "events_whenStarted" in out          # pg_ prefix stripped (clean_type)
+    assert "OP=forward" in out                   # field rendered as (k=v)
+
+
+def test_shadow_blocks_are_skipped():
+    xml = ('<xml><block type="events_whenStarted" id="a">'
+           '<value name="X"><shadow type="math_number" id="s"></shadow></value>'
+           '</block></xml>')
+    out = generate_llm_prompt_from_project(_project(xml))
+    assert "math_number" not in out             # shadows aren't real blocks

@@ -39,6 +39,7 @@ def fresh_db():
     # flag set in one test can't leak into the next (the daemon reads through it).
     db._meta_cache.clear()
     workers.reset()
+    workers.set_session_cutoff(None)   # module global; don't leak a cutoff between tests
     yield
 
 

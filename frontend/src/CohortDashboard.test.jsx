@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
 vi.mock('./api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 import api from './api';
-import CohortDashboard from './CohortDashboard.jsx';
+import CohortDashboard, { COMPACT_TAIL } from './CohortDashboard.jsx';
 
 const ROUTES = {
   '/api/student_states/': {
@@ -44,6 +44,52 @@ describe('CohortDashboard', () => {
     expect(await screen.findAllByText(/Stuck/)).not.toHaveLength(0);
   });
 
+  it('compact card shows only the most recent runs, with true run numbers', async () => {
+    const total = COMPACT_TAIL + 10;                         // more runs/episodes than the card shows
+    const runs = Array.from({ length: total }, () => ({ hmm_state: 1, obs_bucket: 1, change_score: 0.1 }));
+    const eps = Array.from({ length: total }, (_, i) => ({ start_idx: i, end_idx: i + 1, event_count: 1, episode_type: 'CODE', soft_indices: [] }));
+    const evs = Array.from({ length: total }, () => ({ eventType: 'blockMoved' }));
+    api.get.mockImplementation((url) => {
+      if (url === '/api/student_states/') {
+        return Promise.resolve({ data: { students: [{
+          studentID: 'alice', current_state: 1, current_label: 'explorer', stuck: false,
+          consecutive_stuck: 0, run_count: total, event_count: total, last_seen: new Date().toISOString(),
+          state_sequence: [1], hmm: { runs, run_count: total, obs_labels: { 1: 'step_by_step' } },
+          episodes: { events: evs, episodes: eps, pauses: [], event_count: total } }],
+          student_count: 1, stuck_count: 0 } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    await waitFor(() => expect(document.querySelectorAll('[title^="Run #"]').length).toBeGreaterThan(0));
+    const blocks = document.querySelectorAll('[title^="Run #"]');
+    expect(blocks).toHaveLength(COMPACT_TAIL);                                          // runs capped at the tail
+    expect(blocks[blocks.length - 1].getAttribute('title')).toMatch(new RegExp(`^Run #${total} `));          // newest = true number
+    expect(blocks[0].getAttribute('title')).toMatch(new RegExp(`^Run #${total - COMPACT_TAIL + 1} `));       // window start
+    // episode track: one event tile per (1-event) episode, also capped at the tail
+    expect(document.querySelectorAll('[title^="CODE · "]')).toHaveLength(COMPACT_TAIL);
+  });
+
+  it('renders one block per episode with an events + duration tooltip', async () => {
+    const ep = { start_idx: 0, end_idx: 4, event_count: 4, episode_type: 'CODE',
+                 soft_indices: [1], start_ts: 0, end_ts: 45 };
+    api.get.mockImplementation((url) => {
+      if (url === '/api/student_states/') {
+        return Promise.resolve({ data: { students: [{
+          studentID: 'alice', current_state: 1, current_label: 'explorer', stuck: false,
+          consecutive_stuck: 0, run_count: 0, event_count: 4, last_seen: new Date().toISOString(),
+          state_sequence: [], hmm: { runs: [], run_count: 0, obs_labels: {} },
+          episodes: { events: [], episodes: [ep], pauses: [], event_count: 4 } }],
+          student_count: 1, stuck_count: 0 } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    const blocks = await screen.findAllByTitle(/^CODE · /);
+    expect(blocks).toHaveLength(1);                                 // one block, not per-event
+    expect(blocks[0].getAttribute('title')).toBe('CODE · 4 events · 45.0s');
+  });
+
   it('surfaces a backend alert in the intervention column', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/triggers/') {
@@ -57,6 +103,27 @@ describe('CohortDashboard', () => {
     render(<CohortDashboard />);
     // an alert row renders its own dismiss (✕) button -- proof the alert surfaced
     expect(await screen.findByTitle(/Dismiss alert/)).toBeInTheDocument();
+  });
+
+  it('suppresses alerts for a student marked absent', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/tracked/') {
+        return Promise.resolve({ data: {
+          tracked: [{ studentID: 'alice', backfilled: true, has_data: true, present: false, picked: false }],
+          count: 1 } });
+      }
+      if (url === '/api/triggers/') {
+        return Promise.resolve({ data: {
+          triggers: [{ id: 1, studentID: 'alice', trigger_type: 'inactive',
+            label: 'Inactive', value: '6m idle', active: true, age_seconds: 360 }],
+          active_count: 1, counts: { inactive: 1 } } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    // the absent kid's alert is filtered out -> empty column, no dismiss button
+    expect(await screen.findByText(/No active alerts/)).toBeInTheDocument();
+    expect(screen.queryByTitle(/Dismiss alert/)).toBeNull();
   });
 
   it('posts to /api/picked/ when "Mark picked" is clicked', async () => {

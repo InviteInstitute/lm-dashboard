@@ -390,16 +390,12 @@ const CohortDashboard = () => {
     // The backend evaluates every student_state row, so this filters out alerts
     // for someone who was just untracked (and any muted trigger type).
     //
-    // Show "needs intervention RIGHT NOW": the sustained triggers (wheel_spin,
-    // inactive) only while active, so a recovered student drops off immediately
-    // instead of lingering in the resolved-feed window. big_change is momentary
-    // (it's created already-resolved), so it has no active phase -- show it for
-    // its window or it would never appear at all.
+    // We show active AND recently-resolved triggers: the backend keeps a resolved
+    // one in the feed for TRIGGER_RECENT_SECONDS (2 min), so an alert lingers for
+    // ~2 minutes after a student recovers rather than vanishing instantly.
     const tracked = new Set(roster.map(r => r.studentID));
     const alerts = triggers.filter(t =>
-        tracked.has(t.studentID)
-        && triggerCfg[t.trigger_type] !== false
-        && (t.active || t.trigger_type === 'big_change'));
+        tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
     const headColor = TRIGGERS.wheel_spin.c;
     const detail = detailFull;   // heavy payload fetched per-open student
 

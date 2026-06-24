@@ -88,6 +88,40 @@ def test_backfill_stops_when_page_is_all_duplicates(monkeypatch):
     assert inserted == 0                                          # nothing new -> stop
 
 
+def test_backfill_breaks_on_empty_page():
+    inserted = poller.backfill_student(FakeClient(student_pages=[[]]), "s1")
+    assert inserted == 0                                          # empty first page -> stop
+
+
+def test_backfill_respects_since_cutoff():
+    """page_student is newest-first, so backfill stops at the first event older
+    than the cutoff and persists only the session's events."""
+    since = db.db_to_dt("2026-06-23T10:00:00Z")
+    client = FakeClient(student_pages=[[
+        _ev(3, "s1", ts="2026-06-23T12:00:00Z"),   # after cutoff -> kept
+        _ev(2, "s1", ts="2026-06-23T09:00:00Z"),   # before -> stop here
+        _ev(1, "s1", ts="2026-06-22T12:00:00Z"),   # earlier session -> never reached
+    ]])
+    inserted = poller.backfill_student(client, "s1", since=since)
+    assert inserted == 1
+    assert [r["source_event_id"] for r in db._query(
+        "SELECT source_event_id FROM vex_log")] == [3]
+
+
+def test_drain_respects_since_cutoff():
+    since = db.db_to_dt("2026-06-23T10:00:00Z")
+    cursor = poller.get_cursor()
+    client = FakeClient(time_pages=[[
+        _ev(1, "s1", ts="2026-06-23T08:00:00Z"),   # before cutoff -> skipped
+        _ev(2, "s1", ts="2026-06-23T11:00:00Z"),   # after -> kept
+    ]])
+    new = poller.drain(client, cursor, limit=100, tracked={"s1"}, since=since)
+    assert new == 1
+    assert [r["source_event_id"] for r in db._query(
+        "SELECT source_event_id FROM vex_log")] == [2]
+    assert cursor.last_source_id == 2                 # cursor still advanced over both
+
+
 def test_drain_drops_worker_and_reraises_when_route_fails(monkeypatch):
     def boom(_norm):
         raise RuntimeError("route exploded")

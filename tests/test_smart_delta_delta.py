@@ -55,6 +55,27 @@ def test_delete_removes_block_and_severs_parent():
     assert "hat" not in e.parent_map               # the now-childless link was severed
 
 
+def test_move_cascades_orphan_status_to_existing_children():
+    # b1 already has a child b2; re-parenting b1 under a runnable hat must
+    # propagate the new status down to b2 (the recursive cascade).
+    e = SmartDeltaEngine()
+    for bid, bt in [("hat", "events_start"), ("b1", "motor_on"), ("b2", "wait")]:
+        e.process_log(_evt({"eventType": "create", "blockID": bid, "blockType": bt}))
+    e.process_log(_evt({"eventType": "move", "blockID": "b2", "newInfo": {"parent": "b1"}}))
+    e.orphan_status["hat"] = False
+    e.process_log(_evt({"eventType": "move", "blockID": "b1", "newInfo": {"parent": "hat"}}))
+    assert e.orphan_status["b2"] is False         # cascaded down through b1
+
+
+def test_delete_recurses_into_children():
+    e = SmartDeltaEngine()
+    for bid, bt in [("b1", "motor_on"), ("b2", "wait")]:
+        e.process_log(_evt({"eventType": "create", "blockID": bid, "blockType": bt}))
+    e.process_log(_evt({"eventType": "move", "blockID": "b2", "newInfo": {"parent": "b1"}}))
+    e.process_log(_evt({"eventType": "delete", "blockID": "b1"}))
+    assert "b1" not in e.blocks and "b2" not in e.blocks   # child deleted too
+
+
 def test_change_updates_a_field():
     e = SmartDeltaEngine()
     e.process_log(_evt({"eventType": "create", "blockID": "b1", "blockType": "motor_on"}))

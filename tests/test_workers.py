@@ -153,6 +153,19 @@ def test_recompute_decodes_real_runs_from_buffered_events():
     assert db.list_student_states(["s1"])[0]["run_count"] == 2
 
 
+def test_prompt_generation_failure_falls_back_to_none(monkeypatch):
+    # A broken playground prompt must not sink the whole materialize; it degrades
+    # to a null prompt and the state still writes.
+    def boom(_proj):
+        raise ValueError("bad workspace")
+    monkeypatch.setattr(workers, "generate_llm_prompt_from_project", boom)
+    w = _worker_with_runs("s1", [{"index": 0, "change_score": None, "hmm_state": 0}])
+    w.latest_project = '{"workspace": "<xml/>"}'
+    w.recompute_and_write()
+    assert db._query("SELECT playground_prompt FROM student_state "
+                     "WHERE studentID='s1'")[0]["playground_prompt"] is None
+
+
 def test_rehydrate_uses_received_at_when_event_time_missing():
     # event_time None on the log row; the envelope's received_at is the fallback ts
     db.insert_message_and_log({

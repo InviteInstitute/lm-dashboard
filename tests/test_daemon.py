@@ -31,7 +31,9 @@ class FakeClient:
         return self.student_pages[idx] if idx < len(self.student_pages) else []
 
 
-def _ev(eid, sid, ts="2026-06-22T10:00:00Z"):
+# Far-future timestamp so events land at/after the daemon's session-start cutoff
+# (db.now()); otherwise the drain/backfill correctly filter them as "earlier session".
+def _ev(eid, sid, ts="2099-01-01T00:00:00Z"):
     return {"id": eid, "studentID": sid, "classCode": "C1", "eventType": "runProject",
             "project": "{}", "raw_message": "{}", "recieved_at": ts}
 
@@ -64,7 +66,7 @@ def test_one_full_tick_drains_then_sleeps(patched_daemon):
 def test_paused_daemon_makes_no_prod_calls(patched_daemon):
     db.set_meta("polling_enabled", "0")
     client = FakeClient()
-    patched_daemon(client, stop_after=1)
+    patched_daemon(client, stop_after=2)   # 2 ticks: exercise the paused continue
     with pytest.raises(_StopLoop):
         daemon.main(["--backfill-hours", "0"])
     assert client.time_calls == 0          # paused short-circuits before drain
@@ -87,6 +89,18 @@ def test_transient_prod_error_backs_off(patched_daemon):
     with pytest.raises(_StopLoop):
         daemon.main(["--backfill-hours", "0"])
     assert client.time_calls == 1          # tried once, hit the error path
+
+
+def test_repeated_prod_failures_log_unhealthy(patched_daemon, caplog):
+    # Five consecutive drain failures cross the UNHEALTHY threshold; the backoff
+    # `continue` loops each tick until then.
+    client = FakeClient(raise_on_time=True)
+    patched_daemon(client, stop_after=5)
+    with caplog.at_level("ERROR", logger="pipeline"):
+        with pytest.raises(_StopLoop):
+            daemon.main(["--backfill-hours", "0"])
+    assert any("UNHEALTHY" in r.message for r in caplog.records)
+    assert client.time_calls == 5
 
 
 def test_drained_events_materialize_state(patched_daemon):
@@ -129,3 +143,53 @@ def test_trigger_eval_error_is_logged_not_fatal(patched_daemon, monkeypatch):
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
         daemon.main(["--backfill-hours", "0"])
+
+
+def test_non_transient_error_reraises(patched_daemon, monkeypatch):
+    # A non-ProdClientError in the drain is treated as our bug: logged and
+    # re-raised so the supervisor restarts us, not swallowed by the backoff.
+    db.tracked_add("s1")
+    db.mark_backfilled("s1")                 # skip backfill so drain is reached
+    monkeypatch.setattr(daemon.poller, "drain", _raise)
+    patched_daemon(FakeClient(), stop_after=1)
+    with pytest.raises(RuntimeError, match="simulated failure"):
+        daemon.main(["--backfill-hours", "0"])
+
+
+def test_reset_handshake_wipes_data(patched_daemon, monkeypatch):
+    db.tracked_add("s1")
+    db.mark_backfilled("s1")
+    db.set_meta("reset_requested_at", "2026-01-01T00:00:00")
+    # The loop primes last_reset from get_meta before ticking; force that to read
+    # stale (None) so the in-loop get_meta_many value trips the reset handshake.
+    monkeypatch.setattr(daemon.db, "get_meta", lambda k, default=None: None)
+    fired = {}
+    monkeypatch.setattr(daemon.db, "reset_all", lambda: fired.setdefault("reset", True))
+    monkeypatch.setattr(daemon.workers, "reset", lambda: fired.setdefault("workers", True))
+    patched_daemon(FakeClient(), stop_after=1)
+    with pytest.raises(_StopLoop):
+        daemon.main(["--backfill-hours", "0"])
+    assert fired == {"reset": True, "workers": True}
+
+
+def test_session_cutoff_passed_to_backfill_and_drain(patched_daemon, monkeypatch):
+    # The daemon stamps one session_start and feeds it as `since` to BOTH the
+    # per-student backfill and the live drain -- that's the reused-ID-on-a-later-
+    # day guard, so it must be the same cutoff for both.
+    db.tracked_add("newbie")                 # unbackfilled -> backfill attempted
+    seen = {}
+
+    def fake_backfill(client, sid, since=None, **k):
+        seen["backfill_since"] = since
+
+    def fake_drain(client, cursor, since=None, **k):
+        seen["drain_since"] = since
+        return 0
+
+    monkeypatch.setattr(daemon.poller, "backfill_student", fake_backfill)
+    monkeypatch.setattr(daemon.poller, "drain", fake_drain)
+    patched_daemon(FakeClient(), stop_after=1)
+    with pytest.raises(_StopLoop):
+        daemon.main(["--backfill-hours", "0"])
+    assert seen["backfill_since"] is not None
+    assert seen["drain_since"] == seen["backfill_since"]

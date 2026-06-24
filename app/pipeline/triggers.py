@@ -43,11 +43,6 @@ def _fmt_idle(secs):
     return f"idle {m // 1440}d"
 
 
-def _latest_run(state):
-    runs = (state.get("runs") or {}).get("runs", [])
-    return runs[-1] if runs else None
-
-
 def _wheel_spin_started(state, fallback):
     """Find when the student's current stuck streak began.
 

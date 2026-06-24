@@ -35,6 +35,7 @@ const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
 const TRIGGER_ROWS = [['wheel_spin', 'Wheel-spinning'], ['inactive', 'Inactive'], ['big_change', 'Big rewrite']];
 const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
 const POLL_MS = 1500;
+export const COMPACT_TAIL = 10;   // compact cards show only the most recent N runs/episodes; the modal shows all (scrollable)
 const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
 const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
@@ -57,48 +58,95 @@ export function stateMeta(st) {
     return STATE[st.current_state] || NOSTATE;
 }
 
-// ---------------- timelines (per-event boundaries) ----------------
-// Two little sparkline components. EpisodeTrack draws one tick per event,
-// colored by its episode, with hatched bands for pauses; HmmTrack draws one
-// block per run, colored by strategy state. `compact` drops the legend and
-// shrinks the bar for the cohort cards; the full version is used in the modal.
-const EpisodeTrack = ({ data, compact }) => {
-    if (!data || data.event_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No events yet.</div>;
-    const events = data.events || [], episodes = data.episodes || [];
-    const evToEp = {}, softSet = new Set();
-    episodes.forEach((ep, idx) => { for (let k = ep.start_idx; k < ep.end_idx; k++) evToEp[k] = idx; (ep.soft_indices || []).forEach(si => softSet.add(si)); });
-    const pauseAfter = {}; (data.pauses || []).forEach(p => { pauseAfter[p.after_idx] = p; });
-    const band = (p, key) => { const i = p.episode_type === 'INACTIVE_PAUSE'; return <div key={key} title={`${p.episode_type} · ${fmtDur(p.duration)}`} style={{ flex: '0 0 10px', background: i ? 'repeating-linear-gradient(45deg,#ef4444 0 4px,#3a1416 4px 8px)' : 'repeating-linear-gradient(45deg,#f59e0b 0 4px,#3a2a10 4px 8px)' }} />; };
-    const segs = []; let i = 0;
-    while (i < events.length) {
-        const epIdx = evToEp[i];
-        if (epIdx === undefined) { segs.push(<div key={`o${i}`} title={`${events[i].eventType} (orphan)`} style={{ flex: '0 0 3px', background: '#2a2d3a', borderRight: '1px solid rgba(0,0,0,0.6)' }} />); if (pauseAfter[i]) segs.push(band(pauseAfter[i], `po${i}`)); i++; continue; }
-        const ep = episodes[epIdx], c = EP[ep.episode_type] || EP.CODE; const ticks = [];
-        for (let k = ep.start_idx; k < ep.end_idx; k++) ticks.push(<div key={`t${k}`} title={`${events[k].eventType} · ${ep.episode_type}`} style={{ flex: '1 1 0', minWidth: 2, background: c, opacity: softSet.has(k) ? 0.4 : 1, borderRight: '1px solid rgba(0,0,0,0.6)' }} />);
-        segs.push(<div key={`e${epIdx}`} style={{ flexGrow: Math.max(1, ep.event_count), flexShrink: 1, minWidth: 6, display: 'flex', outline: `1px solid ${c}`, outlineOffset: -1 }}>{ticks}</div>);
-        if (pauseAfter[ep.end_idx - 1]) segs.push(band(pauseAfter[ep.end_idx - 1], `p${epIdx}`));
-        i = ep.end_idx;
-    }
-    return (<>
-        <div style={compact ? trkSm : trk}>{segs}</div>
-        {!compact && <div style={legend}>
-            <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
-            <span><i style={sw('repeating-linear-gradient(45deg,#ef4444 0 3px,#3a1416 3px 6px)')} />inactive pause</span>
-        </div>}
-    </>);
+// ---------------- timelines ----------------
+// One unified "tile strip". A segment is one run (strategy) or one episode
+// (episodes); a pause is a thin hatched segment between episodes. Every tile is
+// an equal block separated by a consistent gap -- no per-event lines, no ad-hoc
+// borders. Compact cards show the last COMPACT_TAIL tiles fit-to-width; the full
+// (modal) track shows every tile, scrolls, and opens at the most recent (right) edge.
+const HATCH_RED = 'repeating-linear-gradient(45deg,#ef4444 0 4px,#3a1416 4px 8px)';
+const HATCH_AMBER = 'repeating-linear-gradient(45deg,#f59e0b 0 4px,#3a2a10 4px 8px)';
+
+const Track = ({ segments, compact }) => {
+    const ref = React.useRef(null);
+    React.useLayoutEffect(() => {
+        if (!compact && ref.current) ref.current.scrollLeft = ref.current.scrollWidth;
+    }, [compact, segments.length]);
+    return (
+        <div ref={ref} style={compact ? trkSm : trk}>
+            {segments.map((s) => (
+                <div key={s.key} title={s.title} style={{
+                    // compact: share the width evenly; full: fixed min so long runs scroll
+                    flex: s.pause ? (compact ? '0 0 5px' : '0 0 9px') : (compact ? '1 1 0' : '1 0 14px'),
+                    minWidth: s.pause ? undefined : 3,
+                    borderRadius: 2,
+                    background: s.bg,
+                    opacity: s.faint ? 0.4 : 1,
+                }} />
+            ))}
+        </div>
+    );
 };
+
+// data -> segment list. Compact slices to the last COMPACT_TAIL units.
+function hmmSegments(data, compact) {
+    const all = data.runs || [];
+    const runs = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
+    const off = all.length - runs.length;
+    return runs.map((run, i) => {
+        const st = STATE[run.hmm_state] || NOSTATE;
+        const obs = run.obs_bucket != null ? (data.obs_labels || {})[run.obs_bucket] : '—';
+        const sc = run.change_score != null ? run.change_score.toFixed(3) : 'first';
+        return { key: `r${i + off}`, bg: st.c, faint: run.hmm_state == null,
+                 title: `Run #${i + off + 1} · ${st.label} · obs=${obs} · score=${sc}` };
+    });
+}
+
+function episodeSegments(data, compact) {
+    const all = data.episodes || [];
+    const eps = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
+    const minIdx = eps.length ? eps[0].start_idx : 0;
+    const pauseAt = {}; (data.pauses || []).forEach(p => { pauseAt[p.after_idx] = p; });
+    const segs = [];
+    eps.forEach((ep) => {
+        segs.push({ key: `e${ep.start_idx}`, bg: EP[ep.episode_type] || EP.CODE,
+                    title: `${ep.episode_type} · ${ep.event_count} events` });
+        const p = pauseAt[ep.end_idx - 1];
+        if (p && p.after_idx >= minIdx) {
+            segs.push({ key: `p${ep.end_idx}`, pause: true,
+                        bg: p.episode_type === 'INACTIVE_PAUSE' ? HATCH_RED : HATCH_AMBER,
+                        title: `${p.episode_type} · ${fmtDur(p.duration)}` });
+        }
+    });
+    return segs;
+}
+
 const HmmTrack = ({ data, compact }) => {
-    if (!data || !data.runs || data.run_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No runs yet.</div>;
-    const blocks = data.runs.map((run, i) => { const st = STATE[run.hmm_state] || NOSTATE; const obs = run.obs_bucket != null ? data.obs_labels[run.obs_bucket] : '—'; const sc = run.change_score != null ? run.change_score.toFixed(3) : 'first'; return <div key={i} title={`Run #${i + 1} · ${st.label} · obs=${obs} · score=${sc}`} style={{ flex: '1 1 0', minWidth: 6, background: st.c, opacity: run.hmm_state == null ? 0.3 : 1, borderRight: '1px solid rgba(0,0,0,0.6)' }} />; });
+    if (!data || !data.runs || data.run_count === 0) return <div style={emptyTxt(compact)}>No runs yet.</div>;
     return (<>
-        <div style={compact ? trkSm : trk}>{blocks}</div>
+        <Track segments={hmmSegments(data, compact)} compact={compact} />
         {!compact && <div style={legend}>{Object.entries(STATE).map(([k, v]) => <span key={k}><i style={sw(v.c)} />{v.label}</span>)}</div>}
     </>);
 };
-const trk = { display: 'flex', height: 28, background: T.track, border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' };
-const trkSm = { ...trk, height: 16, borderRadius: 6 };
+
+const EpisodeTrack = ({ data, compact }) => {
+    if (!data || data.event_count === 0) return <div style={emptyTxt(compact)}>No events yet.</div>;
+    return (<>
+        <Track segments={episodeSegments(data, compact)} compact={compact} />
+        {!compact && <div style={legend}>
+            <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
+            <span><i style={sw(HATCH_RED)} />Inactive Pause</span>
+        </div>}
+    </>);
+};
+
+// Equal tiles, consistent 2px gap, slight rounding. Full scrolls; compact hides
+// overflow (already windowed to the last COMPACT_TAIL).
+const trk = { display: 'flex', gap: 2, height: 28, background: T.track, border: `1px solid ${T.border}`, borderRadius: 8, padding: 2, boxSizing: 'border-box', overflowX: 'auto', scrollbarWidth: 'thin' };
+const trkSm = { ...trk, height: 18, borderRadius: 6, overflowX: 'hidden' };
 const legend = { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 9, fontSize: 11.5, color: T.sub };
 const sw = (bg) => ({ display: 'inline-block', width: 11, height: 11, borderRadius: 3, marginRight: 6, verticalAlign: 'middle', background: bg });
+const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 
 // ---------------- detail (inside modal) ----------------
 // The body of the drill-down modal for one student: header + state badge, the

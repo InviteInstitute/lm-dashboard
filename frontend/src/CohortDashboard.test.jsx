@@ -5,7 +5,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
 vi.mock('./api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 import api from './api';
-import CohortDashboard from './CohortDashboard.jsx';
+import CohortDashboard, { COMPACT_TAIL } from './CohortDashboard.jsx';
 
 const ROUTES = {
   '/api/student_states/': {
@@ -42,6 +42,32 @@ describe('CohortDashboard', () => {
     expect((await screen.findAllByText('alice')).length).toBeGreaterThanOrEqual(1);
     // current_state 2 => the stuck badge
     expect(await screen.findAllByText(/Stuck/)).not.toHaveLength(0);
+  });
+
+  it('compact card shows only the most recent runs, with true run numbers', async () => {
+    const total = COMPACT_TAIL + 10;                         // more runs/episodes than the card shows
+    const runs = Array.from({ length: total }, () => ({ hmm_state: 1, obs_bucket: 1, change_score: 0.1 }));
+    const eps = Array.from({ length: total }, (_, i) => ({ start_idx: i, end_idx: i + 1, event_count: 1, episode_type: 'CODE', soft_indices: [] }));
+    const evs = Array.from({ length: total }, () => ({ eventType: 'blockMoved' }));
+    api.get.mockImplementation((url) => {
+      if (url === '/api/student_states/') {
+        return Promise.resolve({ data: { students: [{
+          studentID: 'alice', current_state: 1, current_label: 'explorer', stuck: false,
+          consecutive_stuck: 0, run_count: total, event_count: total, last_seen: new Date().toISOString(),
+          state_sequence: [1], hmm: { runs, run_count: total, obs_labels: { 1: 'step_by_step' } },
+          episodes: { events: evs, episodes: eps, pauses: [], event_count: total } }],
+          student_count: 1, stuck_count: 0 } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    await waitFor(() => expect(document.querySelectorAll('[title^="Run #"]').length).toBeGreaterThan(0));
+    const blocks = document.querySelectorAll('[title^="Run #"]');
+    expect(blocks).toHaveLength(COMPACT_TAIL);                                          // runs capped at the tail
+    expect(blocks[blocks.length - 1].getAttribute('title')).toMatch(new RegExp(`^Run #${total} `));          // newest = true number
+    expect(blocks[0].getAttribute('title')).toMatch(new RegExp(`^Run #${total - COMPACT_TAIL + 1} `));       // window start
+    // episode track is one block per episode, also capped at the tail
+    expect(document.querySelectorAll('[title$=" events"]')).toHaveLength(COMPACT_TAIL);
   });
 
   it('surfaces a backend alert in the intervention column', async () => {

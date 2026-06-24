@@ -22,9 +22,7 @@ from app.pipeline.triggers import BIG_CHANGE_SCORE, LABELS, _disabled_types
 
 logger = logging.getLogger("pipeline")
 
-STUCK_STATE = 2
-STATE_LABELS = {0: "iterator", 1: "explorer", 2: "stuck"}
-BUFFER_MAX = 5000
+from app.constants import STUCK_STATE, STATE_LABELS, BUFFER_MAX
 
 
 class StudentWorker:

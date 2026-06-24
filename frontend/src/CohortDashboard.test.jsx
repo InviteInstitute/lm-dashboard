@@ -117,14 +117,13 @@ describe('CohortDashboard', () => {
     });
   });
 
-  it('hides a recovered sustained alert but keeps a momentary big_change', async () => {
+  it('keeps recently-resolved alerts in the feed (they linger ~2 min)', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/triggers/') {
         return Promise.resolve({ data: { triggers: [
-          // resolved wheel_spin (student recovered) -> should NOT show
+          // a recovered wheel_spin still in the backend's 2-min window -> still shows
           { id: 1, studentID: 'alice', trigger_type: 'wheel_spin', label: 'Wheel-spinning',
             value: '2 re-runs', active: false, age_seconds: 30 },
-          // big_change is momentary (always active:false) -> should still show
           { id: 2, studentID: 'alice', trigger_type: 'big_change', label: 'Big rewrite',
             value: 'change 0.80', active: false, age_seconds: 5 },
         ], active_count: 0, counts: {} } });
@@ -132,9 +131,8 @@ describe('CohortDashboard', () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    // 2 triggers in (resolved wheel_spin + resolved big_change) -> exactly 1
-    // alert rendered: the big_change. The resolved sustained one is dropped.
-    await waitFor(() => expect(screen.getAllByTitle(/Dismiss alert/)).toHaveLength(1));
+    // both linger in the feed -> two alert rows
+    await waitFor(() => expect(screen.getAllByTitle(/Dismiss alert/)).toHaveLength(2));
   });
 
   it('opens the detail modal and fetches the heavy payload on click', async () => {

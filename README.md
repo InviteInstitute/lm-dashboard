@@ -25,8 +25,8 @@ You'll need Python 3.12+ and Node 18+.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env.mirror     # then add PROD_USERNAME / PROD_PASSWORD
-./scripts/start.sh              # API :8000, daemon (paused), dashboard :3000, docs :4000
+cp .env.example .env.mirror                         # then add PROD_USERNAME / PROD_PASSWORD
+./scripts/stop.sh && ./scripts/start.sh --prod      # API :8000, daemon (paused), dashboard :3000, docs :4000
 ```
 
 Open http://localhost:3000, add a student ID, and click **Resume polling** to start

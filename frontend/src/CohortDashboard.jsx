@@ -8,35 +8,16 @@
 // already did the work.
 import React from 'react';
 import api from './api';
+import {
+    T, FONT, MONO, STATE, NOSTATE, WHEEL_STATE, EP,
+    HATCH_AMBER, PAUSE_FILL, PAUSE_LEGEND,
+    TRIGGERS, TRIGGER_FALLBACK, TRIGGER_ROWS, POLL_MS, COMPACT_TAIL,
+} from './constants';
 
-// ===================== dark slate theme =====================
-// Shared palette, per-state colors, and trigger metadata. Kept up top so the
-// look of the whole dashboard is tunable from one place.
-const T = {
-    bg: '#0b0e13', panel: '#0f131a', border: '#1f2530', borderSoft: '#171c24',
-    ink: '#e6e9ef', sub: '#7d8694', faint: '#5a626e', track: '#0d1117',
-};
-const STATE = {
-    0: { c: '#3b82f6', label: 'Iterator' },
-    1: { c: '#a855f7', label: 'Explorer' },
-    2: { c: '#ef4444', label: 'Stuck' },
-};
-const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
-const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
-// Every intervention type the backend can fire. The right-hand column surfaces
-// all three (wheel_spin, inactive, big_change), not just wheel-spinning.
-const TRIGGERS = {
-    wheel_spin: { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' },
-    inactive:   { c: '#f59e0b', icon: '⏸', label: 'Inactive' },
-    big_change: { c: '#a855f7', icon: '✎', label: 'Big rewrite' },
-};
-const TRIGGER_FALLBACK = { c: '#6b7280', icon: '•', label: 'Trigger' };
-const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
-const TRIGGER_ROWS = [['wheel_spin', 'Wheel-spinning'], ['inactive', 'Inactive'], ['big_change', 'Big rewrite']];
-const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
-const POLL_MS = 1500;
-export const COMPACT_TAIL = 10;   // compact cards show only the most recent N runs/episodes; the modal shows all (scrollable)
-const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
+// Re-exported so existing imports/tests that pull these from the component file
+// keep working; the source of truth is ./constants.
+export { COMPACT_TAIL } from './constants';
+
 const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
 export function relTime(iso) {
@@ -59,13 +40,20 @@ export function stateMeta(st) {
 }
 
 // ---------------- timelines ----------------
-// One unified "tile strip". A segment is one run (strategy) or one episode
-// (episodes); a pause is a thin hatched segment between episodes. Every tile is
-// an equal block separated by a consistent gap -- no per-event lines, no ad-hoc
-// borders. Compact cards show the last COMPACT_TAIL tiles fit-to-width; the full
-// (modal) track shows every tile, scrolls, and opens at the most recent (right) edge.
-const HATCH_RED = 'repeating-linear-gradient(45deg,#ef4444 0 4px,#3a1416 4px 8px)';
-const HATCH_AMBER = 'repeating-linear-gradient(45deg,#f59e0b 0 4px,#3a2a10 4px 8px)';
+// A "tile strip" of blocks. Each block is one unit -- an HMM run (equal width) or
+// one EPISODE (width grown to its event count, so a longer stretch reads bigger).
+// Pauses are thin hatched separators. No per-event detail here: the bar is for
+// shape-at-a-glance (coding / running / stuck / idle); the events live in the
+// hover tooltip and the detail modal. Compact cards share the width; the full
+// (modal) track is fixed-width, scrolls, and opens at the most recent (right) edge.
+const leaf = (s, compact) => {
+    if (s.pause) return { flex: compact ? '0 0 5px' : '0 0 9px', borderRadius: 2, background: s.bg };
+    return {                 // episode block or HMM run: every block the same width
+        flex: compact ? '1 1 0' : '1 0 14px',
+        minWidth: compact ? 0 : 3,
+        borderRadius: 2, background: s.bg, opacity: s.faint ? 0.4 : 1,
+    };
+};
 
 const Track = ({ segments, compact }) => {
     const ref = React.useRef(null);
@@ -74,16 +62,7 @@ const Track = ({ segments, compact }) => {
     }, [compact, segments.length]);
     return (
         <div ref={ref} style={compact ? trkSm : trk}>
-            {segments.map((s) => (
-                <div key={s.key} title={s.title} style={{
-                    // compact: share the width evenly; full: fixed min so long runs scroll
-                    flex: s.pause ? (compact ? '0 0 5px' : '0 0 9px') : (compact ? '1 1 0' : '1 0 14px'),
-                    minWidth: s.pause ? undefined : 3,
-                    borderRadius: 2,
-                    background: s.bg,
-                    opacity: s.faint ? 0.4 : 1,
-                }} />
-            ))}
+            {segments.map((s) => <div key={s.key} title={s.title} style={leaf(s, compact)} />)}
         </div>
     );
 };
@@ -109,12 +88,15 @@ function episodeSegments(data, compact) {
     const pauseAt = {}; (data.pauses || []).forEach(p => { pauseAt[p.after_idx] = p; });
     const segs = [];
     eps.forEach((ep) => {
+        // One equal-width block per episode. The events themselves are summarized
+        // in the tooltip (count + duration), not drawn.
+        const dur = (ep.start_ts != null && ep.end_ts != null) ? ep.end_ts - ep.start_ts : null;
         segs.push({ key: `e${ep.start_idx}`, bg: EP[ep.episode_type] || EP.CODE,
-                    title: `${ep.episode_type} · ${ep.event_count} events` });
+                    title: `${ep.episode_type} · ${ep.event_count} events${dur != null ? ` · ${fmtDur(dur)}` : ''}` });
         const p = pauseAt[ep.end_idx - 1];
         if (p && p.after_idx >= minIdx) {
             segs.push({ key: `p${ep.end_idx}`, pause: true,
-                        bg: p.episode_type === 'INACTIVE_PAUSE' ? HATCH_RED : HATCH_AMBER,
+                        bg: PAUSE_FILL[p.episode_type] || HATCH_AMBER,
                         title: `${p.episode_type} · ${fmtDur(p.duration)}` });
         }
     });
@@ -132,10 +114,10 @@ const HmmTrack = ({ data, compact }) => {
 const EpisodeTrack = ({ data, compact }) => {
     if (!data || data.event_count === 0) return <div style={emptyTxt(compact)}>No events yet.</div>;
     return (<>
-        <Track segments={episodeSegments(data, compact)} compact={compact} />
+        <Track segments={episodeSegments(data, compact)} compact={compact} gap={4} />
         {!compact && <div style={legend}>
             <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
-            <span><i style={sw(HATCH_RED)} />Inactive Pause</span>
+            {PAUSE_LEGEND.map(([label, fill]) => <span key={label}><i style={sw(fill)} />{label}</span>)}
         </div>}
     </>);
 };
@@ -434,16 +416,19 @@ const CohortDashboard = () => {
         // present students first, then stable by studentID so a card never jumps
         .sort((a, b) => (a.present === b.present ? a.studentID.localeCompare(b.studentID) : (a.present ? -1 : 1)));
 
-    // Keep the alert feed to currently-tracked students with the type enabled.
-    // The backend evaluates every student_state row, so this filters out alerts
-    // for someone who was just untracked (and any muted trigger type).
+    // Keep the alert feed to currently-tracked, PRESENT students with the type
+    // enabled. The backend evaluates every student_state row, so this filters out
+    // alerts for someone just untracked (and any muted trigger type). Absent
+    // students are suppressed too: a kid who left the room would otherwise spam
+    // "inactive" alerts forever, sending a TA to an empty seat.
     //
     // We show active AND recently-resolved triggers: the backend keeps a resolved
     // one in the feed for TRIGGER_RECENT_SECONDS (2 min), so an alert lingers for
     // ~2 minutes after a student recovers rather than vanishing instantly.
     const tracked = new Set(roster.map(r => r.studentID));
+    const absent = new Set(roster.filter(r => r.present === false).map(r => r.studentID));
     const alerts = triggers.filter(t =>
-        tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
+        tracked.has(t.studentID) && !absent.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
     const headColor = TRIGGERS.wheel_spin.c;
     const detail = detailFull;   // heavy payload fetched per-open student
 

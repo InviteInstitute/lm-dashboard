@@ -20,18 +20,14 @@ from app import db
 
 log = logging.getLogger("pipeline")
 
-# -- thresholds (tuned from observed data + chosen defaults) --
-WHEEL_SPIN_STATE = 2
-INACTIVE_SECONDS = 300        # 5 min; lines up with the segmenter's INACTIVE_PAUSE
-BIG_CHANGE_SCORE = 0.5
-# Re-alert window. Once a TA acks a sustained trigger, if the condition is still
-# holding this long after the alert first started, the trigger is rotated: the
-# acked row is resolved and a fresh one opened, so a student who never actually
-# got unstuck resurfaces in the feed instead of staying silently dismissed.
-RE_ALERT_SECONDS = 600        # 10 min
-
-LABELS = {"wheel_spin": "Wheel-spinning", "inactive": "Inactive", "big_change": "Big rewrite"}
-SUSTAINED = ("wheel_spin", "inactive")
+# Thresholds + labels live in app/constants.py; aliased here to the names this
+# module (and its tests) already use. RE_ALERT_SECONDS rotates an acked-but-still-
+# holding sustained trigger so a student who never got unstuck resurfaces.
+from app.constants import (
+    STUCK_STATE as WHEEL_SPIN_STATE,
+    INACTIVE_SECONDS, BIG_CHANGE_SCORE, RE_ALERT_SECONDS,
+    TRIGGER_LABELS as LABELS, SUSTAINED_TRIGGERS as SUSTAINED,
+)
 
 
 def _fmt_idle(secs):

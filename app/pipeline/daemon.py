@@ -22,11 +22,9 @@ from app import db
 from app.pipeline import poller, workers, triggers
 from app.pipeline.client import ProdClient, ProdClientError
 
-log = logging.getLogger("pipeline")
+from app.constants import PAUSED_POLL_S   # paused re-check cadence (cheap local read)
 
-# How often to re-read the pause flag while paused. It's a cheap local SQLite
-# read with no prod request, kept short so a Resume click is honored within ~1s.
-PAUSED_POLL_S = 1.0
+log = logging.getLogger("pipeline")
 
 
 def _parse_args(argv=None):

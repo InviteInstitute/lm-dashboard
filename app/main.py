@@ -15,15 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app import config, db
-
-STUCK_STATE = 2
-STATE_LABELS = {0: "iterator", 1: "explorer", 2: "stuck"}
-# How long a resolved trigger keeps showing in the feed before it drops off.
-TRIGGER_RECENT_SECONDS = 120
-# Upper bound on the number of ids one /api/student_states/?students= call may
-# request. Comfortably under SQLite's bound-variable limit, yet far larger than
-# any classroom cohort.
-MAX_STUDENT_IDS = 500
+from app.constants import (
+    STUCK_STATE, STATE_LABELS, TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
+)
 
 app = FastAPI(title="LUC Cohort Dashboard")
 app.add_middleware(
@@ -268,8 +262,6 @@ def set_picked(body: PickedBody):
     db.set_picked(sid, body.picked)
     return {"studentID": sid, "picked": body.picked}
 
-
-from app.pipeline.triggers import LABELS as TRIGGER_LABELS
 
 TRIGGER_TYPES = tuple(TRIGGER_LABELS)
 

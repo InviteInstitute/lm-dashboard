@@ -89,11 +89,14 @@ def persist(ev):
     return inserted, norm
 
 
-def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
+def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None):
     """Page through prod until caught up. Only events for `tracked` students are
     persisted and routed (None means all of them), but the cursor still advances
     past EVERY event seen, so ingesting a subset never leaves us perpetually
-    behind on the full stream. Returns the number of newly-inserted events."""
+    behind on the full stream. `since` (a UTC datetime, or None) is the session
+    cutoff: events older than it are skipped (not persisted) so a returning
+    student's earlier sessions don't leak in -- the cursor still advances past
+    them. Returns the number of newly-inserted events."""
     date_from = None
     if cursor.last_event_time:
         date_from = (cursor.last_event_time - timedelta(seconds=overlap_seconds)).isoformat()
@@ -115,6 +118,8 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
                 max_id = sid
             if tracked is not None and (ev.get("studentID") or "") not in tracked:
                 continue
+            if since is not None and et is not None and et < since:
+                continue   # before the session cutoff -- skip, but the cursor still advanced above
             inserted, norm = persist(ev)
             if inserted:
                 try:
@@ -144,23 +149,31 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None):
     return new_count
 
 
-def backfill_student(client, student_id, max_events=600, page_size=200):
-    """Pull up to `max_events` of a newly-tracked student's recent history,
-    idempotently, so their state can materialize the moment they're added rather
-    than waiting for new live activity. Separate from the cursor. Returns the
-    number of events inserted."""
+def backfill_student(client, student_id, since=None, max_events=600, page_size=200):
+    """Pull a newly-tracked student's recent history idempotently so their state
+    materializes the moment they're added, rather than waiting for live activity.
+    Separate from the cursor. `since` (a UTC datetime, or None) is the session
+    cutoff: page_student returns newest-first, so once we pass an event older than
+    `since` every remaining one is older too and we stop -- this is what keeps a
+    returning student's earlier sessions from leaking in. Without a cutoff it
+    falls back to the last `max_events`. Returns the number of events inserted."""
     inserted = 0
     for offset in range(0, max_events, page_size):
         results = client.page_student(student_id, page_size, offset)
         if not results:
             break
-        page_new = 0
+        page_new, stop = 0, False
         for ev in results:
+            if since is not None:
+                et = _parse_ts(_event_ts_raw(ev))
+                if et is not None and et < since:   # newest-first: the rest are older too
+                    stop = True
+                    break
             was_in, norm = persist(ev)
             if was_in:
                 route(norm)
                 inserted += 1
                 page_new += 1
-        if len(results) < page_size or page_new == 0:
+        if stop or len(results) < page_size or page_new == 0:
             break
     return inserted

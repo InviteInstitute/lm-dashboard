@@ -153,6 +153,19 @@ def test_recompute_decodes_real_runs_from_buffered_events():
     assert db.list_student_states(["s1"])[0]["run_count"] == 2
 
 
+def test_prompt_generation_failure_falls_back_to_none(monkeypatch):
+    # A broken playground prompt must not sink the whole materialize; it degrades
+    # to a null prompt and the state still writes.
+    def boom(_proj):
+        raise ValueError("bad workspace")
+    monkeypatch.setattr(workers, "generate_llm_prompt_from_project", boom)
+    w = _worker_with_runs("s1", [{"index": 0, "change_score": None, "hmm_state": 0}])
+    w.latest_project = '{"workspace": "<xml/>"}'
+    w.recompute_and_write()
+    assert db._query("SELECT playground_prompt FROM student_state "
+                     "WHERE studentID='s1'")[0]["playground_prompt"] is None
+
+
 def test_rehydrate_uses_received_at_when_event_time_missing():
     # event_time None on the log row; the envelope's received_at is the fallback ts
     db.insert_message_and_log({
@@ -161,3 +174,17 @@ def test_rehydrate_uses_received_at_when_event_time_missing():
         "project": "{}", "source_event_id": 5})
     w = workers.get_worker("s1")                     # cold start -> rehydrate
     assert len(w.events) == 1 and w.events[0]["ts"] is not None
+
+
+def test_session_cutoff_hides_pre_session_events_on_rehydrate():
+    # Two logged events; the cutoff sits between them. Only the post-cutoff event
+    # replays into the worker -- the prior session stays in the log but is hidden.
+    for sid_eid, ts in [(1, "2026-06-23T08:00:00Z"), (2, "2026-06-23T12:00:00Z")]:
+        db.insert_message_and_log({
+            "raw_message": "{}", "event_time": db.db_to_dt(ts), "classCode": "C",
+            "eventType": "runProject", "studentID": "s1", "project": "{}",
+            "source_event_id": sid_eid})
+    workers.set_session_cutoff(db.db_to_dt("2026-06-23T10:00:00Z"))
+    w = workers.get_worker("s1")
+    assert len(w.events) == 1            # only the post-cutoff event replayed
+    assert w.last_event_id == 2

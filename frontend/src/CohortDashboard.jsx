@@ -8,34 +8,16 @@
 // already did the work.
 import React from 'react';
 import api from './api';
+import {
+    T, FONT, MONO, STATE, NOSTATE, WHEEL_STATE, EP,
+    HATCH_AMBER, PAUSE_FILL, PAUSE_LEGEND,
+    TRIGGERS, TRIGGER_FALLBACK, TRIGGER_ROWS, POLL_MS, COMPACT_TAIL,
+} from './constants';
 
-// ===================== dark slate theme =====================
-// Shared palette, per-state colors, and trigger metadata. Kept up top so the
-// look of the whole dashboard is tunable from one place.
-const T = {
-    bg: '#0b0e13', panel: '#0f131a', border: '#1f2530', borderSoft: '#171c24',
-    ink: '#e6e9ef', sub: '#7d8694', faint: '#5a626e', track: '#0d1117',
-};
-const STATE = {
-    0: { c: '#3b82f6', label: 'Iterator' },
-    1: { c: '#a855f7', label: 'Explorer' },
-    2: { c: '#ef4444', label: 'Stuck' },
-};
-const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
-const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
-// Every intervention type the backend can fire. The right-hand column surfaces
-// all three (wheel_spin, inactive, big_change), not just wheel-spinning.
-const TRIGGERS = {
-    wheel_spin: { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' },
-    inactive:   { c: '#f59e0b', icon: '⏸', label: 'Inactive' },
-    big_change: { c: '#a855f7', icon: '✎', label: 'Big rewrite' },
-};
-const TRIGGER_FALLBACK = { c: '#6b7280', icon: '•', label: 'Trigger' };
-const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
-const TRIGGER_ROWS = [['wheel_spin', 'Wheel-spinning'], ['inactive', 'Inactive'], ['big_change', 'Big rewrite']];
-const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
-const POLL_MS = 1500;
-const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
+// Re-exported so existing imports/tests that pull these from the component file
+// keep working; the source of truth is ./constants.
+export { COMPACT_TAIL } from './constants';
+
 const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
 export function relTime(iso) {
@@ -57,48 +39,105 @@ export function stateMeta(st) {
     return STATE[st.current_state] || NOSTATE;
 }
 
-// ---------------- timelines (per-event boundaries) ----------------
-// Two little sparkline components. EpisodeTrack draws one tick per event,
-// colored by its episode, with hatched bands for pauses; HmmTrack draws one
-// block per run, colored by strategy state. `compact` drops the legend and
-// shrinks the bar for the cohort cards; the full version is used in the modal.
-const EpisodeTrack = ({ data, compact }) => {
-    if (!data || data.event_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No events yet.</div>;
-    const events = data.events || [], episodes = data.episodes || [];
-    const evToEp = {}, softSet = new Set();
-    episodes.forEach((ep, idx) => { for (let k = ep.start_idx; k < ep.end_idx; k++) evToEp[k] = idx; (ep.soft_indices || []).forEach(si => softSet.add(si)); });
-    const pauseAfter = {}; (data.pauses || []).forEach(p => { pauseAfter[p.after_idx] = p; });
-    const band = (p, key) => { const i = p.episode_type === 'INACTIVE_PAUSE'; return <div key={key} title={`${p.episode_type} · ${fmtDur(p.duration)}`} style={{ flex: '0 0 10px', background: i ? 'repeating-linear-gradient(45deg,#ef4444 0 4px,#3a1416 4px 8px)' : 'repeating-linear-gradient(45deg,#f59e0b 0 4px,#3a2a10 4px 8px)' }} />; };
-    const segs = []; let i = 0;
-    while (i < events.length) {
-        const epIdx = evToEp[i];
-        if (epIdx === undefined) { segs.push(<div key={`o${i}`} title={`${events[i].eventType} (orphan)`} style={{ flex: '0 0 3px', background: '#2a2d3a', borderRight: '1px solid rgba(0,0,0,0.6)' }} />); if (pauseAfter[i]) segs.push(band(pauseAfter[i], `po${i}`)); i++; continue; }
-        const ep = episodes[epIdx], c = EP[ep.episode_type] || EP.CODE; const ticks = [];
-        for (let k = ep.start_idx; k < ep.end_idx; k++) ticks.push(<div key={`t${k}`} title={`${events[k].eventType} · ${ep.episode_type}`} style={{ flex: '1 1 0', minWidth: 2, background: c, opacity: softSet.has(k) ? 0.4 : 1, borderRight: '1px solid rgba(0,0,0,0.6)' }} />);
-        segs.push(<div key={`e${epIdx}`} style={{ flexGrow: Math.max(1, ep.event_count), flexShrink: 1, minWidth: 6, display: 'flex', outline: `1px solid ${c}`, outlineOffset: -1 }}>{ticks}</div>);
-        if (pauseAfter[ep.end_idx - 1]) segs.push(band(pauseAfter[ep.end_idx - 1], `p${epIdx}`));
-        i = ep.end_idx;
-    }
-    return (<>
-        <div style={compact ? trkSm : trk}>{segs}</div>
-        {!compact && <div style={legend}>
-            <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
-            <span><i style={sw('repeating-linear-gradient(45deg,#ef4444 0 3px,#3a1416 3px 6px)')} />inactive pause</span>
-        </div>}
-    </>);
+// ---------------- timelines ----------------
+// A "tile strip" of blocks. Each block is one unit -- an HMM run, or one EPISODE.
+//
+// Soft-fold (flush=true, episodes only): the hard/soft boundary idea. Soft
+// boundaries -- the transitions BETWEEN consecutive work episodes -- are folded
+// away: episodes sit flush, so a coding->run->coding stretch reads as ONE
+// continuous activity strip (color changes mark the type). The ONLY breaks are
+// HARD boundaries: the real pauses (INACTIVE / POST_RUN), drawn as a hatched gap
+// with margin. So the bar shows "bursts of work separated by real pauses" rather
+// than a gap after every episode. HMM runs keep their normal gapped look.
+const leaf = (s, compact, flush) => {
+    const r = flush ? 0 : 2;            // flush blocks are square; the strip rounds at its ends
+    if (s.pause) return {
+        flex: compact ? '0 0 5px' : '0 0 9px', borderRadius: r, background: s.bg,
+        ...(flush ? { marginInline: compact ? 3 : 5 } : {}),   // hard boundary == the only break
+    };
+    return {                            // episode block or HMM run: every block the same width
+        flex: compact ? '1 1 0' : '1 0 14px',
+        minWidth: compact ? 0 : 3,
+        borderRadius: r, background: s.bg, opacity: s.faint ? 0.4 : 1,
+    };
 };
+
+const Track = ({ segments, compact, flush }) => {
+    const ref = React.useRef(null);
+    React.useLayoutEffect(() => {
+        if (!compact && ref.current) ref.current.scrollLeft = ref.current.scrollWidth;
+    }, [compact, segments.length]);
+    const base = compact ? trkSm : trk;
+    const style = flush ? { ...base, gap: 0, overflowY: 'hidden' } : base;   // flush: fold soft seams
+    return (
+        <div ref={ref} style={style}>
+            {segments.map((s) => <div key={s.key} title={s.title} style={leaf(s, compact, flush)} />)}
+        </div>
+    );
+};
+
+// data -> segment list. Compact slices to the last COMPACT_TAIL units.
+function hmmSegments(data, compact) {
+    const all = data.runs || [];
+    const runs = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
+    const off = all.length - runs.length;
+    return runs.map((run, i) => {
+        const st = STATE[run.hmm_state] || NOSTATE;
+        const obs = run.obs_bucket != null ? (data.obs_labels || {})[run.obs_bucket] : '—';
+        const sc = run.change_score != null ? run.change_score.toFixed(3) : 'first';
+        return { key: `r${i + off}`, bg: st.c, faint: run.hmm_state == null,
+                 title: `Run #${i + off + 1} · ${st.label} · obs=${obs} · score=${sc}` };
+    });
+}
+
+function episodeSegments(data, compact) {
+    const all = data.episodes || [];
+    const eps = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
+    const minIdx = eps.length ? eps[0].start_idx : 0;
+    const pauseAt = {}; (data.pauses || []).forEach(p => { pauseAt[p.after_idx] = p; });
+    const segs = [];
+    eps.forEach((ep) => {
+        // One equal-width block per episode. The events themselves are summarized
+        // in the tooltip (count + duration), not drawn.
+        const dur = (ep.start_ts != null && ep.end_ts != null) ? ep.end_ts - ep.start_ts : null;
+        segs.push({ key: `e${ep.start_idx}`, bg: EP[ep.episode_type] || EP.CODE,
+                    title: `${ep.episode_type} · ${ep.event_count} events${dur != null ? ` · ${fmtDur(dur)}` : ''}` });
+        const p = pauseAt[ep.end_idx - 1];
+        if (p && p.after_idx >= minIdx) {
+            segs.push({ key: `p${ep.end_idx}`, pause: true,
+                        bg: PAUSE_FILL[p.episode_type] || HATCH_AMBER,
+                        title: `${p.episode_type} · ${fmtDur(p.duration)}` });
+        }
+    });
+    return segs;
+}
+
 const HmmTrack = ({ data, compact }) => {
-    if (!data || !data.runs || data.run_count === 0) return <div style={{ color: T.sub, fontSize: compact ? 11.5 : 13 }}>No runs yet.</div>;
-    const blocks = data.runs.map((run, i) => { const st = STATE[run.hmm_state] || NOSTATE; const obs = run.obs_bucket != null ? data.obs_labels[run.obs_bucket] : '—'; const sc = run.change_score != null ? run.change_score.toFixed(3) : 'first'; return <div key={i} title={`Run #${i + 1} · ${st.label} · obs=${obs} · score=${sc}`} style={{ flex: '1 1 0', minWidth: 6, background: st.c, opacity: run.hmm_state == null ? 0.3 : 1, borderRight: '1px solid rgba(0,0,0,0.6)' }} />; });
+    if (!data || !data.runs || data.run_count === 0) return <div style={emptyTxt(compact)}>No runs yet.</div>;
     return (<>
-        <div style={compact ? trkSm : trk}>{blocks}</div>
+        <Track segments={hmmSegments(data, compact)} compact={compact} />
         {!compact && <div style={legend}>{Object.entries(STATE).map(([k, v]) => <span key={k}><i style={sw(v.c)} />{v.label}</span>)}</div>}
     </>);
 };
-const trk = { display: 'flex', height: 28, background: T.track, border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' };
-const trkSm = { ...trk, height: 16, borderRadius: 6 };
+
+const EpisodeTrack = ({ data, compact }) => {
+    if (!data || data.event_count === 0) return <div style={emptyTxt(compact)}>No events yet.</div>;
+    return (<>
+        <Track segments={episodeSegments(data, compact)} compact={compact} flush />
+        {!compact && <div style={legend}>
+            <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
+            {PAUSE_LEGEND.map(([label, fill]) => <span key={label}><i style={sw(fill)} />{label}</span>)}
+        </div>}
+    </>);
+};
+
+// Equal tiles, consistent 2px gap, slight rounding. Full scrolls; compact hides
+// overflow (already windowed to the last COMPACT_TAIL).
+const trk = { display: 'flex', gap: 2, height: 28, background: T.track, border: `1px solid ${T.border}`, borderRadius: 8, padding: 2, boxSizing: 'border-box', overflowX: 'auto', scrollbarWidth: 'thin' };
+const trkSm = { ...trk, height: 18, borderRadius: 6, overflowX: 'hidden' };
 const legend = { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 9, fontSize: 11.5, color: T.sub };
 const sw = (bg) => ({ display: 'inline-block', width: 11, height: 11, borderRadius: 3, marginRight: 6, verticalAlign: 'middle', background: bg });
+const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 
 // ---------------- detail (inside modal) ----------------
 // The body of the drill-down modal for one student: header + state badge, the
@@ -386,16 +425,19 @@ const CohortDashboard = () => {
         // present students first, then stable by studentID so a card never jumps
         .sort((a, b) => (a.present === b.present ? a.studentID.localeCompare(b.studentID) : (a.present ? -1 : 1)));
 
-    // Keep the alert feed to currently-tracked students with the type enabled.
-    // The backend evaluates every student_state row, so this filters out alerts
-    // for someone who was just untracked (and any muted trigger type).
+    // Keep the alert feed to currently-tracked, PRESENT students with the type
+    // enabled. The backend evaluates every student_state row, so this filters out
+    // alerts for someone just untracked (and any muted trigger type). Absent
+    // students are suppressed too: a kid who left the room would otherwise spam
+    // "inactive" alerts forever, sending a TA to an empty seat.
     //
     // We show active AND recently-resolved triggers: the backend keeps a resolved
     // one in the feed for TRIGGER_RECENT_SECONDS (2 min), so an alert lingers for
     // ~2 minutes after a student recovers rather than vanishing instantly.
     const tracked = new Set(roster.map(r => r.studentID));
+    const absent = new Set(roster.filter(r => r.present === false).map(r => r.studentID));
     const alerts = triggers.filter(t =>
-        tracked.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
+        tracked.has(t.studentID) && !absent.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
     const headColor = TRIGGERS.wheel_spin.c;
     const detail = detailFull;   // heavy payload fetched per-open student
 

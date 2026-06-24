@@ -22,9 +22,7 @@ from app.pipeline.triggers import BIG_CHANGE_SCORE, LABELS, _disabled_types
 
 logger = logging.getLogger("pipeline")
 
-STUCK_STATE = 2
-STATE_LABELS = {0: "iterator", 1: "explorer", 2: "stuck"}
-BUFFER_MAX = 5000
+from app.constants import STUCK_STATE, STATE_LABELS, BUFFER_MAX
 
 
 class StudentWorker:
@@ -209,6 +207,17 @@ def reset():
     _workers.clear()
 
 
+# Session cutoff: when set, workers rehydrate from session-only events so a
+# returning student's prior session is hidden (the raw log is left intact). The
+# daemon sets this once at startup.
+_session_cutoff = None
+
+
+def set_session_cutoff(since):
+    global _session_cutoff
+    _session_cutoff = since
+
+
 def has_worker(student_id):
     return student_id in _workers
 
@@ -219,7 +228,7 @@ def _rehydrate(worker):
     so a restart never re-fires past alerts. db.student_tail already returns
     rows oldest-first, ready to replay in order."""
     worker.fired_big_change = db.big_change_indices(worker.student_id)
-    for row in db.student_tail(worker.student_id, BUFFER_MAX):
+    for row in db.student_tail(worker.student_id, BUFFER_MAX, since=_session_cutoff):
         et = row["eventType"] or ""
         ts = None
         if row["event_time"]:

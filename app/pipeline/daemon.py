@@ -22,11 +22,9 @@ from app import db
 from app.pipeline import poller, workers, triggers
 from app.pipeline.client import ProdClient, ProdClientError
 
-log = logging.getLogger("pipeline")
+from app.constants import PAUSED_POLL_S   # paused re-check cadence (cheap local read)
 
-# How often to re-read the pause flag while paused. It's a cheap local SQLite
-# read with no prod request, kept short so a Resume click is honored within ~1s.
-PAUSED_POLL_S = 1.0
+log = logging.getLogger("pipeline")
 
 
 def _parse_args(argv=None):
@@ -84,13 +82,29 @@ def main(argv=None):
     # re-read each tick (it changes at human speed and is cheaply cached).
     last_disabled = None
 
+    # Session cutoff: only ingest events at/after the moment this daemon started,
+    # for both the per-student backfill and the live drain. That's what keeps a
+    # student ID reused on a later day from pulling in their earlier sessions.
+    session_start = db.now()
+    log.info("session cutoff: ingesting events from %s onward", session_start)
+
+    # Hide any prior session without deleting it: workers rehydrate from
+    # session-only events, and we re-materialize every tracked student now so their
+    # card reads empty at startup (the raw vex_log stays intact and recoverable).
+    workers.set_session_cutoff(session_start)
+    for r in db.tracked_list():
+        try:
+            workers.get_worker(r["studentID"]).recompute_and_write()
+        except Exception as e:
+            log.warning("startup re-materialize failed for %s: %s", r["studentID"], e)
+
     fails = idle = 0
     while True:
         t0 = time.monotonic()
         backfilled_now = False
 
-        # Read all three control flags in a single round-trip per tick. Their
-        # cache TTL is 200ms, so a dashboard click still lands within ~200ms.
+        # Read the control flags in a single round-trip per tick. Their cache TTL
+        # is 200ms, so a dashboard click still lands within ~200ms.
         flags = db.get_meta_many(("reset_requested_at", "polling_enabled", "disabled_triggers"))
         rr = flags["reset_requested_at"]
         paused = (flags["polling_enabled"] == "0")
@@ -122,7 +136,7 @@ def main(argv=None):
             for r in roster:
                 if not r["backfilled"]:
                     try:
-                        poller.backfill_student(client, r["studentID"])
+                        poller.backfill_student(client, r["studentID"], since=session_start)
                         workers.get_worker(r["studentID"]).recompute_and_write()
                         db.mark_backfilled(r["studentID"])
                         backfilled_now = True
@@ -131,7 +145,7 @@ def main(argv=None):
                         log.warning("backfill failed for %s: %s", r["studentID"], e)
 
             new = poller.drain(client, cursor, limit=limit, overlap_seconds=overlap,
-                               tracked=tracked)
+                               tracked=tracked, since=session_start)
             fails = 0
         except ProdClientError as e:   # transient: 504/timeout/auth/etc.
             fails += 1

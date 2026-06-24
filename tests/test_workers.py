@@ -174,3 +174,17 @@ def test_rehydrate_uses_received_at_when_event_time_missing():
         "project": "{}", "source_event_id": 5})
     w = workers.get_worker("s1")                     # cold start -> rehydrate
     assert len(w.events) == 1 and w.events[0]["ts"] is not None
+
+
+def test_session_cutoff_hides_pre_session_events_on_rehydrate():
+    # Two logged events; the cutoff sits between them. Only the post-cutoff event
+    # replays into the worker -- the prior session stays in the log but is hidden.
+    for sid_eid, ts in [(1, "2026-06-23T08:00:00Z"), (2, "2026-06-23T12:00:00Z")]:
+        db.insert_message_and_log({
+            "raw_message": "{}", "event_time": db.db_to_dt(ts), "classCode": "C",
+            "eventType": "runProject", "studentID": "s1", "project": "{}",
+            "source_event_id": sid_eid})
+    workers.set_session_cutoff(db.db_to_dt("2026-06-23T10:00:00Z"))
+    w = workers.get_worker("s1")
+    assert len(w.events) == 1            # only the post-cutoff event replayed
+    assert w.last_event_id == 2

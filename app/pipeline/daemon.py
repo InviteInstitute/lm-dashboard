@@ -88,6 +88,16 @@ def main(argv=None):
     session_start = db.now()
     log.info("session cutoff: ingesting events from %s onward", session_start)
 
+    # Hide any prior session without deleting it: workers rehydrate from
+    # session-only events, and we re-materialize every tracked student now so their
+    # card reads empty at startup (the raw vex_log stays intact and recoverable).
+    workers.set_session_cutoff(session_start)
+    for r in db.tracked_list():
+        try:
+            workers.get_worker(r["studentID"]).recompute_and_write()
+        except Exception as e:
+            log.warning("startup re-materialize failed for %s: %s", r["studentID"], e)
+
     fails = idle = 0
     while True:
         t0 = time.monotonic()

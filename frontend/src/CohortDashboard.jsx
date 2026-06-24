@@ -40,29 +40,38 @@ export function stateMeta(st) {
 }
 
 // ---------------- timelines ----------------
-// A "tile strip" of blocks. Each block is one unit -- an HMM run (equal width) or
-// one EPISODE (width grown to its event count, so a longer stretch reads bigger).
-// Pauses are thin hatched separators. No per-event detail here: the bar is for
-// shape-at-a-glance (coding / running / stuck / idle); the events live in the
-// hover tooltip and the detail modal. Compact cards share the width; the full
-// (modal) track is fixed-width, scrolls, and opens at the most recent (right) edge.
-const leaf = (s, compact) => {
-    if (s.pause) return { flex: compact ? '0 0 5px' : '0 0 9px', borderRadius: 2, background: s.bg };
-    return {                 // episode block or HMM run: every block the same width
+// A "tile strip" of blocks. Each block is one unit -- an HMM run, or one EPISODE.
+//
+// Soft-fold (flush=true, episodes only): the hard/soft boundary idea. Soft
+// boundaries -- the transitions BETWEEN consecutive work episodes -- are folded
+// away: episodes sit flush, so a coding->run->coding stretch reads as ONE
+// continuous activity strip (color changes mark the type). The ONLY breaks are
+// HARD boundaries: the real pauses (INACTIVE / POST_RUN), drawn as a hatched gap
+// with margin. So the bar shows "bursts of work separated by real pauses" rather
+// than a gap after every episode. HMM runs keep their normal gapped look.
+const leaf = (s, compact, flush) => {
+    const r = flush ? 0 : 2;            // flush blocks are square; the strip rounds at its ends
+    if (s.pause) return {
+        flex: compact ? '0 0 5px' : '0 0 9px', borderRadius: r, background: s.bg,
+        ...(flush ? { marginInline: compact ? 3 : 5 } : {}),   // hard boundary == the only break
+    };
+    return {                            // episode block or HMM run: every block the same width
         flex: compact ? '1 1 0' : '1 0 14px',
         minWidth: compact ? 0 : 3,
-        borderRadius: 2, background: s.bg, opacity: s.faint ? 0.4 : 1,
+        borderRadius: r, background: s.bg, opacity: s.faint ? 0.4 : 1,
     };
 };
 
-const Track = ({ segments, compact }) => {
+const Track = ({ segments, compact, flush }) => {
     const ref = React.useRef(null);
     React.useLayoutEffect(() => {
         if (!compact && ref.current) ref.current.scrollLeft = ref.current.scrollWidth;
     }, [compact, segments.length]);
+    const base = compact ? trkSm : trk;
+    const style = flush ? { ...base, gap: 0, overflowY: 'hidden' } : base;   // flush: fold soft seams
     return (
-        <div ref={ref} style={compact ? trkSm : trk}>
-            {segments.map((s) => <div key={s.key} title={s.title} style={leaf(s, compact)} />)}
+        <div ref={ref} style={style}>
+            {segments.map((s) => <div key={s.key} title={s.title} style={leaf(s, compact, flush)} />)}
         </div>
     );
 };
@@ -114,7 +123,7 @@ const HmmTrack = ({ data, compact }) => {
 const EpisodeTrack = ({ data, compact }) => {
     if (!data || data.event_count === 0) return <div style={emptyTxt(compact)}>No events yet.</div>;
     return (<>
-        <Track segments={episodeSegments(data, compact)} compact={compact} gap={4} />
+        <Track segments={episodeSegments(data, compact)} compact={compact} flush />
         {!compact && <div style={legend}>
             <span><i style={sw(EP.CODE)} />CODE</span><span><i style={sw(EP.RUN)} />RUN</span><span><i style={sw(EP.RESET)} />RESET</span>
             {PAUSE_LEGEND.map(([label, fill]) => <span key={label}><i style={sw(fill)} />{label}</span>)}

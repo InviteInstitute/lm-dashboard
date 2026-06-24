@@ -689,16 +689,24 @@ def insert_message_and_log(norm):
         return False
 
 
-def student_tail(sid, limit):
+def student_tail(sid, limit, since=None):
     """A student's last `limit` events, returned oldest-first so a worker can
     replay them in order on rehydrate. Joins in the envelope's received_at to use
-    as a timestamp fallback when the parsed event_time is missing."""
+    as a timestamp fallback when the parsed event_time is missing. `since` (a UTC
+    datetime, or None) hides events from before the session: rows whose timestamp
+    is earlier are filtered out, so a returning student's prior session stays in
+    the log but never replays into the live view."""
+    where, params = "v.studentID = ?", [sid]
+    if since is not None:
+        # Stored datetimes are fixed-width strings, so a lexical >= is chronological.
+        where += " AND COALESCE(v.event_time, m.received_at) >= ?"
+        params.append(dt_to_db(since))
     rows = _query(
         "SELECT v.eventType, v.classCode, v.project, v.raw_message, v.event_time, "
         "       v.source_event_id, m.received_at "
         "FROM vex_log v LEFT JOIN message m ON m.id = v.from_message_id "
-        "WHERE v.studentID = ? ORDER BY v.id DESC LIMIT ?",
-        (sid, limit),
+        f"WHERE {where} ORDER BY v.id DESC LIMIT ?",
+        (*params, limit),
     )
     out = []
     for r in reversed(rows):

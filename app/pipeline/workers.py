@@ -16,6 +16,7 @@ from collections import deque
 
 from app import db
 from app.strategy_hmm.pipeline import compute_strategy_states
+from app.strategy_hmm.apted_similarity import clear_cache as clear_score_cache
 from app.smart_delta_engine import generate_llm_prompt_from_project
 from app.episode_engine import segment_session
 from app.pipeline.triggers import BIG_CHANGE_SCORE, LABELS, _disabled_types
@@ -203,8 +204,9 @@ def reconcile(tracked):
 def reset():
     """Evict every cached worker. The daemon calls this on a dashboard reset, so
     that buffered events can't immediately re-materialize the state that was
-    just wiped."""
+    just wiped. Also drop the APTED score cache so it doesn't outlive the data."""
     _workers.clear()
+    clear_score_cache()
 
 
 # Session cutoff: when set, workers rehydrate from session-only events so a

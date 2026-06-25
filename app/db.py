@@ -701,11 +701,19 @@ def student_tail(sid, limit, since=None):
         # Stored datetimes are fixed-width strings, so a lexical >= is chronological.
         where += " AND COALESCE(v.event_time, m.received_at) >= ?"
         params.append(dt_to_db(since))
+
+    # Order by event time, not v.id: backfill inserts page_student's newest-first
+    # results, so id is reverse-chronological. COALESCE matches the `since` filter
+    # (received_at fallback when event_time is null); v.id is a stable tiebreak.
+    # DESC + LIMIT keeps the most-recent `limit` events; the reversed() below flips
+    # them to oldest-first for replay.
+    
+    order_by = "ORDER BY COALESCE(v.event_time, m.received_at) DESC, v.id DESC"
     rows = _query(
         "SELECT v.eventType, v.classCode, v.project, v.raw_message, v.event_time, "
         "       v.source_event_id, m.received_at "
         "FROM vex_log v LEFT JOIN message m ON m.id = v.from_message_id "
-        f"WHERE {where} ORDER BY v.id DESC LIMIT ?",
+        f"WHERE {where} {order_by} LIMIT ?",
         (*params, limit),
     )
     out = []

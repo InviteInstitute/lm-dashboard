@@ -1,7 +1,7 @@
 """Episode segmentation: CODE/RUN/RESET carving, soft-event absorption, and the
 two pause detectors."""
 from app.episode_engine import segment_session
-from app.episode_engine.pipeline_config import PAUSE_THRESHOLD_S, SHORT_PAUSE_MIN_S
+from app.constants import PAUSE_THRESHOLD_S, SHORT_PAUSE_MIN_S
 
 
 def _e(et, ts):

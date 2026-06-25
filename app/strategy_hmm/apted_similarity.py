@@ -11,7 +11,7 @@ import hashlib
 from collections import defaultdict
 from apted import APTED, Config
 
-from .constants import (
+from app.constants import (
     DELETION_COST, INSERTION_COST, FIELD_CHANGE_COST,
     TYPE_CHANGE_COST, EDGE_CHANGE_COST, SIMILARITY_SMOOTHING,
 )

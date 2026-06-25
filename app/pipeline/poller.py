@@ -12,11 +12,10 @@ import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 from app import db
+from app.constants import CURSOR_NAME
 from app.pipeline.workers import route
 
 logger = logging.getLogger("pipeline")
-
-CURSOR_NAME = "vex_poll"
 
 
 class Cursor:

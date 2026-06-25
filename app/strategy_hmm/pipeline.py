@@ -21,7 +21,7 @@ import joblib
 
 from .ast_builder import xml_to_block_ast, extract_workspace_xml
 from .apted_similarity import cached_change_score
-from .constants import MODEL_PATH, REWRITE_THRESHOLD, OBS_LABELS
+from app.constants import MODEL_PATH, REWRITE_THRESHOLD, OBS_LABELS
 
 
 _model = None

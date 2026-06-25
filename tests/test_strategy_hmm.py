@@ -4,7 +4,7 @@ latent strategy state per run."""
 from app.strategy_hmm.pipeline import (
     bucket_change_score, compute_strategy_states,
 )
-from app.strategy_hmm.constants import REWRITE_THRESHOLD, OBS_LABELS
+from app.constants import REWRITE_THRESHOLD, OBS_LABELS
 
 
 def _run_event(workspace_xml, ts):

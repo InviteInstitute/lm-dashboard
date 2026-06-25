@@ -16,19 +16,18 @@ segment_episodes output:
   start_ts, end_ts, event_count, soft_indices}, where start_idx is inclusive and
   end_idx is exclusive (Caitlin's repo convention).
 """
-from .pipeline_config import (
+from app.constants import (
     boundary_kind,
     SOFT_EVENT_TYPES,
     PAUSE_THRESHOLD_S,
     SHORT_PAUSE_MIN_S,
     PAUSE_MAX_S,
     POST_RUN_PAUSE_TRANSPARENT_TYPES,
+    CODE_EVENTS,
+    RUN_START_EVENTS,
+    RUN_END_EVENTS,
+    RESET_EVENTS,
 )
-
-CODE_EVENTS = frozenset({'blockMoved', 'blockChanged', 'blockCreated', 'blockDeleted'})
-RUN_START_EVENTS = frozenset({'runProject'})
-RUN_END_EVENTS = frozenset({'projectEnd'})
-RESET_EVENTS = frozenset({'loadProject', 'newProject'})
 
 
 def _classify_event(event_type: str) -> str:

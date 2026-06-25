@@ -23,6 +23,12 @@ from app.constants import (
 _score_cache = {}
 
 
+def clear_cache():
+    """Drop the memoized scores. Called on a dashboard reset so the cache doesn't
+    carry a wiped session's entries (and grow unbounded) across the daemon's life."""
+    _score_cache.clear()
+
+
 def _xml_hash(xml_string):
     return hashlib.sha1(xml_string.encode("utf-8")).hexdigest()
 

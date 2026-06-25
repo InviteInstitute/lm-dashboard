@@ -176,6 +176,56 @@ def test_rehydrate_uses_received_at_when_event_time_missing():
     assert len(w.events) == 1 and w.events[0]["ts"] is not None
 
 
+def test_student_tail_replays_chronologically_despite_insertion_order():
+    # Backfill persists page_student's newest-first results, so the autoincrement
+    # id ends up reverse-chronological. student_tail must still return events
+    # oldest-first by event_time, or the HMM pairs the wrong runs and
+    # segment_session sees negative gaps and drops every pause.
+    for eid, ts in [(1, "2026-06-23T12:00:00Z"),    # newer event, inserted FIRST
+                    (2, "2026-06-23T08:00:00Z")]:   # older event, inserted second
+        db.insert_message_and_log({
+            "raw_message": "{}", "event_time": db.db_to_dt(ts), "classCode": "C",
+            "eventType": "runProject", "studentID": "s1", "project": "{}",
+            "source_event_id": eid})
+    times = [e["event_time"] for e in db.student_tail("s1", 10)]
+    assert times == sorted(times)      # chronological, not insertion (id) order
+
+
+def test_student_tail_orders_null_event_time_by_received_at_fallback():
+    # A row whose event_time couldn't be parsed must still be placed by its
+    # envelope received_at (the COALESCE fallback), not dumped at the NULL edge.
+    # insert_message_and_log forces received_at = event_time or now(), so to set a
+    # null event_time with a controlled received_at we write the rows directly.
+    def _insert(eid, event_time_iso, received_at_iso):
+        et = db.dt_to_db(db.db_to_dt(event_time_iso)) if event_time_iso else None
+        rt = db.dt_to_db(db.db_to_dt(received_at_iso))
+        with db.write_txn() as con:
+            cur = con.execute(
+                "INSERT INTO message (queue_name, routing_key, exchange, content, received_at) "
+                "VALUES ('p', '', '', '{}', ?)", (rt,))
+            con.execute(
+                "INSERT INTO vex_log (from_message_id, classCode, eventType, studentID, "
+                "project, raw_message, event_time, source_event_id) "
+                "VALUES (?, 'C', 'runProject', 's1', '{}', '{}', ?, ?)",
+                (cur.lastrowid, et, eid))
+
+    _insert(1, "2026-06-23T12:00:00Z", "2026-06-23T12:00:00Z")   # newest
+    _insert(2, None,                   "2026-06-23T10:00:00Z")   # middle, null event_time
+    _insert(3, "2026-06-23T08:00:00Z", "2026-06-23T08:00:00Z")   # oldest
+    eids = [e["source_event_id"] for e in db.student_tail("s1", 10)]
+    # COALESCE places the null-event_time row at its received_at (10:00), so the
+    # chronological replay is 08:00, 10:00, 12:00. Bare v.event_time would sink the
+    # null to the edge and give [2, 3, 1] instead.
+    assert eids == [3, 2, 1]
+
+
+def test_reset_clears_apted_score_cache():
+    from app.strategy_hmm import apted_similarity
+    apted_similarity._score_cache[("a", "b")] = 0.9
+    workers.reset()
+    assert apted_similarity._score_cache == {}      # reset drops the memoized scores
+
+
 def test_session_cutoff_hides_pre_session_events_on_rehydrate():
     # Two logged events; the cutoff sits between them. Only the post-cutoff event
     # replays into the worker -- the prior session stays in the log but is hidden.

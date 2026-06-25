@@ -19,7 +19,7 @@ from app.constants import (
     STUCK_STATE, STATE_LABELS, TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
 )
 
-app = FastAPI(title="LUC Cohort Dashboard")
+app = FastAPI(title="LM Dashboard")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,

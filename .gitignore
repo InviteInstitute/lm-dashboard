@@ -35,3 +35,6 @@ site/
 .coverage
 htmlcov/
 frontend/coverage/
+
+# Cache
+.pytest_cache

@@ -40,6 +40,9 @@ def test_parse_ts_variants():
     assert poller._parse_ts("2026-06-22T10:00:00+00:00").hour == 10
     assert poller._parse_ts(None) is None
     assert poller._parse_ts("garbage") is None
+    # a zoneless timestamp is assumed UTC, not left naive (which breaks later
+    # aware/naive comparisons)
+    assert poller._parse_ts("2026-06-22T10:00:00").utcoffset().total_seconds() == 0
 
 
 def test_persist_is_idempotent_on_source_event_id():

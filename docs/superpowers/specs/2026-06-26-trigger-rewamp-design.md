@@ -55,17 +55,36 @@ are removed. The XML-pair memo cache stays (renamed to cache distances).
 
 ## The Five Triggers
 
-All thresholds live in `constants.py`. `edit_distance` is abbreviated `ed`.
+**How to read this:** every time a student runs their project, we measure the
+**edit distance** -- how much the code changed since their *previous* run. `0` means
+they ran the exact same code again; a larger number means a bigger change. Four of
+the five triggers are built from this single number; the fifth (Inactive) is based
+on time.
 
-| Trigger | Kind | Fires when | Threshold | Cooldown / reset |
-|---|---|---|---|---|
-| **wheel_spin** (Stuck) | momentary, per-run | trailing run of `ed == 0` reaches N | `WHEEL_SPIN_ZERO_RUNS = 6` (>=) | silent until an `ed > 0` run |
-| **resilience** | momentary, per-run | an `ed > 0` run lands right after >= M trailing zeros | `RESILIENCE_ZERO_RUNS = 4` | fires at the breakout run |
-| **inactive** (Idle) | sustained, sweep | no event for > T sec (existing any-event idle) | `INACTIVE_TRIGGER_SECONDS = 240` | resolves when a new event arrives |
-| **explorer** | momentary, per-run | a single run's `ed >= E` | `EXPLORER_EDIT_DISTANCE = 13` | one alert per qualifying run (dedupe by index) |
-| **iterative** (Step-by-Step) | momentary + counter | running count of `ed > ITERATIVE_EDIT_MIN` (= 1) runs reaches K | `ITERATIVE_DEFAULT_THRESHOLD = 6` | silent after firing until an `ed == 0` run, which also zeroes the count |
+| Trigger | What it captures | Fires when | Example runs\* |
+|---|---|---|---|
+| **Wheel-spinning** (Stuck) | Re-running the *same* code over and over without changing it | 6 or more identical runs in a row | `0 0 0 0 0 0` → fires on the 6th |
+| **Resilience** | Editing again after being stuck on identical re-runs (breaking out) | a real edit right after 4+ identical runs | `0 0 0 0 1` → fires on the `1` |
+| **Inactive / Idle** | No activity at all for several minutes | 4 minutes (240s) with no events | *(time-based, not run-based)* |
+| **Explorer** | Making one *large* change to the project | a single run that changes the code by 13 or more | `2 0 15` → fires on the `15` |
+| **Step-by-Step** (Iterative) | Building steadily through many *small* edits | 6 meaningful edits (each changing the code by more than 1) | `2 3 2 4 2 3` → fires on the 6th |
 
-### Notes per trigger
+\*Each number is one run's edit distance; `0` = identical to the previous run.
+
+**When each fires again (cooldown), in plain terms:**
+
+- **Wheel-spinning** goes quiet after firing and won't fire again until the student makes a real edit.
+- **Step-by-Step** resets its count whenever a run makes no change (`0`), so it fires once per *burst* of steady editing.
+- **Explorer** fires on every large change.
+- **Resilience** fires each time a student breaks out of a stuck stretch.
+- **Inactive** clears the instant the student does anything.
+
+**The knobs** (all live in `constants.py`, easy to retune): `WHEEL_SPIN_ZERO_RUNS = 6`,
+`RESILIENCE_ZERO_RUNS = 4`, `INACTIVE_TRIGGER_SECONDS = 240`,
+`EXPLORER_EDIT_DISTANCE = 13`, `ITERATIVE_DEFAULT_THRESHOLD = 6` (counting runs whose
+edit distance is greater than `ITERATIVE_EDIT_MIN = 1`).
+
+### Notes per trigger (implementation)
 
 - **wheel_spin** fires at the run where the trailing zero-streak first reaches 6
   ("6 or more"). It then stays silent (cooldown) until an `ed > 0` run re-arms it;

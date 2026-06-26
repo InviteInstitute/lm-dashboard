@@ -14,12 +14,16 @@ def test_jload_jdump_edge_cases():
     assert db._jdump({"a": 1}) == '{"a": 1}'
 
 
-def test_get_meta_cached_serves_within_ttl():
+def test_get_meta_cached_serves_from_cache_and_busts_on_write():
+    db.set_meta("polling_enabled", "1")
+    assert db.get_meta_cached("polling_enabled") == "1"          # fills cache
+    # a read with no write between it returns from the cache (unlocked fast path):
+    # delete the row behind the cache's back and confirm the stale value is served
+    db._execute("DELETE FROM meta WHERE key='polling_enabled'")
+    assert db.get_meta_cached("polling_enabled") == "1"
+    # but a write through set_meta busts the entry so the new value is seen
     db.set_meta("polling_enabled", "0")
     assert db.get_meta_cached("polling_enabled") == "0"
-    # a subsequent write busts the cache entry so the new value is seen
-    db.set_meta("polling_enabled", "1")
-    assert db.get_meta_cached("polling_enabled") == "1"
 
 
 def test_get_meta_many_mixes_cache_and_query():

@@ -1,4 +1,4 @@
-# LM Dashboard
+# Learner Modeling Dashboard
 
 A live "who needs help" board for a room of students coding in VEX. It mirrors their
 activity from the Reflecks production backend onto your own machine, infers each

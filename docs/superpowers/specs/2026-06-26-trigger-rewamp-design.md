@@ -55,36 +55,19 @@ are removed. The XML-pair memo cache stays (renamed to cache distances).
 
 ## The Five Triggers
 
-**How to read this:** every time a student runs their project, we measure the
-**edit distance** -- how much the code changed since their *previous* run. `0` means
-they ran the exact same code again; a larger number means a bigger change. Four of
-the five triggers are built from this single number; the fifth (Inactive) is based
-on time.
+All thresholds live in `constants.py`, named exactly as shown so the "Fires when"
+rule and its "Threshold" use the same name. `edit_distance` is the whole number
+measuring how much the code changed since the previous run (`0` = identical).
 
-| Trigger | What it captures | Fires when | Example runs\* |
-|---|---|---|---|
-| **Wheel-spinning** (Stuck) | Re-running the *same* code over and over without changing it | 6 or more identical runs in a row | `0 0 0 0 0 0` → fires on the 6th |
-| **Resilience** | Editing again after being stuck on identical re-runs (breaking out) | a real edit right after 4+ identical runs | `0 0 0 0 1` → fires on the `1` |
-| **Inactive / Idle** | No activity at all for several minutes | 4 minutes (240s) with no events | *(time-based, not run-based)* |
-| **Explorer** | Making one *large* change to the project | a single run that changes the code by 13 or more | `2 0 15` → fires on the `15` |
-| **Step-by-Step** (Iterative) | Building steadily through many *small* edits | 6 meaningful edits (each changing the code by more than 1) | `2 3 2 4 2 3` → fires on the 6th |
+| Trigger | Kind | Fires when | Threshold | Cooldown / reset |
+|---|---|---|---|---|
+| **wheel_spin** (Stuck) | momentary, per-run | a run of consecutive `edit_distance == 0` reaches `WHEEL_SPIN_ZERO_RUNS` | `WHEEL_SPIN_ZERO_RUNS = 6` (6 or more) | silent until an `edit_distance > 0` run |
+| **resilience** | momentary, per-run | an `edit_distance > 0` run lands right after `RESILIENCE_ZERO_RUNS` or more trailing zeros | `RESILIENCE_ZERO_RUNS = 4` | fires at the breakout run |
+| **inactive** (Idle) | sustained, sweep | no event for more than `INACTIVE_TRIGGER_SECONDS` seconds (existing any-event idle) | `INACTIVE_TRIGGER_SECONDS = 240` | resolves when a new event arrives |
+| **explorer** | momentary, per-run | a single run's `edit_distance >= EXPLORER_EDIT_DISTANCE` | `EXPLORER_EDIT_DISTANCE = 13` | one alert per qualifying run (dedupe by index) |
+| **iterative** (Step-by-Step) | momentary + counter | the count of runs with `edit_distance > ITERATIVE_EDIT_MIN` reaches `ITERATIVE_DEFAULT_THRESHOLD` | `ITERATIVE_DEFAULT_THRESHOLD = 6`, `ITERATIVE_EDIT_MIN = 1` | silent after firing until an `edit_distance == 0` run, which also zeroes the count |
 
-\*Each number is one run's edit distance; `0` = identical to the previous run.
-
-**When each fires again (cooldown), in plain terms:**
-
-- **Wheel-spinning** goes quiet after firing and won't fire again until the student makes a real edit.
-- **Step-by-Step** resets its count whenever a run makes no change (`0`), so it fires once per *burst* of steady editing.
-- **Explorer** fires on every large change.
-- **Resilience** fires each time a student breaks out of a stuck stretch.
-- **Inactive** clears the instant the student does anything.
-
-**The knobs** (all live in `constants.py`, easy to retune): `WHEEL_SPIN_ZERO_RUNS = 6`,
-`RESILIENCE_ZERO_RUNS = 4`, `INACTIVE_TRIGGER_SECONDS = 240`,
-`EXPLORER_EDIT_DISTANCE = 13`, `ITERATIVE_DEFAULT_THRESHOLD = 6` (counting runs whose
-edit distance is greater than `ITERATIVE_EDIT_MIN = 1`).
-
-### Notes per trigger (implementation)
+### Notes per trigger
 
 - **wheel_spin** fires at the run where the trailing zero-streak first reaches 6
   ("6 or more"). It then stays silent (cooldown) until an `ed > 0` run re-arms it;
@@ -98,10 +81,11 @@ edit distance is greater than `ITERATIVE_EDIT_MIN = 1`).
   is untouched.
 - **explorer** absorbs the old `big_change`. Fires once per qualifying run, deduped
   by run index. No cooldown.
-- **iterative** counts `ed > 1` runs across the whole session (no reset on activity
-  switch). When the count reaches the threshold it fires once; it then stays silent
-  until an `ed == 0` run, which clears the cooldown and resets the count to 0 (the
-  burst boundary). `ed == 1` is a trivial change: it neither counts nor resets.
+- **iterative** counts runs with `edit_distance > 1` across the whole session (no
+  reset on activity switch). When the count reaches the threshold it fires once; it
+  then stays silent until an `edit_distance == 0` run, which clears the cooldown and
+  resets the count to 0 (the burst boundary). An `edit_distance == 1` is a trivial
+  change: it neither counts nor resets.
 
 ### Per-playground thresholds (reference only, not wired)
 

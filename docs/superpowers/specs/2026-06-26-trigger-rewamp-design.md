@@ -216,3 +216,81 @@ the dashboard derives status and sort order from the triggers it already fetches
 - The cost-model change shifts historical `edit_distance` values vs any prior
   Hyeongjo run that used different costs; the config above is the agreed source of
   truth.
+
+## Appendix: Decisions & Assumptions Ledger
+
+Every decision behind this spec, tagged by origin so future readers can tell what
+was directed vs. defaulted. **[user]** = explicitly confirmed by Maharsh;
+**[deck]** = taken from the source slides; **[default]** = chosen by Claude without
+explicit confirmation (open to override); **[assume]** = an unverified assumption
+the implementation must check.
+
+### Signal & cost model
+
+- **[user]** Use the raw `edit_distance`, not the normalized `change_score`, as the
+  trigger signal. (Approved the switch after it was proposed.)
+- **[user]** APTED cost config is Hyeongjo's: block del/ins 1.0, edge del/ins 0,
+  field/type/edge change 1.0. (Provided verbatim.)
+- **[default]** `change_score`, `SIMILARITY_SMOOTHING`, and `_count_tree_nodes` are
+  removed entirely rather than kept alongside `edit_distance`.
+- **[default]** `BlocklyConfig.delete/insert` become edge-aware (return 0 for
+  `__edge__` nodes) so the provided edge costs take effect.
+- **[assume]** The deck's distributions were produced with this exact cost config;
+  if not, the `>1` / `>=13` thresholds shift.
+- **[assume]** Under the new costs `edit_distance` is integer-valued (all costs are
+  0 or 1.0).
+
+### Trigger definitions
+
+- **[deck]** Five triggers replace the HMM; `big_change` folds into Explorer.
+- **[deck/user]** wheel_spin: `ed == 0` streak `>= 6`; momentary; cooldown until
+  `ed > 0`. (Strict `== 0` and `>= 6` both confirmed by user.)
+- **[deck]** resilience: `ed > 0` after `>= 4` trailing zeros; threshold 4.
+- **[user]** inactive keeps the existing any-event idle implementation, retuned to
+  240s; the segmenter's `PAUSE_THRESHOLD_S = 300` is untouched.
+- **[deck]** explorer: single run `ed >= 13`.
+- **[user]** explorer fires once per qualifying run, deduped by index, no cooldown.
+- **[deck]** iterative: count `ed > 1` runs to a threshold; cooldown until `ed == 0`.
+- **[user]** iterative uses the default threshold 6 for everyone; per-playground
+  dict is reference-only (activity name absent from telemetry).
+- **[user]** iterative counts across the whole session (no reset on
+  loadProject/newProject).
+- **[default]** iterative interpretation of the deck's cooldown: an `ed == 0` run
+  both clears the cooldown and resets the count to 0 (burst boundary); `ed == 1`
+  neither counts nor resets.
+
+### Priority & status
+
+- **[user]** Only priority rule is wheel_spin > resilience, for the headline status
+  only; all triggers fire/log independently. No global ordering.
+- **[user]** Per-student status becomes trigger-driven (HMM strategy state dropped).
+- **[default]** Headline tiebreak for any other active-trigger combination = the
+  most recently opened trigger.
+
+### Architecture
+
+- **[default]** `detect_run_triggers` is a single pure pass over the `edit_distance`
+  sequence; the four change-based triggers fire from the worker, `inactive` stays in
+  the sweep.
+- **[default]** Momentary triggers are idempotent via per-type fired-index sets
+  seeded from the DB on rehydrate (generalizing today's `big_change` dedupe), so a
+  restart or recompute never re-fires.
+- **[default]** A single run may emit multiple trigger types at once (e.g. explorer
+  + iterative); they are independent.
+- **[default]** `RE_ALERT_SECONDS` is retained only for the sustained `inactive`
+  trigger (acked-but-still-idle rotation); wheel_spin's cooldown replaces its old
+  timer-based re-alert.
+
+### Cleanup
+
+- **[default]** Rename `app/strategy_hmm/` → `app/runs/` and
+  `compute_strategy_states` → `compute_run_edit_distances`.
+- **[default]** Drop `current_state`/`state_label`/`stuck`/`consecutive_stuck` from
+  `student_state` via the existing idempotent migration block.
+- **[user]** Frontend is fully rewamped in this task (not deferred).
+- **[assume]** `hmmlearn`/`numpy`/`scikit-learn`/`joblib` are used only by the HMM
+  and can be removed; verify no other importer.
+- **[assume]** Nothing in the API/frontend consumes `change_score` or the strategy
+  fields beyond what this spec updates.
+- **[default]** This spec lives under `docs/` (mkdocs source); it must be kept out
+  of the site nav or relocated if it shouldn't publish.

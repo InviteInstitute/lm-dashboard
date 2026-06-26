@@ -94,3 +94,42 @@ def test_pauses_sorted_by_after_idx():
               _e("blockMoved", 2 * PAUSE_THRESHOLD_S + 10)]
     _, pauses = segment_session(events)
     assert pauses == sorted(pauses, key=lambda p: p["after_idx"])
+
+
+def test_inactive_pause_cuts_a_run_short():
+    # Pass 1 finds a long idle gap and marks it a hard boundary; pass 2's RUN
+    # extension must honor that boundary and stop, instead of swallowing the event
+    # on the far side of the pause into the same RUN episode. The pause sits between
+    # idx 0 and idx 1 (after_idx=0), so the RUN's extension loop hits the boundary
+    # on its very first step and the RUN stays a single event.
+    events = [_e("runProject", 0), _e("blockMoved", PAUSE_THRESHOLD_S + 10)]
+    eps, pauses = segment_session(events)
+    assert any(p["episode_type"] == "INACTIVE_PAUSE" for p in pauses)
+    assert eps[0]["episode_type"] == "RUN" and eps[0]["event_count"] == 1
+    assert eps[1]["episode_type"] == "CODE"      # post-pause event opens its own episode
+
+
+def test_code_episode_closes_on_run_start():
+    # A CODE run hits an actionful, non-code, non-soft event (runProject) and must
+    # close there rather than swallowing it.
+    events = [_e("blockMoved", 1), _e("runProject", 2)]
+    eps, _ = segment_session(events)
+    assert eps[0]["episode_type"] == "CODE" and eps[0]["event_count"] == 1
+    assert eps[1]["episode_type"] == "RUN"
+
+
+def test_post_run_pause_skips_transparent_events():
+    # playgroundData is "transparent": the post-run gap is measured past it to the
+    # next real event, so a pause is still detected even with UI noise in between.
+    gap = SHORT_PAUSE_MIN_S + 30
+    events = [_e("runProject", 0), _e("projectEnd", 1),
+              _e("playgroundData", 1.1), _e("blockMoved", 1 + gap)]
+    _, pauses = segment_session(events)
+    assert any(p["episode_type"] == "POST_RUN_PAUSE" for p in pauses)
+
+
+def test_post_run_pause_needs_timestamps_on_both_ends():
+    # The event after a clean RUN has no ts, so the gap can't be measured: no pause.
+    events = [_e("runProject", 0), _e("projectEnd", 1), _e("blockMoved", None)]
+    _, pauses = segment_session(events)
+    assert all(p["episode_type"] != "POST_RUN_PAUSE" for p in pauses)

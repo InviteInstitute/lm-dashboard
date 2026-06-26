@@ -59,13 +59,13 @@ All thresholds live in `constants.py`, named exactly as shown so the "Fires when
 rule and its "Threshold" use the same name. `edit_distance` is the whole number
 measuring how much the code changed since the previous run (`0` = identical).
 
-| Trigger | Kind | Fires when | Threshold | Cooldown / reset |
+| Trigger | Kind | Fires when | Threshold | After firing, can fire again when... |
 |---|---|---|---|---|
-| **wheel_spin** (Stuck) | momentary, per-run | a run of consecutive `edit_distance == 0` reaches `WHEEL_SPIN_ZERO_RUNS` | `WHEEL_SPIN_ZERO_RUNS = 6` (6 or more) | silent until an `edit_distance > 0` run |
-| **resilience** | momentary, per-run | an `edit_distance > 0` run lands right after `RESILIENCE_ZERO_RUNS` or more trailing zeros | `RESILIENCE_ZERO_RUNS = 4` | fires at the breakout run |
-| **inactive** (Idle) | sustained, sweep | no event for more than `INACTIVE_TRIGGER_SECONDS` seconds (existing any-event idle) | `INACTIVE_TRIGGER_SECONDS = 240` | resolves when a new event arrives |
-| **explorer** | momentary, per-run | a single run's `edit_distance >= EXPLORER_EDIT_DISTANCE` | `EXPLORER_EDIT_DISTANCE = 13` | one alert per qualifying run (dedupe by index) |
-| **iterative** (Step-by-Step) | momentary + counter | the count of runs with `edit_distance > ITERATIVE_EDIT_MIN` reaches `ITERATIVE_DEFAULT_THRESHOLD` | `ITERATIVE_DEFAULT_THRESHOLD = 6`, `ITERATIVE_EDIT_MIN = 1` | silent after firing until an `edit_distance == 0` run, which also zeroes the count |
+| **wheel_spin** (Stuck) | momentary, per-run | a run of consecutive `edit_distance == 0` reaches `WHEEL_SPIN_ZERO_RUNS` | `WHEEL_SPIN_ZERO_RUNS = 6` (6 or more) | an `edit_distance > 0` run arrives (a real edit re-arms it); a later zero-streak fires it again |
+| **resilience** | momentary, per-run | an `edit_distance > 0` run lands right after `RESILIENCE_ZERO_RUNS` or more trailing zeros | `RESILIENCE_ZERO_RUNS = 4` | another streak of `RESILIENCE_ZERO_RUNS`+ zeros forms and is then broken (no extra cooldown) |
+| **inactive** (Idle) | sustained, sweep | no event for more than `INACTIVE_TRIGGER_SECONDS` seconds (existing any-event idle) | `INACTIVE_TRIGGER_SECONDS = 240` | resolves the moment any new event arrives; re-fires if idle passes the threshold again |
+| **explorer** | momentary, per-run | a single run's `edit_distance >= EXPLORER_EDIT_DISTANCE` | `EXPLORER_EDIT_DISTANCE = 13` | immediately; every qualifying run fires once (no cooldown, never double-fires the same run) |
+| **iterative** (Step-by-Step) | momentary + counter | the count of runs with `edit_distance > ITERATIVE_EDIT_MIN` reaches `ITERATIVE_DEFAULT_THRESHOLD` | `ITERATIVE_DEFAULT_THRESHOLD = 6`, `ITERATIVE_EDIT_MIN = 1` | an `edit_distance == 0` run arrives, which re-arms it and resets the count to 0 |
 
 ### Notes per trigger
 

@@ -14,6 +14,16 @@ def test_jload_jdump_edge_cases():
     assert db._jdump({"a": 1}) == '{"a": 1}'
 
 
+def test_fired_indices_filters_by_type():
+    t = db.now()
+    db.create_trigger("s1", "explorer", started_at=t, last_seen_at=t, resolved_at=t,
+                      detail={"run_index": 3})
+    db.create_trigger("s1", "wheel_spin", started_at=t, last_seen_at=t, resolved_at=t,
+                      detail={"run_index": 7})
+    assert db.fired_indices("s1", "explorer") == {3}
+    assert db.fired_indices("s1", "wheel_spin") == {7}
+
+
 def test_get_meta_cached_serves_from_cache_and_busts_on_write():
     db.set_meta("polling_enabled", "1")
     assert db.get_meta_cached("polling_enabled") == "1"          # fills cache

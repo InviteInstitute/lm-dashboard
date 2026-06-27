@@ -49,11 +49,12 @@ def test_triggers_feed_filters_acked_and_old_resolved():
     assert "stale" not in feed and "acked" not in feed
 
 
-def test_big_change_indices_seeds_from_db():
-    db.create_trigger("s1", "big_change", db.now(), db.now(), db.now(),
-                      {"label": "Big rewrite", "run_index": 3})
-    db.create_trigger("s1", "big_change", db.now(), db.now(), db.now(),
-                      {"label": "Big rewrite", "run_index": 7})
-    db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {})    # different type
-    assert db.big_change_indices("s1") == {3, 7}
-    assert db.big_change_indices("nobody") == set()
+def test_fired_indices_seeds_from_db():
+    db.create_trigger("s1", "explorer", db.now(), db.now(), db.now(),
+                      {"label": "Explorer", "run_index": 3})
+    db.create_trigger("s1", "explorer", db.now(), db.now(), db.now(),
+                      {"label": "Explorer", "run_index": 7})
+    db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None,
+                      {"run_index": 5})                                  # different type
+    assert db.fired_indices("s1", "explorer") == {3, 7}
+    assert db.fired_indices("nobody", "explorer") == set()

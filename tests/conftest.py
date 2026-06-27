@@ -55,14 +55,10 @@ def seed_state():
     def _seed(sid="stu1", **overrides):
         payload = {
             "classCode": "C1",
-            "current_state": 1,
-            "state_label": "explorer",
-            "stuck": False,
-            "consecutive_stuck": 0,
             "run_count": 2,
             "event_count": 7,
-            "runs": {"runs": [{"index": 0, "hmm_state": None, "change_score": None}],
-                     "obs_labels": {}, "run_count": 2},
+            "runs": {"runs": [{"index": 0, "edit_distance": None, "ts": None}],
+                     "run_count": 2},
             "episodes": {"events": [{"eventType": "runProject"}], "episodes": [],
                          "pauses": [], "event_count": 7},
             "playground_prompt": "[Active] events_whenStarted { motor_on }",

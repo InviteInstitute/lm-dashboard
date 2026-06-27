@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from app import config, db
 from app.constants import (
-    STUCK_STATE, STATE_LABELS, TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
+    TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
 )
 
 app = FastAPI(title="LM Dashboard")
@@ -47,21 +47,13 @@ def _shape_state(s, heavy=False):
     heavy=True adds `block`, the large playground_prompt tree, which only the
     detail modal renders, so it's fetched one student at a time on open instead
     of for the whole cohort on every poll."""
-    runs_blob = s["runs"] or {}
-    run_list = runs_blob.get("runs", [])
-    state_sequence = [r["hmm_state"] for r in run_list if r.get("hmm_state") is not None]
     out = {
         "studentID": s["studentID"],
         "classCode": s["classCode"],
-        "current_state": s["current_state"],
-        "current_label": s["state_label"],
-        "stuck": s["stuck"],
-        "consecutive_stuck": s["consecutive_stuck"],
         "run_count": s["run_count"],
         "event_count": s["event_count"],
         "last_seen": _iso(s["last_event_time"]),
-        "state_sequence": state_sequence,
-        "hmm": runs_blob,                                   # {runs, obs_labels, run_count}
+        "runs": s["runs"] or {},                            # {runs:[{index,edit_distance,ts}], run_count}
         "episodes": s["episodes"],                          # {events, episodes, pauses,...}
         "updated_at": _iso(s["updated_at"]),
     }
@@ -82,8 +74,9 @@ def health():
 @app.get("/api/student_states/")
 def student_states(students: str | None = None, classCode: str | None = None):
     """The dashboard's primary read: the materialized per-student state. Optional
-    `students` (comma-separated) and `classCode` narrow the result. Stuck
-    students sort to the top, then by most recent activity."""
+    `students` (comma-separated) and `classCode` narrow the result. Rows sort by
+    most recent activity; the dashboard derives a student's status from the
+    triggers feed it already fetches."""
     ids = [x.strip() for x in students.split(",") if x.strip()] if students else None
     if ids and len(ids) > MAX_STUDENT_IDS:
         raise HTTPException(
@@ -92,14 +85,7 @@ def student_states(students: str | None = None, classCode: str | None = None):
         )
     rows = [_shape_state(s) for s in db.list_student_states(ids, classCode)]
     rows.sort(key=lambda s: s["last_seen"] or "", reverse=True)
-    rows.sort(key=lambda s: s["stuck"], reverse=True)
-    return {
-        "students": rows,
-        "student_count": len(rows),
-        "stuck_count": sum(1 for s in rows if s["stuck"]),
-        "stuck_state": STUCK_STATE,
-        "state_labels": STATE_LABELS,
-    }
+    return {"students": rows, "student_count": len(rows)}
 
 
 @app.get("/api/student_states/{student_id}/")

@@ -1,6 +1,6 @@
 """XML -> block AST parsing: fields, shadow handling, nesting, and the
 workspace-XML extraction helper."""
-from app.strategy_hmm.ast_builder import xml_to_block_ast, extract_workspace_xml
+from app.runs.ast_builder import xml_to_block_ast, extract_workspace_xml
 
 
 def test_empty_input_yields_empty_ast():

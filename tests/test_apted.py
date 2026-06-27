@@ -1,7 +1,7 @@
-"""APTED similarity: node labels, AST->tree conversion, the change-score
-normalization, and the score cache."""
-from app.strategy_hmm import apted_similarity as A
-from app.strategy_hmm.ast_builder import xml_to_block_ast
+"""APTED similarity: node labels, AST->tree conversion, the integer edit_distance,
+and the distance cache."""
+from app.runs import apted_similarity as A
+from app.runs.ast_builder import xml_to_block_ast
 
 
 def test_make_node_label_variants():
@@ -36,23 +36,34 @@ def test_edge_nodes_toggle_changes_child_structure():
     assert without.children[0].node_type == "motor"
 
 
-def test_change_score_identical_is_zero_and_differs_is_positive():
+def test_identical_workspaces_distance_zero():
+    ast = xml_to_block_ast('<xml><block type="events_whenStarted" id="a"></block></xml>')
+    assert A.compute_edit_distance(ast, ast) == 0
+
+
+def test_adding_one_block_costs_one():
+    # one hat block -> hat block with a child; the edge node is free, so distance == 1
     a = xml_to_block_ast('<xml><block type="events_whenStarted" id="a"></block></xml>')
     b = xml_to_block_ast('<xml><block type="events_whenStarted" id="a">'
                          '<next><block type="motor_on" id="b"></block></next></block></xml>')
-    assert A.compute_change_score(a, a) == 0.0
-    score = A.compute_change_score(a, b)
-    assert 0.0 < score <= 1.0
+    assert A.compute_edit_distance(a, b) == 1
 
 
-def test_cached_change_score_short_circuits_and_memoizes():
+def test_field_only_change_costs_one():
+    a = xml_to_block_ast('<xml><block type="motor_on" id="b"><field name="PORT">A</field></block></xml>')
+    b = xml_to_block_ast('<xml><block type="motor_on" id="b"><field name="PORT">B</field></block></xml>')
+    assert A.compute_edit_distance(a, b) == 1
+
+
+def test_cached_edit_distance_short_circuits_and_memoizes():
     xa = '<xml><block type="events_whenStarted" id="a"></block></xml>'
     xb = '<xml><block type="motor_on" id="b"></block></xml>'
     a, b = xml_to_block_ast(xa), xml_to_block_ast(xb)
-    assert A.cached_change_score(xa, xa, a, a) == 0.0          # identical XML short-circuits
-    s1 = A.cached_change_score(xa, xb, a, b)
-    s2 = A.cached_change_score(xa, xb, a, b)                   # served from cache
-    assert s1 == s2 and (A._xml_hash(xa), A._xml_hash(xb)) in A._score_cache
+    A.clear_cache()
+    assert A.cached_edit_distance(xa, xa, a, a) == 0           # identical XML short-circuits
+    d1 = A.cached_edit_distance(xa, xb, a, b)
+    d2 = A.cached_edit_distance(xa, xb, a, b)                  # served from cache
+    assert d1 == d2 and (A._xml_hash(xa), A._xml_hash(xb)) in A._distance_cache
 
 
 def test_rename_cost_field_vs_type_change():

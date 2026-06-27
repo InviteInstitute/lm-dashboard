@@ -175,6 +175,12 @@ the `triggers.evaluate()` sweep (sustained, time-based).
 API `/api/student_states/` drops `stuck`/`stuck_count`/`stuck_state`/`state_labels`;
 the dashboard derives status and sort order from the triggers it already fetches.
 
+**Feed linger.** Momentary triggers (wheel_spin, resilience, explorer, iterative)
+are not instant: they stay in the intervention feed for `TRIGGER_RECENT_SECONDS = 120`
+(the existing 2-minute linger that `big_change` already uses), or drop sooner if a
+teacher acks them. The sustained `inactive` trigger stays while the student is idle.
+No new mechanism -- the current "recently resolved" window already does this.
+
 ## HMM Teardown & Cleanup
 
 - Delete `app/strategy_hmm/model.pkl`, the HMM decode (`compute_strategy_states`

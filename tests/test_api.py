@@ -16,7 +16,8 @@ def test_student_states_list_is_light(client, seed_state):
     body = r.json()
     assert body["student_count"] == 1
     student = body["students"][0]
-    assert "hmm" in student and "episodes" in student      # grid needs the tracks
+    assert "runs" in student and "episodes" in student     # grid needs the tracks
+    assert "current_state" not in student                  # strategy state is gone
     assert "block" not in student                          # but NOT the heavy prompt
 
 
@@ -31,11 +32,12 @@ def test_student_state_detail_404_for_unknown(client):
     assert client.get("/api/student_states/ghost/").status_code == 404
 
 
-def test_student_states_stuck_sorts_first(client, seed_state):
-    seed_state("calm", current_state=1, stuck=False)
-    seed_state("stuck", current_state=2, stuck=True)
+def test_student_states_sort_by_recency(client, seed_state):
+    from datetime import timedelta
+    seed_state("older", last_event_time=db.now() - timedelta(minutes=10))
+    seed_state("newer", last_event_time=db.now())
     rows = client.get("/api/student_states/").json()["students"]
-    assert rows[0]["studentID"] == "stuck"
+    assert rows[0]["studentID"] == "newer"      # most recent activity first
 
 
 def test_student_states_too_many_ids_rejected(client):
@@ -98,7 +100,8 @@ def test_polling_defaults_on_and_toggles(client):
 # --- trigger config --------------------------------------------------------
 def test_trigger_config_toggle_and_unknown_type(client):
     cfg = client.get("/api/triggers/config/").json()
-    assert cfg["enabled"] == {"wheel_spin": True, "inactive": True, "big_change": True}
+    assert cfg["enabled"] == {"wheel_spin": True, "resilience": True, "inactive": True,
+                              "explorer": True, "iterative": True}
     client.post("/api/triggers/config/", json={"trigger_type": "inactive", "enabled": False})
     assert client.get("/api/triggers/config/").json()["enabled"]["inactive"] is False
     assert client.post("/api/triggers/config/",

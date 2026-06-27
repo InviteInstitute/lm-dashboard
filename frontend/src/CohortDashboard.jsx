@@ -9,9 +9,10 @@
 import React from 'react';
 import api from './api';
 import {
-    T, FONT, MONO, STATE, NOSTATE, WHEEL_STATE, EP,
+    T, FONT, MONO, edColor, ED_ZERO, ED_SMALL, ED_BIG, EP,
     HATCH_AMBER, PAUSE_FILL, PAUSE_LEGEND,
-    TRIGGERS, TRIGGER_FALLBACK, TRIGGER_ROWS, POLL_MS, COMPACT_TAIL,
+    TRIGGERS, TRIGGER_FALLBACK, TRIGGER_ROWS, TRIGGER_PRIORITY, STATUS_OK,
+    POLL_MS, COMPACT_TAIL,
 } from './constants';
 
 // Re-exported so existing imports/tests that pull these from the component file
@@ -34,9 +35,13 @@ export function fmtDur(s) {
     if (s < 3600) return `${(s / 60).toFixed(1)}m`;
     return `${(s / 3600).toFixed(1)}h`;
 }
-export function stateMeta(st) {
-    if (!st || st.current_state == null) return NOSTATE;
-    return STATE[st.current_state] || NOSTATE;
+// A student's headline status is derived from their active triggers (highest
+// priority wins; wheel_spin > resilience is the only load-bearing rule). No
+// active trigger with data -> "OK"; no materialized state yet -> "No data".
+export function statusMeta(triggerType, hasData) {
+    if (triggerType) return TRIGGERS[triggerType] || TRIGGER_FALLBACK;
+    if (!hasData) return { c: '#2a2d3a', label: 'No data' };
+    return STATUS_OK;
 }
 
 // ---------------- timelines ----------------
@@ -76,17 +81,17 @@ const Track = ({ segments, compact, flush }) => {
     );
 };
 
-// data -> segment list. Compact slices to the last COMPACT_TAIL units.
-function hmmSegments(data, compact) {
+// data -> segment list. Compact slices to the last COMPACT_TAIL units. Each run
+// is coloured by its edit_distance: grey = no change, blue = incremental edit,
+// purple = a big change (>=13).
+function runSegments(data, compact) {
     const all = data.runs || [];
     const runs = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
     const off = all.length - runs.length;
     return runs.map((run, i) => {
-        const st = STATE[run.hmm_state] || NOSTATE;
-        const obs = run.obs_bucket != null ? (data.obs_labels || {})[run.obs_bucket] : '—';
-        const sc = run.change_score != null ? run.change_score.toFixed(3) : 'first';
-        return { key: `r${i + off}`, bg: st.c, faint: run.hmm_state == null,
-                 title: `Run #${i + off + 1} · ${st.label} · obs=${obs} · score=${sc}` };
+        const d = run.edit_distance;
+        return { key: `r${i + off}`, bg: edColor(d), faint: d == null,
+                 title: `Run #${i + off + 1} · ${d == null ? 'first run' : `edit distance ${d}`}` };
     });
 }
 
@@ -112,11 +117,15 @@ function episodeSegments(data, compact) {
     return segs;
 }
 
-const HmmTrack = ({ data, compact }) => {
-    if (!data || !data.runs || data.run_count === 0) return <div style={emptyTxt(compact)}>No runs yet.</div>;
+const RunTrack = ({ data, compact }) => {
+    if (!data || !data.runs || data.runs.length === 0) return <div style={emptyTxt(compact)}>No runs yet.</div>;
     return (<>
-        <Track segments={hmmSegments(data, compact)} compact={compact} />
-        {!compact && <div style={legend}>{Object.entries(STATE).map(([k, v]) => <span key={k}><i style={sw(v.c)} />{v.label}</span>)}</div>}
+        <Track segments={runSegments(data, compact)} compact={compact} />
+        {!compact && <div style={legend}>
+            <span><i style={sw(ED_ZERO)} />No change</span>
+            <span><i style={sw(ED_SMALL)} />Edit</span>
+            <span><i style={sw(ED_BIG)} />Big change (≥13)</span>
+        </div>}
     </>);
 };
 
@@ -142,14 +151,14 @@ const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 // ---------------- detail (inside modal) ----------------
 // The body of the drill-down modal for one student: header + state badge, the
 // playground prompt, and full-size episode and strategy timelines.
-const Detail = ({ s, sid }) => {
+const Detail = ({ s, sid, status }) => {
     if (!s) return <div style={{ color: T.sub, padding: 30 }}>No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>.</div>;
-    const cur = stateMeta(s);
+    const cur = status || STATUS_OK;
     return (
         <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
                 <span style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700 }}>{s.studentID}</span>
-                <span style={{ background: `${cur.c}1f`, color: cur.c, border: `1px solid ${cur.c}55`, borderRadius: 999, padding: '3px 12px', fontSize: 12.5, fontWeight: 700 }}>{s.current_state === WHEEL_STATE ? '⚠ Stuck' : cur.label}</span>
+                <span style={{ background: `${cur.c}1f`, color: cur.c, border: `1px solid ${cur.c}55`, borderRadius: 999, padding: '3px 12px', fontSize: 12.5, fontWeight: 700 }}>{cur.label}</span>
                 <span style={{ marginLeft: 'auto', color: T.sub, fontSize: 12.5 }}>runs <b style={{ color: T.ink }}>{s.run_count}</b> · events <b style={{ color: T.ink }}>{s.event_count}</b></span>
             </div>
             <div style={lbl}>Playground</div>
@@ -158,8 +167,8 @@ const Detail = ({ s, sid }) => {
                 : <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No playground yet due to no runs</div>}
             <div style={{ ...lbl, marginTop: 22 }}>Episode timeline</div>
             <EpisodeTrack data={s.episodes} />
-            <div style={{ ...lbl, marginTop: 22 }}>Strategy (HMM) · one block per run</div>
-            <HmmTrack data={s.hmm} />
+            <div style={{ ...lbl, marginTop: 22 }}>Runs · edit distance per run</div>
+            <RunTrack data={s.runs} />
         </div>
     );
 };
@@ -267,7 +276,8 @@ const CohortDashboard = () => {
     const [notes, setNotes] = React.useState([]);        // notes for `selected`
     const [noteOpen, setNoteOpen] = React.useState(null); // trigger id with an open editor
     const [noteText, setNoteText] = React.useState('');
-    const [triggerCfg, setTriggerCfg] = React.useState({ wheel_spin: true, inactive: true, big_change: true });
+    const [triggerCfg, setTriggerCfg] = React.useState(
+        { wheel_spin: true, resilience: true, inactive: true, explorer: true, iterative: true });
     const [triggerPanel, setTriggerPanel] = React.useState(false);
 
     const fetchStates = React.useCallback(async () => {
@@ -395,7 +405,7 @@ const CohortDashboard = () => {
         }
     };
     const resetAll = async () => {
-        if (!window.confirm("Reset the board?\n\nThis clears every student's logs, episodes, strategy state, flags, your notes & observations, AND the picked toggles + pick history. A CSV backup (notes and picks included) is saved to exports/ automatically first, so nothing is lost.\n\nStudents stay tracked and present/absent is kept; the board rebuilds from new activity. Local only, production is untouched.")) return;
+        if (!window.confirm("Reset the board?\n\nThis clears every student's logs, episodes, triggers, flags, your notes & observations, AND the picked toggles + pick history. A CSV backup (notes and picks included) is saved to exports/ automatically first, so nothing is lost.\n\nStudents stay tracked and present/absent is kept; the board rebuilds from new activity. Local only, production is untouched.")) return;
         try {
             const { data } = await api.post('/api/reset/');
             // Clear the local views at once so nothing lingers until the next
@@ -438,6 +448,14 @@ const CohortDashboard = () => {
     const absent = new Set(roster.filter(r => r.present === false).map(r => r.studentID));
     const alerts = triggers.filter(t =>
         tracked.has(t.studentID) && !absent.has(t.studentID) && triggerCfg[t.trigger_type] !== false);
+    // Each student's headline = their highest-priority active trigger (the feed
+    // already lingers a momentary alert ~2 min, so the badge persists briefly too).
+    const statusBy = {};
+    alerts.forEach(t => {
+        const cur = statusBy[t.studentID];
+        if (cur == null || TRIGGER_PRIORITY.indexOf(t.trigger_type) < TRIGGER_PRIORITY.indexOf(cur))
+            statusBy[t.studentID] = t.trigger_type;
+    });
     const headColor = TRIGGERS.wheel_spin.c;
     const detail = detailFull;   // heavy payload fetched per-open student
 
@@ -512,8 +530,8 @@ const CohortDashboard = () => {
                     ) : (
                         <div style={S.grid}>
                             {boxes.map(b => {
-                                const sm = stateMeta(b.st);
-                                const accent = b.st ? sm.c : '#2a2d3a';
+                                const sm = statusMeta(statusBy[b.studentID], !!b.st);
+                                const accent = sm.c;
                                 return (
                                     <div key={b.studentID} style={{ ...S.box(accent), opacity: b.present ? 1 : 0.5 }} onClick={() => setSelected(b.studentID)}
                                          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = accent + '66'; }}
@@ -521,13 +539,13 @@ const CohortDashboard = () => {
                                         <div style={S.boxHead}>
                                             <span style={S.sid} title={b.studentID}>{b.studentID}</span>
                                             <span style={S.stateBadge(accent)}>
-                                                {b.st ? (b.st.current_state === WHEEL_STATE ? '⚠ Stuck' : sm.label) : 'No data'}
+                                                {sm.label}
                                             </span>
                                         </div>
                                         {b.st ? (
                                             <>
-                                                <div style={S.miniLbl}>Strategy</div>
-                                                <HmmTrack data={b.st.hmm} compact />
+                                                <div style={S.miniLbl}>Runs</div>
+                                                <RunTrack data={b.st.runs} compact />
                                                 <div style={S.miniLbl}>Episodes</div>
                                                 <EpisodeTrack data={b.st.episodes} compact />
                                                 <div style={S.metaRow}>
@@ -559,7 +577,7 @@ const CohortDashboard = () => {
                     )}
                 </div>
 
-                {/* right: backend-fired alerts (wheel_spin + inactive + big_change) */}
+                {/* right: backend-fired alerts (the five edit-distance / idle triggers) */}
                 <div style={S.col}>
                     <div style={S.colHead}>
                         <span style={{ color: headColor }}>{TRIGGERS.wheel_spin.icon}</span> Needs intervention
@@ -622,7 +640,7 @@ const CohortDashboard = () => {
                 <div style={S.overlay} onClick={() => setSelected(null)}>
                     <div style={S.modal} onClick={e => e.stopPropagation()}>
                         <button style={S.modalX} onClick={() => setSelected(null)}>×</button>
-                        <Detail s={detail} sid={selected} />
+                        <Detail s={detail} sid={selected} status={statusMeta(statusBy[selected], !!detail)} />
                         <NotesPanel notes={notes} onAdd={text => addNote(selected, text, null)} />
                     </div>
                 </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { relTime, fmtDur, stateMeta } from './CohortDashboard.jsx';
+import { relTime, fmtDur, statusMeta } from './CohortDashboard.jsx';
 
 describe('relTime', () => {
   it('shows a dash for missing input', () => {
@@ -28,17 +28,15 @@ describe('fmtDur', () => {
   });
 });
 
-describe('stateMeta', () => {
-  it('falls back to NOSTATE when there is no state', () => {
-    expect(stateMeta(null).label).toBe('No runs yet');
-    expect(stateMeta({ current_state: null }).label).toBe('No runs yet');
+describe('statusMeta', () => {
+  it('uses the active trigger as the headline', () => {
+    expect(statusMeta('wheel_spin', true).label).toBe('Wheel-spinning');
+    expect(statusMeta('explorer', true).label).toBe('Explorer');
   });
-  it('maps the three HMM states to labels', () => {
-    expect(stateMeta({ current_state: 0 }).label).toBe('Iterator');
-    expect(stateMeta({ current_state: 1 }).label).toBe('Explorer');
-    expect(stateMeta({ current_state: 2 }).label).toBe('Stuck');
+  it('is OK when there is data but no active trigger', () => {
+    expect(statusMeta(null, true).label).toBe('OK');
   });
-  it('falls back for an unknown state value', () => {
-    expect(stateMeta({ current_state: 99 }).label).toBe('No runs yet');
+  it('is No data when the student has no materialized state', () => {
+    expect(statusMeta(null, false).label).toBe('No data');
   });
 });

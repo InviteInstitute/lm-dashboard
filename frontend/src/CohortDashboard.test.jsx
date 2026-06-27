@@ -10,13 +10,12 @@ import CohortDashboard, { COMPACT_TAIL } from './CohortDashboard.jsx';
 const ROUTES = {
   '/api/student_states/': {
     students: [{
-      studentID: 'alice', classCode: 'C1', current_state: 2, current_label: 'stuck',
-      stuck: true, consecutive_stuck: 3, run_count: 4, event_count: 12,
-      last_seen: new Date().toISOString(), state_sequence: [1, 2, 2],
-      hmm: { runs: [], run_count: 0, obs_labels: {} },
+      studentID: 'alice', classCode: 'C1', run_count: 4, event_count: 12,
+      last_seen: new Date().toISOString(),
+      runs: { runs: [], run_count: 0 },
       episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
     }],
-    student_count: 1, stuck_count: 1, stuck_state: 2, state_labels: {},
+    student_count: 1,
   },
   '/api/tracked/': {
     tracked: [{ studentID: 'alice', backfilled: true, has_data: true, present: true, picked: false }],
@@ -25,7 +24,7 @@ const ROUTES = {
   '/api/triggers/': { triggers: [], active_count: 0, counts: {} },
   '/api/polling/': { enabled: true },
   '/api/triggers/config/': {
-    enabled: { wheel_spin: true, inactive: true, big_change: true }, labels: {},
+    enabled: { wheel_spin: true, resilience: true, inactive: true, explorer: true, iterative: true }, labels: {},
   },
 };
 
@@ -36,27 +35,35 @@ beforeEach(() => {
 });
 
 describe('CohortDashboard', () => {
-  it('renders a card for each tracked student with its strategy state', async () => {
+  it('renders a card with the active trigger as its status badge', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/triggers/') {
+        return Promise.resolve({ data: {
+          triggers: [{ id: 1, studentID: 'alice', trigger_type: 'wheel_spin',
+            label: 'Wheel-spinning', value: '6 identical reruns', active: true, age_seconds: 42 }],
+          active_count: 1, counts: { wheel_spin: 1 } } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
     render(<CohortDashboard />);
     // 'alice' shows in both the roster chip and the cohort card
     expect((await screen.findAllByText('alice')).length).toBeGreaterThanOrEqual(1);
-    // current_state 2 => the stuck badge
-    expect(await screen.findAllByText(/Stuck/)).not.toHaveLength(0);
+    // an active wheel_spin trigger => the Wheel-spinning status badge (card + alert)
+    expect(await screen.findAllByText(/Wheel-spinning/)).not.toHaveLength(0);
   });
 
   it('compact card shows only the most recent runs, with true run numbers', async () => {
     const total = COMPACT_TAIL + 10;                         // more runs/episodes than the card shows
-    const runs = Array.from({ length: total }, () => ({ hmm_state: 1, obs_bucket: 1, change_score: 0.1 }));
+    const runs = Array.from({ length: total }, (_, i) => ({ index: i, edit_distance: i === 0 ? null : 2, ts: i }));
     const eps = Array.from({ length: total }, (_, i) => ({ start_idx: i, end_idx: i + 1, event_count: 1, episode_type: 'CODE', soft_indices: [] }));
     const evs = Array.from({ length: total }, () => ({ eventType: 'blockMoved' }));
     api.get.mockImplementation((url) => {
       if (url === '/api/student_states/') {
         return Promise.resolve({ data: { students: [{
-          studentID: 'alice', current_state: 1, current_label: 'explorer', stuck: false,
-          consecutive_stuck: 0, run_count: total, event_count: total, last_seen: new Date().toISOString(),
-          state_sequence: [1], hmm: { runs, run_count: total, obs_labels: { 1: 'step_by_step' } },
+          studentID: 'alice', run_count: total, event_count: total, last_seen: new Date().toISOString(),
+          runs: { runs, run_count: total },
           episodes: { events: evs, episodes: eps, pauses: [], event_count: total } }],
-          student_count: 1, stuck_count: 0 } });
+          student_count: 1 } });
       }
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
@@ -190,9 +197,9 @@ describe('CohortDashboard', () => {
         return Promise.resolve({ data: { triggers: [
           // a recovered wheel_spin still in the backend's 2-min window -> still shows
           { id: 1, studentID: 'alice', trigger_type: 'wheel_spin', label: 'Wheel-spinning',
-            value: '2 re-runs', active: false, age_seconds: 30 },
-          { id: 2, studentID: 'alice', trigger_type: 'big_change', label: 'Big rewrite',
-            value: 'change 0.80', active: false, age_seconds: 5 },
+            value: '6 identical reruns', active: false, age_seconds: 30 },
+          { id: 2, studentID: 'alice', trigger_type: 'explorer', label: 'Explorer',
+            value: 'changed 15', active: false, age_seconds: 5 },
         ], active_count: 0, counts: {} } });
       }
       return Promise.resolve({ data: ROUTES[url] ?? {} });
@@ -224,7 +231,7 @@ describe('CohortDashboard', () => {
 
   it('toggles a trigger type from the Triggers panel', async () => {
     // the POST echoes the new enabled map back, which the component stores
-    api.post.mockResolvedValue({ data: { enabled: { wheel_spin: false, inactive: true, big_change: true } } });
+    api.post.mockResolvedValue({ data: { enabled: { wheel_spin: false, resilience: true, inactive: true, explorer: true, iterative: true } } });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByText(/Triggers/));    // open the panel
     const offButtons = await screen.findAllByText('On');

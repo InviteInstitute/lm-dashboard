@@ -1,20 +1,22 @@
 """
-The intervention rules that feed the dashboard's "who needs help" column.
+The intervention rules that feed the dashboard's "who needs help" column, all
+defined on each run's integer edit_distance (see docs/superpowers/specs/NoHMM.md).
 
-There are three, all threshold-based:
+  wheel_spin : >= WHEEL_SPIN_ZERO_RUNS consecutive zero-edit runs (re-running the
+               same code); silent until a real edit re-arms it.
+  resilience : a real edit right after >= RESILIENCE_ZERO_RUNS zeros (recovered).
+  explorer   : a single run with edit_distance >= EXPLORER_EDIT_DISTANCE.
+  iterative  : ITERATIVE_DEFAULT_THRESHOLD runs with edit_distance > 1 (steady edits).
+  inactive   : no event for at least INACTIVE_TRIGGER_SECONDS.
 
-  wheel_spin : the HMM's current state is "stuck" (re-running with no real change)
-  inactive   : no event for at least INACTIVE_SECONDS
-  big_change : a run's change_score is at least BIG_CHANGE_SCORE (work tossed/rewritten)
-
-The two sustained rules, wheel_spin and inactive, stay open as long as their
-condition holds and resolve once it clears; this module evaluates them on every
-tick. big_change is momentary, one alert per qualifying run, and is fired from
-the worker the instant a run is decoded rather than from the sweep here.
-Acknowledged rows drop out of the feed.
+The four edit-distance triggers are momentary: they fire from the worker the
+instant a run lands (detect_run_triggers below, called from
+workers.recompute_and_write), deduped per type by run index. Only inactive is
+sustained and evaluated by the per-tick sweep here. Acknowledged rows drop out
+of the feed.
 """
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from app import db
 
@@ -24,10 +26,56 @@ log = logging.getLogger("pipeline")
 # module (and its tests) already use. RE_ALERT_SECONDS rotates an acked-but-still-
 # holding sustained trigger so a student who never got unstuck resurfaces.
 from app.constants import (
-    STUCK_STATE as WHEEL_SPIN_STATE,
-    INACTIVE_SECONDS, BIG_CHANGE_SCORE, RE_ALERT_SECONDS,
-    TRIGGER_LABELS as LABELS, SUSTAINED_TRIGGERS as SUSTAINED,
+    INACTIVE_TRIGGER_SECONDS, RE_ALERT_SECONDS, TRIGGER_LABELS as LABELS,
+    WHEEL_SPIN_ZERO_RUNS, RESILIENCE_ZERO_RUNS, EXPLORER_EDIT_DISTANCE,
+    ITERATIVE_EDIT_MIN, ITERATIVE_DEFAULT_THRESHOLD,
 )
+
+
+def detect_run_triggers(edit_distances, iterative_threshold=ITERATIVE_DEFAULT_THRESHOLD):
+    """One pure pass over a per-run edit_distance sequence (first element None).
+    Emits (trigger_type, run_index, detail) for each momentary fire. Deterministic,
+    so the worker can re-run it and dedupe by run_index without double-firing.
+
+      wheel_spin : a trailing run of edit_distance == 0 reaches WHEEL_SPIN_ZERO_RUNS;
+                   silent (cooldown) until a non-zero edit re-arms it.
+      resilience : a non-zero edit lands right after >= RESILIENCE_ZERO_RUNS zeros.
+      explorer   : a single run with edit_distance >= EXPLORER_EDIT_DISTANCE.
+      iterative  : the count of runs with edit_distance > ITERATIVE_EDIT_MIN reaches
+                   the threshold; silent until an edit_distance == 0 run resets it.
+    """
+    out = []
+    zero_streak = 0
+    wheel_armed = True
+    iter_count = 0
+    iter_armed = True
+    for i, ed in enumerate(edit_distances):
+        if ed is None:
+            continue
+        if ed > 0 and zero_streak >= RESILIENCE_ZERO_RUNS:
+            out.append(("resilience", i, {"label": LABELS["resilience"],
+                                          "value": f"recovered after {zero_streak} reruns"}))
+        if ed == 0:
+            zero_streak += 1
+            if zero_streak >= WHEEL_SPIN_ZERO_RUNS and wheel_armed:
+                out.append(("wheel_spin", i, {"label": LABELS["wheel_spin"],
+                                              "value": f"{zero_streak} identical reruns"}))
+                wheel_armed = False
+        else:
+            zero_streak = 0
+            wheel_armed = True
+        if ed >= EXPLORER_EDIT_DISTANCE:
+            out.append(("explorer", i, {"label": LABELS["explorer"], "value": f"changed {ed}"}))
+        if ed > ITERATIVE_EDIT_MIN:
+            iter_count += 1
+            if iter_count >= iterative_threshold and iter_armed:
+                out.append(("iterative", i, {"label": LABELS["iterative"],
+                                             "value": f"{iter_count} steady edits"}))
+                iter_armed = False
+        if ed == 0:
+            iter_count = 0
+            iter_armed = True
+    return out
 
 
 def _fmt_idle(secs):
@@ -39,29 +87,6 @@ def _fmt_idle(secs):
     return f"idle {m // 1440}d"
 
 
-def _wheel_spin_started(state, fallback):
-    """Find when the student's current stuck streak began.
-
-    Walks the runs from newest to oldest while they stay in the STUCK state and
-    returns the timestamp of the earliest run in that unbroken streak, so the
-    alert's age reflects how long they've actually been stuck rather than when we
-    noticed. Returns `fallback` (the caller passes now) if no run timestamps are
-    available."""
-    runs = (state.get("runs") or {}).get("runs", [])
-    streak_start_ts = None
-    for r in reversed(runs):
-        if r.get("hmm_state") != WHEEL_SPIN_STATE:
-            break
-        if r.get("ts") is not None:
-            streak_start_ts = r["ts"]
-    if streak_start_ts is None:
-        return fallback
-    try:
-        return datetime.fromtimestamp(streak_start_ts, tz=timezone.utc)
-    except (TypeError, ValueError, OSError):
-        return fallback
-
-
 def _disabled_types():
     """The set of trigger types the researcher has switched off, read from the
     comma-separated meta flag the API writes. An empty flag means all are on."""
@@ -70,12 +95,11 @@ def _disabled_types():
 
 
 def evaluate(now=None, disabled=None):
-    """One sweep over student_state for the sustained triggers (wheel_spin and
-    inactive), opening, touching, and resolving trigger_event rows as conditions
-    change. A type that's been disabled is treated as inactive, so its open rows
-    resolve and clear from the feed within a tick. big_change is not handled here:
-    it's momentary and fires from the worker the moment a run is decoded (see
-    workers.recompute_and_write).
+    """One sweep over student_state for the single sustained trigger, inactive:
+    open a row when a student goes idle past INACTIVE_TRIGGER_SECONDS, keep it
+    fresh while idle, and resolve it when a new event arrives. The four momentary
+    edit-distance triggers are not handled here -- they fire from the worker the
+    moment a run lands (see workers.recompute_and_write).
 
     `disabled` is the set of switched-off trigger types; the daemon passes the
     copy it already fetched this tick, and we fall back to reading it ourselves
@@ -85,25 +109,12 @@ def evaluate(now=None, disabled=None):
         disabled = _disabled_types()
     for s in db.all_student_states():
         sid = s["studentID"]
-
-        # ---- wheel_spin: HMM says stuck ----
-        wheel_active = s["current_state"] == WHEEL_SPIN_STATE and "wheel_spin" not in disabled
-        _sustain(sid, "wheel_spin",
-                 active=wheel_active,
-                 now=now,
-                 started=_wheel_spin_started(s, now) if wheel_active else now,
-                 detail={"label": LABELS["wheel_spin"],
-                         "value": f'{s["consecutive_stuck"]} re-runs'})
-
-        # ---- inactive: idle past threshold ----
-        idle = None
-        if s["last_event_time"]:
-            idle = (now - s["last_event_time"]).total_seconds()
-        is_inactive = (idle is not None and idle >= INACTIVE_SECONDS
+        idle = (now - s["last_event_time"]).total_seconds() if s["last_event_time"] else None
+        is_inactive = (idle is not None and idle >= INACTIVE_TRIGGER_SECONDS
                        and "inactive" not in disabled)
         _sustain(sid, "inactive",
                  active=is_inactive, now=now,
-                 started=(s["last_event_time"] + timedelta(seconds=INACTIVE_SECONDS)
+                 started=(s["last_event_time"] + timedelta(seconds=INACTIVE_TRIGGER_SECONDS)
                           if s["last_event_time"] else now),
                  detail={"label": LABELS["inactive"], "value": _fmt_idle(idle)})
 

@@ -190,8 +190,6 @@ CREATE TABLE IF NOT EXISTS student_state (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     studentID VARCHAR(128) NOT NULL UNIQUE,
     classCode VARCHAR(64),
-    current_state INTEGER, state_label VARCHAR(32),
-    stuck BOOL NOT NULL DEFAULT 0, consecutive_stuck INTEGER NOT NULL DEFAULT 0,
     run_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0,
     runs TEXT, episodes TEXT,
     playground_prompt TEXT, playground_time DATETIME,
@@ -254,6 +252,12 @@ def init_db():
             con.execute("ALTER TABLE tracked_student ADD COLUMN picked BOOL NOT NULL DEFAULT 0")
         if "picked_at" not in cols:
             con.execute("ALTER TABLE tracked_student ADD COLUMN picked_at DATETIME")
+        # Drop the old HMM strategy columns from databases that predate the trigger
+        # rewamp (SQLite 3.35+ supports DROP COLUMN).
+        sscols = {r[1] for r in con.execute("PRAGMA table_info(student_state)")}
+        for dead in ("current_state", "state_label", "stuck", "consecutive_stuck"):
+            if dead in sscols:
+                con.execute(f"ALTER TABLE student_state DROP COLUMN {dead}")
 
 
 # --------------------------------------------------------------------------
@@ -435,10 +439,6 @@ def _student_state_row(r):
     return {
         "studentID": r["studentID"],
         "classCode": r["classCode"],
-        "current_state": r["current_state"],
-        "state_label": r["state_label"],
-        "stuck": bool(r["stuck"]),
-        "consecutive_stuck": r["consecutive_stuck"],
         "run_count": r["run_count"],
         "event_count": r["event_count"],
         "runs": _jload(r["runs"]),
@@ -765,19 +765,10 @@ def upsert_student_state(student_id, defaults):
 # ==========================================================================
 def all_student_states():
     """A trimmed projection of every student_state row, just the columns the
-    trigger evaluator needs to sweep over."""
-    rows = _query(
-        "SELECT studentID, current_state, consecutive_stuck, last_event_time, runs "
-        "FROM student_state"
-    )
+    sustained-trigger sweep (inactive) needs."""
+    rows = _query("SELECT studentID, last_event_time FROM student_state")
     return [
-        {
-            "studentID": r["studentID"],
-            "current_state": r["current_state"],
-            "consecutive_stuck": r["consecutive_stuck"],
-            "last_event_time": db_to_dt(r["last_event_time"]),
-            "runs": _jload(r["runs"]),
-        }
+        {"studentID": r["studentID"], "last_event_time": db_to_dt(r["last_event_time"])}
         for r in rows
     ]
 
@@ -823,14 +814,13 @@ def resolve_trigger(trigger_id, resolved_at):
     )
 
 
-def big_change_indices(student_id):
-    """The set of run indices that have already produced a big_change alert. A
-    worker loads this once on cold start to seed its in-memory dedupe, so a
-    restart never re-fires an old run, and the per-tick trigger sweep doesn't
-    have to re-scan history to figure that out."""
+def fired_indices(student_id, trigger_type):
+    """Run indices that already produced a momentary trigger of this type. A worker
+    loads these once on cold start to seed its in-memory dedupe, so a restart never
+    re-fires an old run and the trigger sweep needn't re-scan history."""
     rows = _query(
         "SELECT json_extract(detail, '$.run_index') AS i FROM trigger_event "
-        "WHERE studentID = ? AND trigger_type = 'big_change'",
-        (student_id,),
+        "WHERE studentID = ? AND trigger_type = ?",
+        (student_id, trigger_type),
     )
     return {r["i"] for r in rows if r["i"] is not None}

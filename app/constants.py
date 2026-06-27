@@ -1,32 +1,21 @@
 """
 Central constants for the dashboard backend -- one home for every tunable.
 
-Covers the app-level knobs (states, trigger thresholds, limits), the episode
-segmentation taxonomy + thresholds, the strategy-HMM tuning values, and the
-pipeline's cursor name. db.py keeps its own private implementation constants
-(the SQL schema, datetime formats, serialization field lists), and env-derived
-configuration lives in config.py.
+Covers the trigger thresholds and labels, the episode segmentation taxonomy +
+thresholds, the APTED edit costs, limits, and the pipeline's cursor name. db.py
+keeps its own private implementation constants (the SQL schema, datetime formats,
+serialization field lists), and env-derived configuration lives in config.py.
 """
-import os
-
-# ==========================================================================
-# Strategy (HMM) states
-# ==========================================================================
-STUCK_STATE = 2                       # the "stuck" / wheel-spinning HMM state
-STATE_LABELS = {0: "iterator", 1: "explorer", 2: "stuck"}
 
 # ==========================================================================
 # Triggers
 # ==========================================================================
 TRIGGER_LABELS = {
     "wheel_spin": "Wheel-spinning", "resilience": "Resilience", "inactive": "Inactive",
-    "explorer": "Explorer", "iterative": "Step-by-Step", "big_change": "Big rewrite",
+    "explorer": "Explorer", "iterative": "Step-by-Step",
 }
-SUSTAINED_TRIGGERS = ("wheel_spin", "inactive")   # the rest (big_change) fire-and-resolve at once
-INACTIVE_SECONDS = 300                # 5 min idle -> "inactive"; matches the segmenter's INACTIVE_PAUSE
-BIG_CHANGE_SCORE = 0.5                # APTED change_score at/above this fires "big rewrite"
 RE_ALERT_SECONDS = 600                # re-open an acked sustained trigger still holding after 10 min
-TRIGGER_RECENT_SECONDS = 120          # a resolved trigger lingers in the feed this long (2 min)
+TRIGGER_RECENT_SECONDS = 120          # a resolved (or momentary) trigger lingers in the feed this long (2 min)
 
 # --- Edit-distance trigger thresholds (see docs/superpowers/specs/NoHMM.md) ---
 WHEEL_SPIN_ZERO_RUNS = 6        # >= this many consecutive zero-edit runs -> wheel_spin
@@ -110,23 +99,10 @@ def effective_reset_merge_gap_s():
     return RESET_MERGE_GAP_S if RESET_MERGE_GAP_S is not None else PAUSE_THRESHOLD_S
 
 # ==========================================================================
-# Strategy HMM tuning
-# Copied verbatim from Hyeongjo's training Colab; they must stay in lockstep
-# with the saved model (strategy_hmm/model.pkl) for live inference to match how
-# it was trained. Treat as fixed, not knobs.
+# APTED edit costs (Hyeongjo's colab). Edge nodes (the synthetic connectors our
+# AST inserts between parent and child) cost 0 to add/remove, so adding one real
+# block scores 1 not 2; everything else is 1.0, so edit_distance is a whole number.
 # ==========================================================================
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "strategy_hmm", "model.pkl")
-
-# Cutoff between "step by step" and a full "rewrite" when bucketing change_score:
-# the 95th percentile of the non-zero change scores in the training data.
-REWRITE_THRESHOLD = 0.221151
-
-# APTED edit costs, matching Hyeongjo's colab. Edge nodes (the synthetic
-# connectors our AST inserts between parent and child) cost 0 to add/remove, so
-# adding one real block scores 1 not 2; everything else is 1.0, so edit_distance
-# is a whole number.
-DELETION_COST = 1.0
-INSERTION_COST = 1.0
 BLOCK_DELETE_COST = 1.0
 BLOCK_INSERT_COST = 1.0
 EDGE_DELETE_COST = 0.0
@@ -134,16 +110,3 @@ EDGE_INSERT_COST = 0.0
 FIELD_CHANGE_COST = 1.0
 TYPE_CHANGE_COST = 1.0
 EDGE_CHANGE_COST = 1.0
-
-# Smoothing term in the similarity normalization:
-#   sim = 1 - dist / (max_tree_size + SIMILARITY_SMOOTHING)
-# Damps the score for very small trees, where a one-block change would otherwise
-# look like a near-total rewrite.
-SIMILARITY_SMOOTHING = 10
-
-# Human-readable names for the three observation buckets fed into the HMM.
-OBS_LABELS = {
-    0: "relying_on_fortune",   # change_score == 0 (the code didn't change at all)
-    1: "step_by_step",         # 0 < change_score < REWRITE_THRESHOLD (incremental)
-    2: "rewrite",              # change_score >= REWRITE_THRESHOLD (large overhaul)
-}

@@ -6,12 +6,8 @@ uvicorn[standard]
 requests
 python-dotenv
 
-# strategy HMM (daemon only). The episode segmenter is vendored in
-# app/episode_engine/ and needs no third-party packages.
-numpy>=2.0
-hmmlearn>=0.3
-joblib>=1.5
-scikit-learn>=1.5
+# per-run code-diff signal (daemon only): APTED tree-edit distance. The episode
+# segmenter is vendored in app/episode_engine/ and needs no third-party packages.
 apted>=1.0
 
 # tests (pytest tests/). httpx backs the FastAPI TestClient; pytest-cov for

@@ -10,14 +10,17 @@ export const T = {
 export const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
 export const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
 
-// ----- strategy (HMM) states -----
-export const STATE = {
-    0: { c: '#3b82f6', label: 'Iterator' },
-    1: { c: '#a855f7', label: 'Explorer' },
-    2: { c: '#ef4444', label: 'Stuck' },
-};
-export const NOSTATE = { c: '#6b7280', label: 'No runs yet' };
-export const WHEEL_STATE = 2;   // HMM "stuck" == wheel-spinning
+// ----- per-run edit_distance buckets (the run track colours) -----
+// 0 = identical re-run, 1..12 = incremental edit, >=13 = a big change (explorer).
+export const EXPLORER_ED = 13;
+export const ED_ZERO = '#6b7280';    // grey: no change
+export const ED_SMALL = '#3b82f6';   // blue: incremental edit
+export const ED_BIG = '#a855f7';     // purple: large change
+export function edColor(d) {
+    if (d == null) return T.faint;          // first run, no predecessor
+    if (d === 0) return ED_ZERO;
+    return d >= EXPLORER_ED ? ED_BIG : ED_SMALL;
+}
 
 // ----- episodes -----
 export const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
@@ -35,11 +38,20 @@ export const PAUSE_LEGEND = [
 // ----- triggers (intervention alerts) -----
 export const TRIGGERS = {
     wheel_spin: { c: '#ef4444', icon: '⟳', label: 'Wheel-spinning' },
+    resilience: { c: '#22c55e', icon: '✦', label: 'Resilience' },
     inactive:   { c: '#f59e0b', icon: '⏸', label: 'Inactive' },
-    big_change: { c: '#a855f7', icon: '✎', label: 'Big rewrite' },
+    explorer:   { c: '#a855f7', icon: '✎', label: 'Explorer' },
+    iterative:  { c: '#3b82f6', icon: '◇', label: 'Step-by-Step' },
 };
 export const TRIGGER_FALLBACK = { c: '#6b7280', icon: '•', label: 'Trigger' };
-export const TRIGGER_ROWS = [['wheel_spin', 'Wheel-spinning'], ['inactive', 'Inactive'], ['big_change', 'Big rewrite']];
+export const TRIGGER_ROWS = [
+    ['wheel_spin', 'Wheel-spinning'], ['resilience', 'Resilience'], ['inactive', 'Inactive'],
+    ['explorer', 'Explorer'], ['iterative', 'Step-by-Step'],
+];
+// Headline-status precedence when a student has several active triggers at once
+// (only wheel_spin > resilience is load-bearing).
+export const TRIGGER_PRIORITY = ['wheel_spin', 'inactive', 'resilience', 'explorer', 'iterative'];
+export const STATUS_OK = { c: '#22c55e', label: 'OK' };
 
 // ----- misc -----
 export const POLL_MS = 1500;

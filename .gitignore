@@ -38,3 +38,7 @@ frontend/coverage/
 
 # Cache
 .pytest_cache
+
+# ngrok runtime
+.ngrok.pid
+.ngrok.log

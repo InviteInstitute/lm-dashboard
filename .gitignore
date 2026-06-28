@@ -42,3 +42,6 @@ frontend/coverage/
 # ngrok runtime
 .ngrok.pid
 .ngrok.log
+
+# brag launch video (generated)
+brag-output/

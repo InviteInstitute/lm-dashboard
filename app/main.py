@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app import config, db
+from app.auth import BasicAuthMiddleware
 from app.constants import (
     TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
 )
@@ -26,6 +27,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost middleware (added last = runs first): gate the whole origin with HTTP
+# Basic Auth when DASHBOARD_USER/PASSWORD are set for remote serving. No-op locally.
+app.add_middleware(BasicAuthMiddleware)
 
 # Create the schema if it isn't there yet (a no-op otherwise), so a fresh clone
 # works no matter whether the API or the daemon happens to start first.
@@ -66,8 +70,9 @@ def _shape_state(s, heavy=False):
 # --------------------------------------------------------------------------
 # routes
 # --------------------------------------------------------------------------
-@app.get("/")
+@app.get("/healthz")
 def health():
+    # Not at "/" so the static frontend mount can serve the dashboard there.
     return {"service": "luc-dashboard", "ok": True}
 
 
@@ -329,3 +334,18 @@ def set_polling(body: PollingBody):
     prod is untouched either way."""
     db.set_meta("polling_enabled", "1" if body.enabled else "0")
     return {"enabled": body.enabled}
+
+
+# --------------------------------------------------------------------------
+# static frontend (single-origin remote serving)
+# --------------------------------------------------------------------------
+# Serve the built React app (frontend/dist) at the root so ONE Cloudflare tunnel
+# exposes a single origin for both the UI and /api -- no second service, no CORS.
+# Mounted last (after every /api route, so it never shadows them) and only when a
+# build exists, so the API-only local-dev flow (Vite on :3000) is unaffected.
+import os
+from fastapi.staticfiles import StaticFiles
+
+_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.isdir(_DIST):
+    app.mount("/", StaticFiles(directory=_DIST, html=True), name="spa")

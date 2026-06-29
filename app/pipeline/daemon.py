@@ -16,13 +16,13 @@ import logging
 import os
 import random
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app import db
 from app.pipeline import poller, workers, triggers
 from app.pipeline.client import ProdClient, ProdClientError
 
-from app.constants import PAUSED_POLL_S   # paused re-check cadence (cheap local read)
+from app.constants import PAUSED_POLL_S, VIEWER_PRESENT_SECONDS   # pause cadence + dead-man's window
 
 log = logging.getLogger("pipeline")
 
@@ -42,6 +42,13 @@ def _parse_args(argv=None):
                    help="Events per page when draining (default 500).")
     p.add_argument("--overlap", type=float, default=2.0,
                    help="Cursor overlap seconds to absorb same-ts straddles.")
+    p.add_argument("--require-viewer", action="store_true",
+                   default=os.environ.get("PIPELINE_REQUIRE_VIEWER", "") not in ("", "0"),
+                   help="Dead-man's switch: only poll prod while a dashboard is "
+                        "open. The read API stamps viewer_last_seen on each grid "
+                        "poll; prod polling auto-pauses after VIEWER_PRESENT_SECONDS "
+                        "with no dashboard activity and resumes when one returns. "
+                        "Off by default; meant for served/remote sessions.")
     p.add_argument("--backfill-hours", type=float,
                    default=float(os.environ.get("PIPELINE_BACKFILL_HOURS", 24)),
                    help="On first run (empty cursor) only backfill the last N hours "
@@ -56,6 +63,7 @@ def main(argv=None):
     )
     opts = _parse_args(argv)
     interval, limit, overlap, idle_max = opts.interval, opts.limit, opts.overlap, opts.idle_max
+    require_viewer = opts.require_viewer
 
     db.init_db()  # builds the schema on a fresh DB, no-op on an existing one
     client = ProdClient()
@@ -78,6 +86,7 @@ def main(argv=None):
     # boot.
     last_reset = db.get_meta("reset_requested_at")
     last_paused = None
+    last_no_viewer = None   # tracks dead-man's-switch transitions for logging
     # Remembered across ticks only to log pause transitions; the disabled set is
     # re-read each tick (it changes at human speed and is cheaply cached).
     last_disabled = None
@@ -105,10 +114,21 @@ def main(argv=None):
 
         # Read the control flags in a single round-trip per tick. Their cache TTL
         # is 200ms, so a dashboard click still lands within ~200ms.
-        flags = db.get_meta_many(("reset_requested_at", "polling_enabled", "disabled_triggers"))
+        flags = db.get_meta_many(
+            ("reset_requested_at", "polling_enabled", "disabled_triggers", "viewer_last_seen"))
         rr = flags["reset_requested_at"]
         paused = (flags["polling_enabled"] == "0")
         disabled = {t for t in (flags["disabled_triggers"] or "").split(",") if t}
+
+        # Dead-man's switch: when --require-viewer is on, only poll prod while a
+        # dashboard is actually open. The read API stamps viewer_last_seen on each
+        # grid poll, and the frontend stops polling when its tab is hidden, so a
+        # stale stamp means nobody is looking -> stop burning prod calls.
+        no_viewer = False
+        if require_viewer:
+            seen = flags["viewer_last_seen"]
+            fresh = bool(seen) and (db.now() - datetime.fromisoformat(seen)).total_seconds() <= VIEWER_PRESENT_SECONDS
+            no_viewer = not fresh
 
         if rr != last_reset:
             workers.reset()
@@ -119,7 +139,13 @@ def main(argv=None):
         if paused != last_paused:
             log.info("polling %s (dashboard toggle)", "PAUSED" if paused else "RESUMED")
             last_paused = paused
-        if paused:
+        if no_viewer != last_no_viewer:
+            if no_viewer:
+                log.info("prod polling PAUSED (no dashboard open for >%ds)", VIEWER_PRESENT_SECONDS)
+            elif last_no_viewer is not None:
+                log.info("prod polling RESUMED (dashboard active)")
+            last_no_viewer = no_viewer
+        if paused or no_viewer:
             idle = 0  # resume responsive
             time.sleep(PAUSED_POLL_S)
             continue

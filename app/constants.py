@@ -37,6 +37,7 @@ TRIGGER_PRIORITY = ("wheel_spin", "inactive", "resilience", "explorer", "iterati
 MAX_STUDENT_IDS = 500                 # cap on ?students= ids per request (under SQLite's variable limit)
 BUFFER_MAX = 5000                     # per-student in-memory rolling event history
 PAUSED_POLL_S = 1.0                   # how often the paused daemon re-checks the resume flag
+VIEWER_PRESENT_SECONDS = 90           # dead-man's switch: prod polling pauses if no dashboard poll within this window
 
 # ==========================================================================
 # Pipeline

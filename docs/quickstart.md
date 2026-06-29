@@ -61,8 +61,7 @@ Three processes, one terminal each.
 
     !!! warning
         Run exactly one daemon. The cursor and idempotency logic assume a single
-        writer, so a second daemon will fight the first. There's more on this in
-        [Operations](guides/operations.md).
+        writer, so a second daemon will fight the first.
 
 3.  **Start the dashboard**
 

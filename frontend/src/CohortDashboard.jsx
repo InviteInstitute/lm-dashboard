@@ -35,6 +35,47 @@ export function fmtDur(s) {
     if (s < 3600) return `${(s / 60).toFixed(1)}m`;
     return `${(s / 3600).toFixed(1)}h`;
 }
+// Save a Blob to the user's computer as `filename`. A browser can't write to
+// disk directly, so the trick is to point a temporary <a download> at an
+// in-memory object URL for the blob, click it, then release the URL.
+export function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+
+    link.href = url;
+    link.download = filename;
+    link.click();
+
+    // Clean up memory
+    URL.revokeObjectURL(url);
+}
+// Run `fn` now and every POLL_MS, but only while `active` is true. When `active`
+// flips false the interval is torn down; when it flips back true we fetch once
+// immediately (catch up) before resuming the timer. Gating every poll loop on
+// one flag is how the Page Visibility pause reaches all of them at once.
+function usePoll(fn, active) {
+    React.useEffect(() => {
+        if (!active) return;
+        fn();
+        const id = setInterval(fn, POLL_MS);
+        return () => clearInterval(id);
+    }, [fn, active]);
+}
+
+// True while this browser tab is actually on screen, via the Page Visibility
+// API. It drives usePoll, so a backgrounded / minimized tab stops polling
+// entirely -- and because those polls double as the daemon's "someone is
+// watching" signal, a tab no one is looking at lets prod polling wind down.
+function usePageVisible() {
+    const [visible, setVisible] = React.useState(!document.hidden);
+    React.useEffect(() => {
+        const onChange = () => setVisible(!document.hidden);
+        document.addEventListener('visibilitychange', onChange);
+        return () => document.removeEventListener('visibilitychange', onChange);
+    }, []);
+    return visible;
+}
+
 // A student's headline status is derived from their active triggers (highest
 // priority wins; wheel_spin > resilience is the only load-bearing rule). No
 // active trigger with data -> "OK"; no materialized state yet -> "No data".
@@ -279,6 +320,7 @@ const CohortDashboard = () => {
     const [triggerCfg, setTriggerCfg] = React.useState(
         { wheel_spin: true, resilience: true, inactive: true, explorer: true, iterative: true });
     const [triggerPanel, setTriggerPanel] = React.useState(false);
+    const visible = usePageVisible();   // gates every poll loop below; hidden tab -> no polling
 
     const fetchStates = React.useCallback(async () => {
         try {
@@ -287,17 +329,17 @@ const CohortDashboard = () => {
             setStates(m);
         } catch { /* keep */ }
     }, []);
-    React.useEffect(() => { fetchStates(); const id = setInterval(fetchStates, POLL_MS); return () => clearInterval(id); }, [fetchStates]);
+    usePoll(fetchStates, visible);
 
     const fetchRoster = React.useCallback(async () => {
         try { setRoster((await api.get('/api/tracked/')).data.tracked || []); } catch { /* keep */ }
     }, []);
-    React.useEffect(() => { fetchRoster(); const id = setInterval(fetchRoster, POLL_MS); return () => clearInterval(id); }, [fetchRoster]);
+    usePoll(fetchRoster, visible);
 
     const fetchTriggers = React.useCallback(async () => {
         try { setTriggers((await api.get('/api/triggers/')).data.triggers || []); } catch { /* keep */ }
     }, []);
-    React.useEffect(() => { fetchTriggers(); const id = setInterval(fetchTriggers, POLL_MS); return () => clearInterval(id); }, [fetchTriggers]);
+    usePoll(fetchTriggers, visible);
 
     // Pause state and trigger-config are values ONLY the user changes here (the
     // daemon just reads them), so we do NOT poll them on a timer. Polling created
@@ -351,8 +393,8 @@ const CohortDashboard = () => {
     // stays light. `alive` discards a late response that arrives after you've
     // already switched to a different student.
     React.useEffect(() => {
-        setDetailFull(null);
-        if (!selected) return;
+        if (!selected) { setDetailFull(null); return; }
+        if (!visible) return;   // tab hidden: keep the open detail, just stop refreshing it
         let alive = true;
         const load = async () => {
             try { const d = (await api.get(`/api/student_states/${encodeURIComponent(selected)}/`)).data; if (alive) setDetailFull(d); }
@@ -361,7 +403,7 @@ const CohortDashboard = () => {
         load();
         const id = setInterval(load, POLL_MS);
         return () => { alive = false; clearInterval(id); };
-    }, [selected]);
+    }, [selected, visible]);
     const addNote = async (sid, text, trigger) => {
         const t = (text || '').trim();
         if (!sid || !t) return;
@@ -398,8 +440,13 @@ const CohortDashboard = () => {
     };
     const exportData = async () => {
         try {
-            const { data } = await api.post('/api/export/');
-            window.alert('Exported a CSV snapshot to:\n' + (data.dir || 'exports/'));
+            // Ask for the response as a binary Blob (not parsed JSON) so we hand
+            // the browser the raw zip. The filename comes from the server's
+            // Content-Disposition header, with a fallback if it's missing.
+            const res = await api.post('/api/export/', null, { responseType: 'blob' });
+            const name = res.headers['content-disposition']?.match(/filename="(.+)"/)?.[1]
+                || 'lm-dashboard_export.zip';
+            triggerDownload(res.data, name);
         } catch {
             window.alert('Export failed.');
         }
@@ -481,7 +528,7 @@ const CohortDashboard = () => {
                     ↺ Reset
                 </button>
                 <button style={S.export} onClick={exportData}
-                        title="Save a CSV snapshot of all data to exports">
+                        title="Download a zip of CSV snapshots of all data">
                     ⬇ Export
                 </button>
                 <button style={S.triggersBtn} onClick={() => setTriggerPanel(p => !p)}

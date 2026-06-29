@@ -10,7 +10,7 @@ toggles, and the reset and polling control flags.
 """
 from datetime import timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -82,6 +82,11 @@ def student_states(students: str | None = None, classCode: str | None = None):
     `students` (comma-separated) and `classCode` narrow the result. Rows sort by
     most recent activity; the dashboard derives a student's status from the
     triggers feed it already fetches."""
+    # Presence heartbeat: this is the grid's per-tick poll, so a hit means a
+    # dashboard is open and visible (the frontend stops polling when its tab is
+    # hidden). The daemon reads this stamp to run its dead-man's switch -- it
+    # pauses prod polling once no dashboard has polled for VIEWER_PRESENT_SECONDS.
+    db.set_meta("viewer_last_seen", db.now().isoformat())
     ids = [x.strip() for x in students.split(",") if x.strip()] if students else None
     if ids and len(ids) > MAX_STUDENT_IDS:
         raise HTTPException(
@@ -174,13 +179,16 @@ def tracked_mutate(body: TrackBody):
 
 @app.post("/api/export/")
 def export():
-    """Write a CSV snapshot of all current data to exports/<timestamp>/. A pure
-    read, the database is never touched."""
+    """Stream a CSV snapshot of all current data as a zip the browser downloads.
+    A pure read built entirely in memory, the database and filesystem are never
+    touched."""
     stamp = db.now()
-    out_dir, rows = db.export_csv(
-        str(config.BASE_DIR / "exports" / f"export_{stamp.strftime('%Y-%m-%d_%H%M%S')}")
+    name = f"lm-dashboard_export_{stamp.strftime('%Y-%m-%d_%H%M%S')}.zip"
+    return Response(
+        content=db.export_zip_bytes(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
-    return {"exported": True, "at": stamp.isoformat(), "dir": out_dir, "rows": rows}
 
 
 @app.post("/api/reset/")

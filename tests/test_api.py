@@ -9,6 +9,14 @@ def test_root_health(client):
     assert r.status_code == 200 and r.json()["ok"] is True
 
 
+def test_student_states_stamps_viewer_heartbeat(client):
+    # The grid poll doubles as the dead-man's-switch heartbeat: each hit records
+    # viewer_last_seen so the daemon knows a dashboard is open.
+    assert db.get_meta("viewer_last_seen") is None
+    client.get("/api/student_states/")
+    assert db.get_meta("viewer_last_seen") is not None
+
+
 def test_basic_auth_gate(client, monkeypatch):
     # When DASHBOARD_USER/PASSWORD are set (remote serving), the whole origin needs
     # the shared Basic login; without them it's open (local dev). Unset by default,
@@ -162,12 +170,17 @@ def test_presence_and_picked_require_student_id(client):
 
 
 # --- export / reset (redirect output dir to a tmp path) --------------------
-def test_export_writes_snapshot(client, seed_state, tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+def test_export_streams_zip_download(client, seed_state):
+    import io
+    import zipfile
     seed_state("s1")
     r = client.post("/api/export/")
-    assert r.status_code == 200 and r.json()["exported"] is True
-    assert (tmp_path / "exports").exists()
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert "attachment" in r.headers["content-disposition"]
+    # the body is a real zip carrying one CSV per table (student_state included)
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "student_state.csv" in names
 
 
 def test_reset_backs_up_then_wipes(client, seed_state, tmp_path, monkeypatch):

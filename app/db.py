@@ -18,11 +18,13 @@ instants, which is what lets the cursor and cutoff SQL (ORDER BY started_at,
 resolved_at >= cutoff) work directly on the stored text.
 """
 import csv
+import io
 import json
 import os
 import sqlite3
 import threading
 import time
+import zipfile
 from datetime import datetime, timezone
 
 from app.config import DB_PATH
@@ -402,32 +404,60 @@ def _csv_value(col, val):
     return val
 
 
+def _export_tables(con, tables):
+    """Resolve which tables to dump: the caller's list, or every real table that
+    isn't on the skip list."""
+    if tables is not None:
+        return tables
+    return [r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ).fetchall() if r[0] not in _EXPORT_SKIP]
+
+
+def _table_csv(con, table):
+    """Render one table as a CSV string. Returns (csv_text, row_count). JSON
+    columns come out as their raw JSON text; cells are flattened to one line."""
+    cur = con.execute(f'SELECT * FROM "{table}"')
+    cols = [d[0] for d in cur.description]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(cols)
+    n = 0
+    for row in cur:
+        w.writerow([_csv_value(cols[i], row[i]) for i in range(len(cols))])
+        n += 1
+    return buf.getvalue(), n
+
+
 def export_csv(out_dir, tables=None, db_path=None):
     """Write one CSV file per table into out_dir (created if missing). Purely a
-    read of the database, nothing is modified. JSON columns come out as their
-    raw JSON text. Returns (out_dir, {table: row_count})."""
+    read of the database, nothing is modified. Returns (out_dir, {table: rows})."""
     os.makedirs(out_dir, exist_ok=True)
     con = sqlite3.connect(db_path or DB_PATH)
     try:
-        if tables is None:
-            tables = [
-                r[0] for r in con.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-                ).fetchall() if r[0] not in _EXPORT_SKIP
-            ]
         written = {}
-        for t in tables:
-            cur = con.execute(f'SELECT * FROM "{t}"')
-            cols = [d[0] for d in cur.description]
+        for t in _export_tables(con, tables):
+            text, n = _table_csv(con, t)
             with open(os.path.join(out_dir, f"{t}.csv"), "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f)
-                w.writerow(cols)
-                n = 0
-                for row in cur:
-                    w.writerow([_csv_value(cols[i], row[i]) for i in range(len(cols))])
-                    n += 1
+                f.write(text)
             written[t] = n
         return out_dir, written
+    finally:
+        con.close()
+
+
+def export_zip_bytes(tables=None, db_path=None):
+    """Build an in-memory zip of one CSV per table and return its bytes. The same
+    read-only snapshot as export_csv, but nothing touches the filesystem: the API
+    streams these bytes straight to the browser as a download."""
+    con = sqlite3.connect(db_path or DB_PATH)
+    try:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for t in _export_tables(con, tables):
+                text, _ = _table_csv(con, t)
+                z.writestr(f"{t}.csv", text)
+        return buf.getvalue()
     finally:
         con.close()
 

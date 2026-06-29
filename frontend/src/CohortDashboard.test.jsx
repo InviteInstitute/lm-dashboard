@@ -241,10 +241,33 @@ describe('CohortDashboard', () => {
         expect.objectContaining({ enabled: false })));
   });
 
-  it('exports a snapshot', async () => {
+  it('downloads a zip snapshot', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    api.post.mockResolvedValue({
+      data: new Blob(['x'], { type: 'application/zip' }),
+      headers: { 'content-disposition': 'attachment; filename="snap.zip"' },
+    });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByText(/Export/));
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/export/'));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/export/', null, { responseType: 'blob' }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+  });
+
+  it('does not poll while the tab is hidden (Page Visibility gate)', async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    try {
+      render(<CohortDashboard />);
+      // The once-on-mount controls still load (they aren't gated)...
+      await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/polling/'));
+      // ...but none of the visibility-gated poll loops ever fire.
+      const polled = (url) => api.get.mock.calls.some(([u]) => u === url);
+      expect(polled('/api/student_states/')).toBe(false);
+      expect(polled('/api/tracked/')).toBe(false);
+      expect(polled('/api/triggers/')).toBe(false);
+    } finally {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    }
   });
 
   it('resets after confirmation', async () => {

@@ -54,6 +54,11 @@ done
 "$VENV/python" -c "from app import db; db.set_meta('polling_enabled','0')" 2>/dev/null
 
 echo "Starting ingestion daemon (paused) ..."
+# Remote/served sessions arm the dead-man's switch: prod polling auto-pauses
+# whenever no dashboard is open (the read API stamps viewer_last_seen on each
+# poll, and the frontend stops polling when its tab is hidden). Local sessions
+# leave it off so a manual run polls normally.
+[ "$REMOTE" = "1" ] && export PIPELINE_REQUIRE_VIEWER=1
 "$VENV/python" -m app.pipeline > "$LOGS/daemon.log" 2>&1 &
 
 # Local dashboard on :3000 only when NOT remote (remote serves the UI from :8000).

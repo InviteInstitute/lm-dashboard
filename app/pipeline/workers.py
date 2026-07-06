@@ -21,7 +21,7 @@ from app.runs.run_sequence import compute_run_edit_distances
 from app.runs.apted_similarity import clear_cache as clear_score_cache
 from app.smart_delta_engine import generate_llm_prompt_from_project
 from app.episode_engine import segment_session
-from app.pipeline.triggers import detect_run_triggers, _disabled_types
+from app.pipeline.triggers import detect_run_triggers_by_playground, _disabled_types
 
 logger = logging.getLogger("pipeline")
 
@@ -90,13 +90,13 @@ class StudentWorker:
             self.had_new_run = False
         runs = self._runs_cache["runs"]
         run_count = len(runs)  # one entry per runProject
-        edit_distances = [r["edit_distance"] for r in runs]
 
-        # Momentary triggers fire once per qualifying run. detect_run_triggers is a
-        # deterministic pass over the whole sequence, so the per-type fired-index
-        # sets (seeded from the DB on rehydrate) keep a backfill or restart from
-        # re-firing an old run. Respects the disabled-triggers flag.
-        for ttype, idx, detail in detect_run_triggers(edit_distances):
+        # Momentary triggers fire once per qualifying run, evaluated per contiguous
+        # playground stretch so a challenge switch resets every counter and applies
+        # that playground's threshold. Deduped per type by run index (seeded from the
+        # DB on rehydrate), so a backfill or restart can't re-fire an old run.
+        # Respects the disabled-triggers flag.
+        for ttype, idx, detail in detect_run_triggers_by_playground(runs):
             if ttype in disabled or idx in self.fired[ttype]:
                 continue
             run_ts = runs[idx].get("ts")

@@ -1,7 +1,7 @@
 # System Design
 
 A deeper look at how LM Dashboard is put together. For setup and day-to-day usage,
-start with the [README](../README.md).
+start with the [Quickstart](quickstart.md).
 
 ```mermaid
 flowchart LR
@@ -13,7 +13,7 @@ flowchart LR
         direction TB
         poll["Cursor poller<br/>idle backoff"]
         log[("vex_log<br/>append-only event log")]
-        workers["In-memory workers<br/>HMM · episodes · prompt"]
+        workers["In-memory workers<br/>edit distances · episodes · prompt"]
         state[("student_state<br/>materialized view")]
         trig[("trigger_event")]
         poll --> log --> workers
@@ -116,32 +116,35 @@ of recent events. The key choices:
 
 - **Debounced recompute** via a `dirty` flag: once per tick, no matter how many
   events landed.
-- **HMM re-decode only on a new run** (`had_new_run`): the HMM's unit is the
-  `runProject`, so non-run events reuse the cached decoding.
 - **Rehydrate on cold start:** a missing worker reloads its tail from `vex_log` (the
-  one SQL read on the hot path). In-memory state is lost on restart but rebuilt
-  straight from the log.
+  one SQL read on the hot path), and each trigger's already-fired run indices are
+  re-seeded from `trigger_event`. In-memory state is lost on restart but rebuilt
+  straight from the log, with no repeated alerts.
 
 ### 4.5 Inference
-`compute_strategy_states` runs per `runProject`: extract the block AST, compute a
-`change_score` with APTED tree-edit-distance against the previous run (with a
-hashed-pair cache), bucket it, then feed the HMM (`model.pkl`, loaded lazily) to get
-a latent state (iterator, explorer, or stuck). On top of that, every tick segments
-the session into episodes (the vendored, dependency-free `app/episode_engine`) and
-builds a "playground" LLM prompt from the current blocks.
+No model, no numpy. `compute_run_edit_distances` runs per `runProject`: extract the
+block AST and compute the integer APTED tree-edit-distance against the previous run
+(edge-aware costs, so adding a block scores 1; hashed-pair cache to skip repeats).
+The result is one number per run, `edit_distance`: `0` for an identical re-run, small
+for an incremental edit, large for a structural rewrite. On top of that, every tick
+segments the session into episodes (the vendored, dependency-free `app.episode_engine`)
+and builds a "playground" LLM prompt from the current blocks.
 
 ### 4.6 Triggers
-A per-tick sweep, with the lifecycle stored in `trigger_event`:
+Every rule is defined on the per-run `edit_distance` sequence, with the lifecycle
+stored in `trigger_event`:
 
-- **Sustained** (wheel-spin, inactive): open while the condition holds, resolve when
-  it clears.
-- **Momentary** (big-rewrite): fires once per qualifying run, deduped via
-  `json_extract(detail,'$.run_index')`, and is raised from the worker the moment a
-  run is decoded rather than from the sweep.
+- **Momentary** (wheel-spin, resilience, explorer, step-by-step): raised from the
+  worker the instant a run lands, out of a single pure pass (`detect_run_triggers`),
+  each deduped per type via `json_extract(detail,'$.run_index')`.
+- **Sustained** (inactive): the one time-based rule, opened and resolved by the
+  per-tick `evaluate` sweep, with an ack re-alert after `RE_ALERT_SECONDS`.
 
-One thing worth noting: wheel-spinning reads the HMM *output* (`current_state == 2`),
-while big-rewrite reads the raw `change_score`, which is the HMM's *input feature*
-(with its own threshold of 0.5). They sit on opposite sides of the model.
+The five: **wheel-spin** (6+ consecutive `edit_distance == 0`), **resilience** (an
+edit after 4+ zeros), **explorer** (a run with `edit_distance >= 13`), **step-by-step**
+(6 runs of `edit_distance > 1`), and **inactive** (idle past 240s). Wheel-spin and
+resilience read the same zero-streak from opposite ends, which is why both can fire on
+one streak; `TRIGGER_PRIORITY` only decides the headline badge.
 
 ## 5. Data Model And Storage
 
@@ -174,9 +177,11 @@ as JSON text).
   `studentID` (stable) so a card never jumps when its own data updates.
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
-rows), so the expensive HMM and episode work already happened on the write side. It
+rows), so the edit-distance and episode work already happened on the write side. It
 still hits SQLite on every request; it's quick because *what* it reads is cheap, not
-because of the in-memory workers (those speed up the daemon, not the dashboard).
+because of the in-memory workers (those speed up the daemon, not the dashboard). The
+per-poll cost also doubles as the daemon's viewer heartbeat, and the frontend pauses
+polling whenever its browser tab is hidden.
 
 ## 7. Consistency And Coordination
 
@@ -213,7 +218,9 @@ order you'd actually need it:
 3. **Async inference workers.** Only if per-event compute gets heavy, like an LLM
    call per run. A task queue (Celery or RQ plus Redis) offloads that work with
    retries.
-4. **Auth** on the mutating endpoints, plus horizontal API workers.
+4. **Horizontal API workers.** More than one read worker once a single one saturates.
+   (Origin-wide HTTP Basic Auth already exists, off by default and turned on for
+   remote serving; see [Configuration](guides/configuration.md).)
 
 None of these touch the projection logic, and that isolation is the whole payoff of
 keeping the write and read sides apart.

@@ -15,3 +15,7 @@ apted>=1.0
 pytest
 pytest-cov
 httpx
+
+# docs (mkdocs serve, also started by scripts/start.sh on :4000). Pulls in mkdocs
+# and pymdown-extensions, which cover every extension in mkdocs.yml.
+mkdocs-material

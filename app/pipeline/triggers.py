@@ -1,6 +1,6 @@
 """
 The intervention rules that feed the dashboard's "who needs help" column, all
-defined on each run's integer edit_distance (see docs/superpowers/specs/NoHMM.md).
+defined on each run's integer edit_distance.
 
   wheel_spin : >= WHEEL_SPIN_ZERO_RUNS consecutive zero-edit runs (re-running the
                same code); silent until a real edit re-arms it.
@@ -131,7 +131,7 @@ def _sustain(student_id, ttype, active, now, started, detail):
     elif active and ev is not None:
         # Acked but still holding past the re-alert window: resolve the acked row
         # and open a fresh, unacked one so the student comes back to the feed.
-        # Without this a persistently stuck student would never alert again until
+        # Without this a persistently idle student would never alert again until
         # they left and re-entered the state.
         if ev["acknowledged"] and (now - ev["started_at"]).total_seconds() >= RE_ALERT_SECONDS:
             db.resolve_trigger(ev["id"], now)

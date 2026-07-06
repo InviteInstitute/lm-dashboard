@@ -47,7 +47,7 @@ def _shape_state(s, heavy=False):
     """Turn a materialized student_state row into the dashboard's JSON payload.
 
     By default this is the light shape the cohort grid uses: it carries the
-    strategy and episode tracks but omits the bulky playground dump. Passing
+    per-run edit distances and episode tracks but omits the bulky playground dump. Passing
     heavy=True adds `block`, the large playground_prompt tree, which only the
     detail modal renders, so it's fetched one student at a time on open instead
     of for the whole cohort on every poll."""
@@ -193,7 +193,7 @@ def export():
 
 @app.post("/api/reset/")
 def reset():
-    """Clear all local student data (logs, episodes, HMM state, flags), the
+    """Clear all local student data (logs, episodes, run/trigger state, flags), the
     researcher notes, and the interview-pick state (picked toggles + pick
     history), and signal the daemon to drop its in-memory workers. Tracked
     students stay tracked, presence is kept, and the board rebuilds from new

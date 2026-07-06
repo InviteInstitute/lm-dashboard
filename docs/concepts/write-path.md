@@ -1,5 +1,5 @@
 ---
-description: How the single-writer daemon ingests events, computes strategy and episodes, and evaluates intervention triggers.
+description: How the single-writer daemon ingests events, computes per-run edit distances and episodes, and fires intervention triggers.
 ---
 
 # Write Path (The Daemon)
@@ -79,89 +79,89 @@ Every tracked student gets a `StudentWorker` that holds a rolling
 
 - **Debounced recompute.** A `dirty` flag means a worker recomputes once per tick, no
   matter how many events landed.
-- **HMM re-decode only on a new run.** The HMM's unit is the `runProject`, so when
-  `had_new_run` is false, non-run events just reuse the cached decoding.
 - **Rehydrate on cold start.** If a worker is missing, it reloads its tail from
   `vex_log` (the one SQL read on the hot path). In-memory state is lost on restart,
-  but it's reconstructed straight from the log.
+  but it's reconstructed straight from the log, and each trigger's already-fired run
+  indices are re-seeded from `trigger_event` so a restart can't repeat old alerts.
 
 ## Inference
 
-`compute_strategy_states` runs once per `runProject`:
+There is no machine-learning model here anymore, no HMM, no numpy, no `model.pkl`.
+Inference is a single deterministic number per run: the **edit distance** between one
+`runProject` and the previous one.
+
+`compute_run_edit_distances` walks a student's runs in order and, for each one:
 
 1.  **Extract the block AST.** Parse the student's current blocks into a tree.
-2.  **Compute `change_score`.** APTED tree-edit-distance between this run and the last
-    one, with a hashed-pair cache so you don't recompute the same comparison.
-3.  **Bucket and decode.** Bucket the score, then feed the HMM (`model.pkl`, loaded
-    lazily) to get a latent state: iterator, explorer, or stuck.
+2.  **Compute the edit distance.** APTED tree-edit-distance against the previous run,
+    rounded to an integer, with a hashed-pair cache so the same comparison isn't
+    recomputed. The costs are edge-aware (adding a block scores 1, not 2), so the
+    number reads as "how many blocks changed."
 
 ```mermaid
 flowchart LR
     run["runProject"] --> ast["Block AST"]
-    ast --> cs["change_score<br/>APTED edit-distance<br/>vs previous run"]
-    cs --> bucket["bucket"]
-    bucket --> hmm["HMM decode<br/>model.pkl"]
-    hmm --> state["Latent state<br/>iterator · explorer · stuck"]
+    ast --> ed["edit_distance (int)<br/>APTED vs previous run"]
+    ed --> track["Per-run track<br/>0 = no change · small = edit · large = rewrite"]
 ```
 
-The HMM moves a student between those three strategy states run to run, and the
-**stuck** state is exactly what the wheel-spin flag watches:
+The first run has no predecessor, so its `edit_distance` is `null`. Every later run
+gets an integer: `0` means the student re-ran identical code, a small number is an
+incremental edit, a large one is a structural rewrite. That single sequence of
+integers is all five triggers read.
 
-```mermaid
-stateDiagram-v2
-    direction LR
-    Iterator: Iterator (steady, incremental)
-    Explorer: Explorer (structural changes)
-    Stuck: Stuck (wheel-spinning)
-    Iterator --> Explorer
-    Explorer --> Iterator
-    Explorer --> Stuck
-    Stuck --> Explorer
-    Iterator --> Stuck
-    Stuck --> Iterator
-```
-
-On top of strategy, every tick also segments the session into episodes (that's the
-vendored, dependency-free `app/episode_engine` package) and builds a "playground" LLM
+On top of the edit distances, every tick also segments the session into episodes (the
+vendored, dependency-free `app.episode_engine` package) and builds a "playground" LLM
 prompt describing the current blocks. The [Read path](read-path.md) page covers how
 all of this surfaces.
 
 ## Triggers
 
-Triggers run as a per-tick sweep, with their lifecycle stored in `trigger_event`.
-There are two kinds:
+Every intervention rule is defined on the per-run `edit_distance` sequence. Their
+lifecycle is stored in `trigger_event`, and there are two kinds:
 
-- **Sustained** (wheel-spin, inactive). Open while the condition holds, resolve when
-  it clears. For wheel-spin, `started_at` is the timestamp of the first run in the
-  current stuck streak, not the tick that happened to notice it, so the alert's age
-  matches what the student actually went through.
-- **Momentary** (big-rewrite). Fires once per qualifying run, deduped with
-  `json_extract(detail,'$.run_index')`. It's raised straight from the worker the
-  instant a run is decoded, and the dedupe set is seeded from the database on
-  rehydrate, so a backfill or a restart can't quietly drop or repeat alerts for runs
-  in the middle.
+- **Momentary** (wheel-spin, resilience, explorer, iterative). These fire from the
+  worker the instant a run lands, straight out of `detect_run_triggers`, a single pure
+  pass over the edit-distance list. Each is deduped per type by `run_index` (via
+  `json_extract(detail,'$.run_index')`), and the dedupe set is seeded from the
+  database on rehydrate, so a backfill or restart can't drop or repeat a run's alert.
+- **Sustained** (inactive). The one time-based rule, evaluated by the per-tick
+  `evaluate` sweep: it opens while a student is idle past
+  `INACTIVE_TRIGGER_SECONDS`, stays fresh while idle, and resolves when a new event
+  arrives.
 
-A sustained trigger moves through this lifecycle (re-alert is covered just below):
+The five rules:
+
+| Trigger | Type | Fires when |
+|---|---|---|
+| **Wheel-spinning** | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) consecutive `edit_distance == 0` runs; silent until a real edit re-arms it |
+| **Resilience** | momentary | a real edit (`edit_distance > 0`) right after `RESILIENCE_ZERO_RUNS` (4) or more zeros |
+| **Explorer** | momentary | a single run with `edit_distance >= EXPLORER_EDIT_DISTANCE` (13) |
+| **Step-by-Step** | momentary | the count of runs with `edit_distance > 1` reaches the iterative threshold (default 6); resets on a zero-edit run |
+| **Inactive** | sustained | no event for at least `INACTIVE_TRIGGER_SECONDS` (240s / 4 min) |
+
+!!! note "Wheel-spin and resilience are two sides of one streak"
+    On the sequence `[0 0 0 0 0 0 1]`, wheel-spin fires on the sixth zero (the student
+    is stuck re-running identical code) and resilience fires on the `1` (they finally
+    made a real edit). Both are logged; `TRIGGER_PRIORITY` only decides which one wins
+    the card's headline badge (`wheel_spin` outranks `resilience`).
+
+### Re-Alert On A Persistent Inactive
+
+The one sustained trigger, inactive, moves through this lifecycle:
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> Open: condition starts
-    Open --> Resolved: condition clears
+    [*] --> Open: idle past 240s
+    Open --> Resolved: a new event arrives
     Open --> Acked: researcher acks
-    Acked --> Resolved: condition clears
-    Acked --> Open: still holding after RE_ALERT_SECONDS
+    Acked --> Resolved: a new event arrives
+    Acked --> Open: still idle after RE_ALERT_SECONDS
     Resolved --> [*]
 ```
 
-!!! note "Same Model, Opposite Sides"
-    Wheel-spinning reads the HMM *output* (`current_state == 2`), while big-rewrite
-    reads the raw `change_score`, which is the HMM's *input feature*, with its own
-    threshold of 0.5. They sit on opposite sides of the model.
-
-### Re-Alert On Persistent Conditions
-
-Acking a sustained trigger doesn't silence it forever. If the condition keeps holding
-for another `RE_ALERT_SECONDS` (10 minutes) past the acked row's `started_at`, the
-evaluator closes that row and opens a fresh, unacked one. So a student who genuinely
-stays stuck keeps coming back to the feed instead of disappearing after a single ack.
+Acking it doesn't silence it forever: if the student stays idle for another
+`RE_ALERT_SECONDS` (10 minutes) past the acked row's `started_at`, the evaluator
+closes that row and opens a fresh, unacked one, so someone who never came back keeps
+resurfacing in the feed.

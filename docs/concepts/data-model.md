@@ -34,7 +34,7 @@ flowchart LR
 | Read model (cache) | `student_state`, `trigger_event` | the materialized projection, rebuildable |
 | Roster | `tracked_student` | the allowlist, plus the presence/picked toggles |
 | Researcher input | `note`, `pick_event` | observations and the pick/unpick history |
-| Control | `meta` | cross-process signals (reset, polling, disabled triggers) |
+| Control | `meta` | cross-process signals (reset, polling, disabled triggers, the viewer heartbeat) |
 
 !!! tip
     The read-model tables are just a cache of the event log. Delete them, or hit
@@ -55,7 +55,7 @@ flowchart LR
 ??? note "JSON Contract"
     The `runs`, `episodes`, and `detail` columns are stored as JSON text and go
     through `json.loads` / `json.dumps` helpers. Where the daemon needs to query
-    inside a blob, it uses SQLite's `json_extract`, for example the big-rewrite
+    inside a blob, it uses SQLite's `json_extract`, for example the momentary-trigger
     per-run dedupe on `$.run_index`.
 
 ## Event Log As Truth

@@ -23,7 +23,7 @@ flowchart LR
 
     subgraph WRITE["WRITE side: daemon (single writer)"]
         direction LR
-        poll["Cursor poller<br/>idle backoff"] --> log[("vex_log")] --> workers["In-memory workers<br/>HMM · episodes · prompt"] --> proj[("student_state +<br/>trigger_event")]
+        poll["Cursor poller<br/>idle backoff"] --> log[("vex_log")] --> workers["In-memory workers<br/>edit distances · episodes · prompt"] --> proj[("student_state +<br/>trigger_event")]
     end
 
     subgraph READ["READ side: API (many readers)"]
@@ -70,7 +70,14 @@ Two OS processes on one host, connected only through a single SQLite file.
 
 The split is on purpose. The daemon is a long-running compute loop that has to be
 exactly one instance (the cursor assumes a single writer), while the API stays light,
-ML-free, and safe to restart on its own.
+dependency-free (no numpy, no ML), and safe to restart on its own.
+
+!!! note "Serving it beyond localhost"
+    Both processes are local-only by default. To share the dashboard with collaborators,
+    `scripts/start.sh --remote` puts an HTTP Basic Auth gate in front of the whole origin
+    (the prod credentials) and exposes it through an ngrok tunnel, while the data stays on
+    your machine. See [Configuration](../guides/configuration.md) for the gate and the
+    dead-man's switch that keeps prod polling in check while it's served.
 
 ## Consistency
 

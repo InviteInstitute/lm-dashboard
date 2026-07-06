@@ -137,8 +137,21 @@ The five rules:
 | **Wheel-spinning** | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) consecutive `edit_distance == 0` runs; silent until a real edit re-arms it |
 | **Resilience** | momentary | a real edit (`edit_distance > 0`) right after `RESILIENCE_ZERO_RUNS` (4) or more zeros |
 | **Explorer** | momentary | a single run with `edit_distance >= EXPLORER_EDIT_DISTANCE` (13) |
-| **Step-by-Step** | momentary | the count of runs with `edit_distance > 1` reaches the iterative threshold (default 6); resets on a zero-edit run |
+| **Step-by-Step** | momentary | the count of runs with `edit_distance > 1` reaches the iterative threshold (per playground, default 6); resets on a zero-edit run |
 | **Inactive** | sustained | no event for at least `INACTIVE_TRIGGER_SECONDS` (240s / 4 min) |
+
+!!! note "Analyzed per playground"
+    A student can switch VEX playgrounds mid-session, and diffing code from one
+    challenge against another is meaningless. So the run sequence is sliced into
+    contiguous same-playground stretches (each run carries its `playground`, read from
+    the telemetry). At every switch the baseline resets, the first run of the new
+    stretch gets a `null` `edit_distance`, and all four momentary triggers count only
+    within the current stretch, so a challenge switch (or jumping back to an earlier
+    one) starts every counter fresh. Step-by-Step also picks its threshold per stretch
+    from `ITERATIVE_THRESHOLDS` (`CastleCrasherPlus` 6, `CoralReefRescue` 5,
+    `RoverRescue` 3), falling back to `ITERATIVE_DEFAULT_THRESHOLD` (6) for any
+    unlisted playground. `detect_run_triggers` stays a pure single-stretch function;
+    the segmentation wraps it in `detect_run_triggers_by_playground`.
 
 !!! note "Wheel-spin and resilience are two sides of one streak"
     On the sequence `[0 0 0 0 0 0 1]`, wheel-spin fires on the sixth zero (the student

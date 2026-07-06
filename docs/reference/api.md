@@ -6,13 +6,18 @@ description: Every endpoint the FastAPI read API exposes, with request and respo
 
 The read API runs at `http://localhost:8000`. It serves the materialized state the
 daemon computes and performs only small writes (track, ack, notes, toggles, reset,
-export, polling). There is no authentication; the endpoints are local-only.
+export, polling).
+
+By default the endpoints are open (local-only). When served remotely, an origin-wide
+HTTP Basic Auth gate is turned on (see [Configuration](../guides/configuration.md));
+it applies to every route below, including the static dashboard. In remote builds the
+API also serves the built React app at `/`, so the paths below live under `/api`.
 
 ## Endpoints At A Glance
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET`  | `/` | health check |
+| `GET`  | `/healthz` | health check |
 | `GET`  | `/api/student_states/` | materialized per-student state (the dashboard's main read) |
 | `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt) |
 | `GET`  | `/api/tracked/` | the tracked-student roster |
@@ -25,16 +30,17 @@ export, polling). There is no authentication; the endpoints are local-only.
 | `POST` | `/api/picked/` | toggle whether a student has been picked/interviewed |
 | `GET`  | `/api/notes/` | a student's notes |
 | `POST` | `/api/notes/` | add a note |
-| `POST` | `/api/export/` | write a CSV snapshot of all current data |
+| `POST` | `/api/export/` | download a zip of CSV snapshots of all current data |
 | `POST` | `/api/reset/` | clear all local progress and flags + signal the daemon |
 | `GET`  | `/api/polling/` | whether the daemon is currently polling production |
 | `POST` | `/api/polling/` | pause or resume the daemon's production polling |
 
 ---
 
-## GET /
+## GET /healthz
 
-Health check.
+Liveness check. It's at `/healthz` rather than `/` so the static dashboard can be
+served from the root in remote builds.
 
 ```json title="Response"
 { "service": "luc-dashboard", "ok": true }
@@ -59,31 +65,39 @@ The dashboard's main read: the materialized per-student state.
     {
       "studentID": "...",
       "classCode": "...",
-      "current_state": 2,
-      "current_label": "stuck",
-      "stuck": true,
-      "consecutive_stuck": 3,
       "run_count": 12,
       "event_count": 240,
       "last_seen": "2026-06-14T10:31:00",
-      "state_sequence": [0, 1, 1, 2, 2],
-      "hmm": { "runs": [], "obs_labels": {}, "run_count": 12 },
+      "runs": {
+        "runs": [
+          { "index": 0, "edit_distance": null, "ts": "2026-06-14T10:20:00" },
+          { "index": 1, "edit_distance": 0, "ts": "2026-06-14T10:22:00" },
+          { "index": 2, "edit_distance": 7, "ts": "2026-06-14T10:25:00" }
+        ],
+        "run_count": 12
+      },
       "episodes": { "events": [], "episodes": [], "pauses": [] },
       "updated_at": "2026-06-14T10:31:01"
     }
   ],
-  "student_count": 1,
-  "stuck_count": 1,
-  "stuck_state": 2,
-  "state_labels": { "0": "iterator", "1": "explorer", "2": "stuck" }
+  "student_count": 1
 }
 ```
 
 !!! note
-    Rows are sorted with stuck students first, then by most recent activity. This
-    list is the *light* shape: it omits the bulky playground `block`, which you get
-    from the single-student endpoint below. A request for more than 500 student IDs
-    returns `400`.
+    Rows are sorted by most recent activity. Each run's `edit_distance` is the integer
+    APTED tree-edit-distance from the previous run (`null` for the first run); that
+    sequence is what the dashboard colours and what every trigger reads. There is no
+    stored status field, the dashboard derives a student's headline state from the
+    triggers feed. This is the *light* shape: it omits the bulky playground `block`,
+    which you get from the single-student endpoint below. A request for more than 500
+    student IDs returns `400`.
+
+!!! note "Viewer heartbeat"
+    A `GET` here also stamps `meta.viewer_last_seen`. Because the dashboard polls this
+    on a timer (and stops when its tab is hidden), a fresh stamp means a dashboard is
+    open, which is what the daemon's dead-man's switch reads. See
+    [Configuration](../guides/configuration.md#the-dead-mans-switch).
 
 ---
 
@@ -154,7 +168,7 @@ newest first, unacknowledged only.
       "studentID": "...",
       "trigger_type": "wheel_spin",
       "label": "Wheel-spinning",
-      "value": "3 re-runs",
+      "value": "6 identical reruns",
       "started_at": "2026-06-14T10:25:00",
       "resolved_at": null,
       "active": true,
@@ -166,8 +180,19 @@ newest first, unacknowledged only.
 }
 ```
 
-The three trigger types are `wheel_spin` (HMM stuck state), `inactive` (≥ 5 min idle),
-and `big_change` (change-score ≥ 0.5).
+There are five trigger types, all defined on the per-run `edit_distance`:
+
+| `trigger_type` | Label | Fires when | Example `value` |
+|---|---|---|---|
+| `wheel_spin` | Wheel-spinning | 6+ consecutive `edit_distance == 0` | `6 identical reruns` |
+| `resilience` | Resilience | an edit after 4+ zeros | `recovered after 5 reruns` |
+| `inactive` | Inactive | idle >= 240s (4 min) | `idle 7m` |
+| `explorer` | Explorer | a run with `edit_distance >= 13` | `changed 21` |
+| `iterative` | Step-by-Step | 6 runs with `edit_distance > 1` | `6 steady edits` |
+
+`wheel_spin`, `resilience`, `explorer`, and `iterative` are momentary (one row per
+qualifying run); `inactive` is sustained (open while idle, re-alerts after 10 min if
+acked and still holding).
 
 ---
 
@@ -193,8 +218,11 @@ Which trigger types are currently enabled (all on by default), with their labels
 
 ```json title="Response"
 {
-  "enabled": { "wheel_spin": true, "inactive": true, "big_change": true },
-  "labels": { "wheel_spin": "Wheel-spinning", "inactive": "Inactive", "big_change": "Big rewrite" }
+  "enabled": { "wheel_spin": true, "resilience": true, "inactive": true, "explorer": true, "iterative": true },
+  "labels": {
+    "wheel_spin": "Wheel-spinning", "resilience": "Resilience", "inactive": "Inactive",
+    "explorer": "Explorer", "iterative": "Step-by-Step"
+  }
 }
 ```
 
@@ -274,25 +302,26 @@ Returns the created note row. A missing `studentID` or empty `text` returns `400
 
 ## POST /api/export/
 
-Write a CSV snapshot of all current data to `exports/export_<timestamp>/`. This is
-**read-only**; it never modifies the database.
+Download a **zip of CSV snapshots** of all current data (one CSV per table: raw
+events, materialized state, triggers, roster, notes). The zip is built entirely in
+memory and streamed to the browser, so nothing is written to disk and the database is
+never touched. This is **read-only** and safe to run any time.
 
-```json title="Response"
-{
-  "exported": true,
-  "at": "2026-06-14T10:31:00",
-  "dir": "/.../exports/export_2026-06-14_103100",
-  "rows": { "vex_log": 259, "student_state": 2 }
-}
+```http title="Response"
+200 OK
+Content-Type: application/zip
+Content-Disposition: attachment; filename="lm-dashboard_export_2026-06-14_103100.zip"
+
+<binary zip: student_state.csv, trigger_event.csv, vex_log.csv, ...>
 ```
 
 ---
 
 ## POST /api/reset/
 
-Clear all local student data (logs, episodes, HMM state, flags) and the researcher
-notes, and tell the daemon to drop its in-memory workers. Students stay tracked; the
-board rebuilds from new activity.
+Clear all local student data (logs, episodes, run/trigger state, flags) and the
+researcher notes, and tell the daemon to drop its in-memory workers. Students stay
+tracked; the board rebuilds from new activity.
 
 !!! info
     A CSV backup (notes included) is written to `exports/reset_<timestamp>/` before
@@ -335,3 +364,10 @@ without killing the process.
 
 Returns the new state, e.g. `{ "enabled": false }`. This is a local control flag
 (stored in `meta`); production is untouched.
+
+!!! note
+    This is the *manual* pause. When the daemon runs with `--require-viewer` (remote
+    serving arms it automatically), there's also an *automatic* pause: prod polling
+    stops whenever no dashboard has polled recently. The two are independent, the
+    daemon polls only when it's manually enabled **and** a viewer is present. See
+    [Configuration](../guides/configuration.md#the-dead-mans-switch).

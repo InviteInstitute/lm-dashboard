@@ -17,7 +17,7 @@ TRIGGER_LABELS = {
 RE_ALERT_SECONDS = 600                # re-open an acked sustained trigger still holding after 10 min
 TRIGGER_RECENT_SECONDS = 120          # a resolved (or momentary) trigger lingers in the feed this long (2 min)
 
-# --- Edit-distance trigger thresholds (see docs/superpowers/specs/NoHMM.md) ---
+# --- Edit-distance trigger thresholds (rules defined in app/pipeline/triggers.py) ---
 WHEEL_SPIN_ZERO_RUNS = 6        # >= this many consecutive zero-edit runs -> wheel_spin
 RESILIENCE_ZERO_RUNS = 4        # an edit after >= this many zeros -> resilience
 INACTIVE_TRIGGER_SECONDS = 240  # idle > this many seconds -> inactive (separate from the segmenter's 300s)

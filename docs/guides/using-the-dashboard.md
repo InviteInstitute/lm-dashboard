@@ -16,50 +16,60 @@ Removing a student stops tracking them and deletes their local data.
 
 ## Student Cards
 
-There's one card per tracked student, kept in a stable order so a card never jumps
-around when its own data updates (present students sort first, then alphabetically by
-ID). Each card shows four things:
+There's one card per tracked student, ordered by most recent activity (present
+students sort ahead of absent ones). Each card shows:
 
 | Element | What It Shows |
 |---|---|
-| **Strategy state** | the current HMM state: Iterator, Explorer, or Stuck |
-| **Strategy sparkline** | the per-run HMM state sequence over time |
-| **Episode sparkline** | the segmented code / run / reset timeline |
+| **Status badge** | the student's headline state, derived from their active triggers (or **OK** when none are firing) |
+| **Run track** | one tile per run, coloured by that run's edit distance |
+| **Episode sparkline** | the segmented code / run / reset timeline, with pauses |
 | **Counts** | run and event totals for the session |
 
 Each card also carries **Present** and **Picked** toggles for the interview workflow.
-Marking a student absent dims their card and drops it to the bottom; marking them
-picked records that you've interviewed them this session (with a timestamp).
+Marking a student absent dims their card and drops it down; marking them picked records
+that you've interviewed them this session (with a timestamp).
 
-### What The Strategy States Mean
+### Reading The Run Track
 
-| State | Label | How To Read It |
+Each run is coloured by its **edit distance** from the run before it, the number of
+blocks that changed:
+
+| Colour | Edit distance | How To Read It |
 |---|---|---|
-| 0 | Iterator | steady, incremental edits between runs |
-| 1 | Explorer | bigger structural changes, trying new approaches |
-| 2 | Stuck | wheel-spinning, not much productive change |
+| grey | `0` | identical re-run, no change |
+| blue | small | an incremental edit |
+| purple | `>= 13` | a large, structural change |
+
+There's no strategy model behind this: the colour is the raw number of block edits,
+and the five triggers are just rules over the sequence of those numbers.
 
 ## Who-Needs-Help Column
 
 The column on the right is the live intervention feed. It shows every alert the daemon
-has fired that hasn't yet resolved or been acknowledged.
+has fired that hasn't yet resolved or been acknowledged. There are five:
 
-| Trigger | Colour | Fires When |
+| Trigger | Fires When | Example value |
 |---|---|---|
-| **Wheel-spinning** | red `⟳` | the HMM puts the student in the *stuck* state |
-| **Inactive** | amber `⏸` | no events for 5 minutes or more |
-| **Big rewrite** | purple `✎` | a single run's `change_score` hits 0.5 or higher |
+| **Wheel-spinning** | six or more identical re-runs in a row (`edit_distance == 0`) | `6 identical reruns` |
+| **Resilience** | a real edit right after four or more identical re-runs | `recovered after 5 reruns` |
+| **Inactive** | no events for four minutes (240s) or more | `idle 7m` |
+| **Explorer** | a single run changes 13 or more blocks | `changed 21` |
+| **Step-by-Step** | six runs of steady editing (`edit_distance > 1`) | `6 steady edits` |
 
-Each row shows the student ID, the trigger label and its value (something like
-`3 re-runs` for wheel-spin, `idle 7m` for inactive, `change 0.71` for a big rewrite),
-and how long ago it fired. Click a row to open that student's detail, hit the **✕** to
-dismiss the alert, or use **Notes** to jot an observation right against the alert.
+Each row shows the student ID, the trigger label and its value, and how long ago it
+fired. Click a row to open that student's detail, hit the **✕** to dismiss the alert,
+or use **Notes** to jot an observation right against the alert.
+
+!!! note "Wheel-spinning and Resilience are a pair"
+    They read the same streak from opposite ends: wheel-spinning fires while a student
+    re-runs identical code, and resilience fires the moment they finally make a real
+    edit. On a run of six zeros followed by an edit you'll see both, which is by design.
 
 !!! note "Re-Alert"
-    Acking a sustained trigger (wheel-spin or inactive) doesn't silence it forever.
-    If the condition keeps holding for another 10 minutes, the daemon closes the acked
-    row and opens a fresh one, so a student who never actually got unstuck comes back
-    to the feed.
+    Acking the **inactive** alert doesn't silence it forever. If the student stays idle
+    for another 10 minutes, the daemon closes the acked row and opens a fresh one, so
+    someone who never came back keeps resurfacing in the feed.
 
 You can also turn whole trigger types on or off from the **⚙ Triggers** button in the
 top bar. Switching one off tells the daemon to stop firing it and clear its open
@@ -89,7 +99,7 @@ Click any card to open the full detail:
 
 - The **playground prompt**, which is their current code described in plain language
   for an LLM.
-- Full-size **episode** and **strategy** timelines.
+- Full-size **run** and **episode** timelines.
 - The complete **notes and observations** log for that student, with a box to add
   more.
 
@@ -98,19 +108,19 @@ while the modal is up.
 
 ## Export
 
-The **⬇ Export** button writes a CSV snapshot of the data (raw events, materialized
-state, triggers, roster, notes) to `exports/export_<timestamp>/`. It's read-only, so
-the database is never touched and you can run it any time. A success dialog tells you
-where it landed.
+The **⬇ Export** button downloads a **zip of CSV snapshots** (raw events, materialized
+state, triggers, roster, notes) straight to your computer. It's built in memory and is
+read-only, so the database is never touched and nothing is written to the server, you
+can run it any time. The file is named `lm-dashboard_export_<timestamp>.zip`.
 
 ## Reset
 
-The **↺ Reset** button clears all the locally-stored events, episodes, strategy state,
+The **↺ Reset** button clears all the locally-stored events, episodes, run state,
 flags, and notes, and tells the daemon to drop its in-memory workers so the board
 starts fresh from new activity.
 
 !!! info
-    Reset writes a CSV backup (notes included) to `exports/reset_<timestamp>/` before
-    it wipes, so nothing is actually lost. It's local only, production is never
-    touched. The raw event cursor stays put, so the board rebuilds only from activity
-    that arrives after the reset, and tracked students stay tracked.
+    Reset writes a CSV backup (notes included) to `exports/reset_<timestamp>/` on the
+    server before it wipes, so nothing is actually lost. It's local only, production is
+    never touched. The raw event cursor stays put, so the board rebuilds only from
+    activity that arrives after the reset, and tracked students stay tracked.

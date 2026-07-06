@@ -143,6 +143,22 @@ def test_route_to_cached_worker_ingests_without_double_count():
     assert len(workers.get_worker("s1").events) == 1
 
 
+def test_recompute_fires_step_by_step_at_the_playground_threshold():
+    """The worker fires iterative per playground: RoverRescue's threshold is 3, so
+    three edits (edit_distance > 1) in RoverRescue fire it, even though the default
+    threshold (6) would not. Distances are seeded so the count is unambiguous."""
+    w = workers.StudentWorker("s1")
+    w._runs_cache = {"runs": [
+        {"index": 0, "edit_distance": None, "ts": 0.0, "playground": "RoverRescue"},
+        {"index": 1, "edit_distance": 2, "ts": 1.0, "playground": "RoverRescue"},
+        {"index": 2, "edit_distance": 2, "ts": 2.0, "playground": "RoverRescue"},
+        {"index": 3, "edit_distance": 2, "ts": 3.0, "playground": "RoverRescue"},
+    ]}
+    w.had_new_run = False
+    w.recompute_and_write()
+    assert db.fired_indices("s1", "iterative") == {3}
+
+
 def test_rehydrate_uses_received_at_when_event_time_missing():
     db.insert_message_and_log({
         "raw_message": '{"eventType":"runProject"}', "event_time": None,

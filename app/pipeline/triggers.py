@@ -28,7 +28,7 @@ log = logging.getLogger("pipeline")
 from app.constants import (
     INACTIVE_TRIGGER_SECONDS, RE_ALERT_SECONDS, TRIGGER_LABELS as LABELS,
     WHEEL_SPIN_ZERO_RUNS, RESILIENCE_ZERO_RUNS, EXPLORER_EDIT_DISTANCE,
-    ITERATIVE_EDIT_MIN, ITERATIVE_DEFAULT_THRESHOLD,
+    ITERATIVE_EDIT_MIN, ITERATIVE_DEFAULT_THRESHOLD, ITERATIVE_THRESHOLDS,
 )
 
 
@@ -75,6 +75,35 @@ def detect_run_triggers(edit_distances, iterative_threshold=ITERATIVE_DEFAULT_TH
         if ed == 0:
             iter_count = 0
             iter_armed = True
+    return out
+
+
+def detect_run_triggers_by_playground(runs):
+    """Split `runs` into contiguous same-playground stretches and run
+    detect_run_triggers on each, using that playground's Step-by-Step threshold
+    (ITERATIVE_THRESHOLDS.get(playground, ITERATIVE_DEFAULT_THRESHOLD)). `runs` is
+    the list from compute_run_edit_distances ({index, edit_distance, ts, playground}).
+    Returns [(trigger_type, global_run_index, detail)].
+
+    Each stretch is its own detect_run_triggers call, so every counter (zero streak,
+    iterative count, re-arm flags) resets at a playground switch, and jumping back to
+    an earlier playground starts fresh. Run indices must stay global via the stretch
+    offset. Read the playground with .get so runs built without the field collapse
+    into one default-threshold stretch instead of raising."""
+    out = []
+    i, n = 0, len(runs)
+    while i < n:
+        pg = runs[i].get("playground")
+        j = i
+        while j < n and runs[j].get("playground") == pg:
+            j += 1
+        edit_distances = [r["edit_distance"] for r in runs[i:j]]
+        threshold = ITERATIVE_THRESHOLDS.get(pg, ITERATIVE_DEFAULT_THRESHOLD)
+        for ttype, local_idx, detail in detect_run_triggers(
+            edit_distances, iterative_threshold=threshold
+        ):
+            out.append((ttype, i + local_idx, detail))
+        i = j
     return out
 
 

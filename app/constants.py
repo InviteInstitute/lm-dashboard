@@ -25,8 +25,9 @@ EXPLORER_EDIT_DISTANCE = 13     # a single run with edit_distance >= this -> exp
 ITERATIVE_EDIT_MIN = 1          # runs with edit_distance > this count toward iterative
 ITERATIVE_DEFAULT_THRESHOLD = 6 # count of such runs that fires iterative
 
-# Reference only -- not used until the playground name is in telemetry.
-ITERATIVE_THRESHOLDS = {"CoralReefCleanup": 5, "CastleCrasherPlus": 6, "RoverRescue": 3}
+# Per-playground Step-by-Step thresholds, keyed by the exact `playground` string
+# in the runProject telemetry. An unlisted playground uses ITERATIVE_DEFAULT_THRESHOLD.
+ITERATIVE_THRESHOLDS = {"CastleCrasherPlus": 6, "CoralReefRescue": 5, "RoverRescue": 3}
 
 # Headline-status precedence; only wheel_spin > resilience is load-bearing.
 TRIGGER_PRIORITY = ("wheel_spin", "inactive", "resilience", "explorer", "iterative")

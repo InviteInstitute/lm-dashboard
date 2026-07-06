@@ -1,10 +1,11 @@
 # Learner Modeling Dashboard
 
 A live "who needs help" board for a room of students coding in VEX. It mirrors their
-activity from the Reflecks production backend onto your own machine, infers each
-student's coding strategy with an HMM, breaks the session into episodes, and surfaces
-who needs attention right now (wheel-spinning, idle, big rewrite) on a single screen.
-It only ever reads from production.
+activity from the Reflecks production backend onto your own machine, measures how much
+each student's code changes between runs (a plain edit distance, no black-box model),
+breaks the session into episodes, and surfaces who needs attention right now
+(wheel-spinning, resilience, inactive, explorer, step-by-step) on a single screen. It
+only ever reads from production.
 
 ```mermaid
 flowchart LR
@@ -34,12 +35,23 @@ pulling live data. Shut everything back down with `./scripts/stop.sh`.
 
 ## What You Get
 
-- A card per student with their strategy state (Iterator / Explorer / Stuck),
-  strategy and episode sparklines, and **Present** / **Picked** toggles.
-- A live **"who needs help"** column where you can jot **notes** against each alert;
-  click any learner for the full detail and their complete notes log.
-- A top bar to pause and resume polling, **export** a CSV snapshot (one file per table
-  in `exports/`), and reset the board.
+- A card per student with a **run track** (one tile per run, coloured by how many
+  blocks changed since the last run), an **episode** sparkline, a status badge derived
+  from their active triggers, and **Present** / **Picked** toggles.
+- A live **"who needs help"** column driven by five edit-distance triggers
+  (wheel-spinning, resilience, inactive, explorer, step-by-step) where you can jot
+  **notes** against each alert; click any learner for the full detail and notes log.
+- A top bar to pause and resume polling, **export** all data as a downloadable zip of
+  CSV snapshots, and reset the board.
+
+## Serving It Remotely
+
+`./scripts/start.sh --remote` puts the whole origin behind an HTTP Basic Auth gate (the
+prod login) and exposes it through an ngrok tunnel, so collaborators can watch while the
+data stays on your machine. While served, a dead-man's switch pauses production polling
+whenever no dashboard is actually open. See the
+[Configuration guide](https://inviteinstitute.github.io/lm-dashboard/guides/configuration/)
+for details.
 
 ## Under the Hood
 

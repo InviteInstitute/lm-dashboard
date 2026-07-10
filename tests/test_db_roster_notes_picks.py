@@ -60,6 +60,22 @@ def test_pick_event_records_provenance():
     ]
 
 
+def test_pick_event_migration_backfills_provenance_columns():
+    # Simulate a database whose pick_event predates provenance by dropping the
+    # columns, then confirm init_db's guarded ALTER TABLE re-adds them (and the
+    # table is usable afterward).
+    with db.write_txn() as con:
+        for c in ("source", "trigger_id", "trigger_type"):
+            con.execute(f"ALTER TABLE pick_event DROP COLUMN {c}")
+    db.init_db()
+    cols = {r["name"] for r in db._query("PRAGMA table_info(pick_event)")}
+    assert {"source", "trigger_id", "trigger_type"} <= cols
+    db.tracked_add("s1")
+    db.set_picked("s1", True, source="intervention", trigger_id=3, trigger_type="explorer")
+    row = db._query("SELECT source, trigger_id FROM pick_event")[0]
+    assert row["source"] == "intervention" and row["trigger_id"] == 3
+
+
 def test_remove_tracked_cascades_all_student_data(seed_state):
     db.tracked_add("s1")
     seed_state("s1")

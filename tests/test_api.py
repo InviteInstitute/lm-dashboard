@@ -98,6 +98,22 @@ def test_picked_writes_event_history(client):
     assert len(db._query("SELECT 1 FROM pick_event WHERE studentID='s1'")) == 2
 
 
+def test_picked_records_provenance_via_api(client):
+    # The endpoint must forward source + trigger from the request body into the
+    # log, and default source to 'roster' when the body omits provenance.
+    client.post("/api/tracked/", json={"studentID": "s1"})
+    client.post("/api/picked/", json={"studentID": "s1", "picked": True,
+                                      "source": "intervention", "trigger_id": 9,
+                                      "trigger_type": "wheel_spin"})
+    client.post("/api/picked/", json={"studentID": "s1", "picked": False})   # roster default
+    rows = db._query("SELECT source, trigger_id, trigger_type FROM pick_event "
+                     "WHERE studentID='s1' ORDER BY id")
+    assert [dict(r) for r in rows] == [
+        {"source": "intervention", "trigger_id": 9, "trigger_type": "wheel_spin"},
+        {"source": "roster", "trigger_id": None, "trigger_type": None},
+    ]
+
+
 # --- notes -----------------------------------------------------------------
 def test_notes_post_get_and_validation(client):
     client.post("/api/notes/", json={"studentID": "s1", "text": "watched them"})

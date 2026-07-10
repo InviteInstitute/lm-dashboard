@@ -235,7 +235,10 @@ CREATE TABLE IF NOT EXISTS pick_event (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     studentID VARCHAR(128) NOT NULL,
     picked BOOL NOT NULL,
-    ts DATETIME NOT NULL
+    ts DATETIME NOT NULL,
+    source VARCHAR(32),          -- 'roster' | 'intervention' (NULL = pre-provenance)
+    trigger_id INTEGER,          -- the trigger_event picked from; NULL for roster picks
+    trigger_type VARCHAR(64)     -- its type, denormalized for readable exports
 );
 CREATE INDEX IF NOT EXISTS ix_pick_student ON pick_event(studentID, ts);
 """
@@ -260,6 +263,15 @@ def init_db():
         for dead in ("current_state", "state_label", "stuck", "consecutive_stuck"):
             if dead in sscols:
                 con.execute(f"ALTER TABLE student_state DROP COLUMN {dead}")
+        # Pick provenance: where each toggle came from and, for intervention picks,
+        # which trigger. All nullable, so older rows read as pre-provenance NULLs.
+        pcols = {r[1] for r in con.execute("PRAGMA table_info(pick_event)")}
+        if "source" not in pcols:
+            con.execute("ALTER TABLE pick_event ADD COLUMN source VARCHAR(32)")
+        if "trigger_id" not in pcols:
+            con.execute("ALTER TABLE pick_event ADD COLUMN trigger_id INTEGER")
+        if "trigger_type" not in pcols:
+            con.execute("ALTER TABLE pick_event ADD COLUMN trigger_type VARCHAR(64)")
 
 
 # --------------------------------------------------------------------------
@@ -568,11 +580,15 @@ def set_presence(sid, present):
     )
 
 
-def set_picked(sid, picked):
+def set_picked(sid, picked, source="roster", trigger_id=None, trigger_type=None):
     """Researcher toggle for whether the student has been picked/interviewed this
     session. Marking stamps picked_at; unmarking clears it. Either way it also
     appends a pick_event row, so the full pick/unpick history is timestamped for
-    later analysis (picked_at only holds the latest state; pick_event is the log)."""
+    later analysis (picked_at only holds the latest state; pick_event is the log).
+
+    Provenance rides only on the log row: `source` is 'roster' (student card) or
+    'intervention' (alert card), and trigger_id/trigger_type name the alert an
+    intervention pick was clicked from (both None for roster picks)."""
     ts = dt_to_db(now())
     with write_txn() as con:
         con.execute(
@@ -580,8 +596,9 @@ def set_picked(sid, picked):
             (1 if picked else 0, ts if picked else None, sid),
         )
         con.execute(
-            "INSERT INTO pick_event (studentID, picked, ts) VALUES (?, ?, ?)",
-            (sid, 1 if picked else 0, ts),
+            "INSERT INTO pick_event (studentID, picked, ts, source, trigger_id, trigger_type) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (sid, 1 if picked else 0, ts, source, trigger_id, trigger_type),
         )
 
 

@@ -133,13 +133,34 @@ describe('CohortDashboard', () => {
     expect(screen.queryByTitle(/Dismiss alert/)).toBeNull();
   });
 
-  it('posts to /api/picked/ when "Mark picked" is clicked', async () => {
+  it('posts a roster pick (source roster, no trigger) from the student card', async () => {
     render(<CohortDashboard />);
     const pick = await screen.findByText('Mark picked');
     fireEvent.click(pick);
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/api/picked/',
-        { studentID: 'alice', picked: true });
+        { studentID: 'alice', picked: true, source: 'roster',
+          trigger_id: null, trigger_type: null });
+    });
+  });
+
+  it('stamps the trigger when "Picked" is clicked on an alert card', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/triggers/') {
+        return Promise.resolve({ data: {
+          triggers: [{ id: 9, studentID: 'alice', trigger_type: 'wheel_spin',
+            label: 'Wheel-spinning', value: '6 identical reruns', active: true, age_seconds: 42 }],
+          active_count: 1, counts: { wheel_spin: 1 } } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    // The alert-card button reads exactly 'Picked'; the roster one reads 'Mark picked'.
+    fireEvent.click(await screen.findByText('Picked'));
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/api/picked/',
+        { studentID: 'alice', picked: true, source: 'intervention',
+          trigger_id: 9, trigger_type: 'wheel_spin' });
     });
   });
 

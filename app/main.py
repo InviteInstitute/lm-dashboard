@@ -238,6 +238,9 @@ class PresenceBody(BaseModel):
 class PickedBody(BaseModel):
     studentID: str
     picked: bool
+    source: str = "roster"            # 'roster' | 'intervention'
+    trigger_id: int | None = None     # set only for intervention picks
+    trigger_type: str | None = None
 
 
 @app.post("/api/presence/")
@@ -258,7 +261,8 @@ def set_picked(body: PickedBody):
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
-    db.set_picked(sid, body.picked)
+    db.set_picked(sid, body.picked, source=body.source,
+                  trigger_id=body.trigger_id, trigger_type=body.trigger_type)
     return {"studentID": sid, "picked": body.picked}
 
 

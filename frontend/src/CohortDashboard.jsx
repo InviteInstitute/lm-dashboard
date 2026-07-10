@@ -375,9 +375,18 @@ const CohortDashboard = () => {
         setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, present } : r));
         try { await api.post('/api/presence/', { studentID: sid, present }); } catch { fetchRoster(); }
     };
-    const setPicked = async (sid, picked) => {
+    // source is 'roster' (student card) or 'intervention' (alert card); the
+    // intervention path also passes the trigger it was clicked from so the pick
+    // log records which alert prompted it. Roster picks carry no trigger.
+    const setPicked = async (sid, picked, source = 'roster', trigger = null) => {
         setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, picked } : r));
-        try { await api.post('/api/picked/', { studentID: sid, picked }); } catch { fetchRoster(); }
+        try {
+            await api.post('/api/picked/', {
+                studentID: sid, picked, source,
+                trigger_id: trigger?.id ?? null,
+                trigger_type: trigger?.trigger_type ?? null,
+            });
+        } catch { fetchRoster(); }
     };
     // Notes for whichever learner is currently open; reloaded when the modal
     // opens and after a note is added.
@@ -612,7 +621,7 @@ const CohortDashboard = () => {
                                                 {b.present ? '● Present' : '○ Absent'}
                                             </button>
                                             <button style={b.picked ? S.tgPicked : S.tgUnpicked}
-                                                    onClick={e => { e.stopPropagation(); setPicked(b.studentID, !b.picked); }}
+                                                    onClick={e => { e.stopPropagation(); setPicked(b.studentID, !b.picked, 'roster'); }}
                                                     title={b.picked ? 'Picked / interviewed — click to unmark' : 'Mark as picked / interviewed'}>
                                                 {b.picked ? '✓ Picked' : 'Mark picked'}
                                             </button>
@@ -644,7 +653,7 @@ const CohortDashboard = () => {
                                             return (
                                                 <button style={picked ? S.tgPicked : S.tgUnpicked}
                                                         title={picked ? 'Picked / interviewed — click to unmark' : 'Mark as picked / interviewed'}
-                                                        onClick={e => { e.stopPropagation(); setPicked(t.studentID, !picked); }}>
+                                                        onClick={e => { e.stopPropagation(); setPicked(t.studentID, !picked, 'intervention', t); }}>
                                                     {picked ? '✓ Picked' : 'Picked'}
                                                 </button>
                                             );

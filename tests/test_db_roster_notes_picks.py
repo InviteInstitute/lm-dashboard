@@ -47,6 +47,19 @@ def test_pick_event_logs_full_history():
     assert [r["picked"] for r in rows] == [1, 0, 1]
 
 
+def test_pick_event_records_provenance():
+    # Intervention picks stamp the trigger they were clicked from; roster picks
+    # (the default source) never do, even for the same student.
+    db.tracked_add("s1")
+    db.set_picked("s1", True, source="intervention", trigger_id=7, trigger_type="wheel_spin")
+    db.set_picked("s1", False)   # roster is the default
+    rows = db._query("SELECT source, trigger_id, trigger_type FROM pick_event ORDER BY id")
+    assert [dict(r) for r in rows] == [
+        {"source": "intervention", "trigger_id": 7, "trigger_type": "wheel_spin"},
+        {"source": "roster", "trigger_id": None, "trigger_type": None},
+    ]
+
+
 def test_remove_tracked_cascades_all_student_data(seed_state):
     db.tracked_add("s1")
     seed_state("s1")

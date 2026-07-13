@@ -4,11 +4,18 @@
 #
 #   scripts/start.sh           local dev: Vite dev server on :3000, hot reload
 #   scripts/start.sh --prod    local: production build served on :3000
-#   scripts/start.sh --remote  GATED + exposed via ngrok. The API itself serves the
+#   scripts/start.sh --remote  GATED + exposed via a tunnel. The API itself serves the
 #                              UI (no :3000), and the prod login is REQUIRED, so
 #                              there is no way to expose an ungated dashboard.
+#                              Pick the tunnel with --cloudflare (default) or --ngrok:
+#                                scripts/start.sh --remote --cloudflare
+#                                scripts/start.sh --remote --ngrok
+#                              Add --named for the stable cloudflare hostname
+#                              (set up once with cloudflared tunnel create + route dns):
+#                                scripts/start.sh --remote --cloudflare --named
 #
-# --remote sets NGROK_URL to a default; override it:  NGROK_URL=https://x scripts/start.sh --remote
+# --ngrok uses a fixed NGROK_URL; override it:  NGROK_URL=https://x scripts/start.sh --remote --ngrok
+# --named uses CF_TUNNEL / CF_HOSTNAME (defaults: lm-dashboard / dashboard.janimaharsh.com).
 cd "$(dirname "$0")/.." || exit 1
 ROOT="$PWD"
 VENV="$ROOT/.venv/bin"
@@ -17,10 +24,17 @@ mkdir -p "$LOGS"
 
 FRONTEND_MODE="dev"
 REMOTE=0
+TUNNEL="cloudflare"          # tunnel provider for --remote; override with --ngrok
+NAMED=0                      # --named: use the stable cloudflare named tunnel, not a quick one
+CF_TUNNEL="${CF_TUNNEL:-lm-dashboard}"                      # named-tunnel name (cloudflared tunnel create)
+CF_HOSTNAME="${CF_HOSTNAME:-dashboard.janimaharsh.com}"     # its routed hostname (route dns)
 for arg in "$@"; do
   case "$arg" in
-    --prod|prod)     FRONTEND_MODE="prod" ;;
-    --remote|remote) REMOTE=1 ;;
+    --prod|prod)         FRONTEND_MODE="prod" ;;
+    --remote|remote)     REMOTE=1 ;;
+    --ngrok)             TUNNEL="ngrok" ;;
+    --cloudflare)        TUNNEL="cloudflare" ;;
+    --named)             NAMED=1 ;;
   esac
 done
 
@@ -33,7 +47,11 @@ fi
 # (single origin). The gate lives in this launch environment only, so local runs
 # and the test suite stay open.
 if [ "$REMOTE" = "1" ]; then
-  command -v ngrok >/dev/null || { echo "ngrok not installed (brew install ngrok)"; exit 1; }
+  if [ "$TUNNEL" = "ngrok" ]; then
+    command -v ngrok >/dev/null || { echo "ngrok not installed (brew install ngrok)"; exit 1; }
+  else
+    command -v cloudflared >/dev/null || { echo "cloudflared not installed (brew install cloudflared)"; exit 1; }
+  fi
   export DASHBOARD_AUTH=prod
   echo "Building UI for single-origin remote serving ..."
   ( cd frontend && VITE_API_URL='' npm run build > "$LOGS/frontend-build.log" 2>&1 )
@@ -80,14 +98,35 @@ echo "Starting docs on :4000 ..."
 # --remote: open the tunnel, but only after confirming the API is gated (a no-login
 # request must get 401). Belt-and-suspenders, even though --remote sets the gate.
 NGROK_URL="${NGROK_URL:-https://unretired-generic-backache.ngrok-free.dev}"
+REMOTE_URL=""
 if [ "$REMOTE" = "1" ]; then
   code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)
-  if [ "$code" = "401" ]; then
+  if [ "$code" != "401" ]; then
+    echo "WARNING: API answered '$code' to a no-login request (NOT gated) -- tunnel NOT opened."
+  elif [ "$TUNNEL" = "ngrok" ]; then
     nohup ngrok http --url="${NGROK_URL#https://}" 8000 --log=stdout > "$LOGS/ngrok.log" 2>&1 &
     echo $! > "$ROOT/.ngrok.pid"
-    echo "Tunnel open -> $NGROK_URL"
+    REMOTE_URL="$NGROK_URL"
+    echo "Tunnel open (ngrok) -> $REMOTE_URL"
+  elif [ "$NAMED" = "1" ]; then
+    # Cloudflare NAMED tunnel: a stable hostname set up once (cloudflared tunnel
+    # create "$CF_TUNNEL" + route dns "$CF_HOSTNAME"). The URL is known up front,
+    # so there's nothing to scrape from the log.
+    nohup cloudflared tunnel run --url http://localhost:8000 "$CF_TUNNEL" > "$LOGS/cloudflared.log" 2>&1 &
+    echo $! > "$ROOT/.cloudflared.pid"
+    REMOTE_URL="https://$CF_HOSTNAME"
+    echo "Tunnel open (cloudflare named) -> $REMOTE_URL"
   else
-    echo "WARNING: API answered '$code' to a no-login request (NOT gated) -- tunnel NOT opened."
+    # Cloudflare QUICK tunnel: the public URL is ephemeral and printed to the log
+    # once cloudflared registers, so poll the log for it.
+    nohup cloudflared tunnel --url http://localhost:8000 > "$LOGS/cloudflared.log" 2>&1 &
+    echo $! > "$ROOT/.cloudflared.pid"
+    for _ in $(seq 1 20); do
+      REMOTE_URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$LOGS/cloudflared.log" 2>/dev/null | head -1)
+      [ -n "$REMOTE_URL" ] && break
+      sleep 1
+    done
+    echo "Tunnel open (cloudflare quick) -> ${REMOTE_URL:-not ready yet, see $LOGS/cloudflared.log}"
   fi
 fi
 
@@ -95,7 +134,7 @@ sleep 5
 echo
 echo "Up:"
 if [ "$REMOTE" = "1" ]; then
-  echo "  Dashboard (remote)  $NGROK_URL   (log in with the prod credentials)"
+  echo "  Dashboard (remote)  ${REMOTE_URL:-<check $LOGS/cloudflared.log>}   (log in with the prod credentials)"
   echo "  Dashboard (local)   http://localhost:8000   (also behind the login)"
 else
   echo "  Dashboard  http://localhost:3000"
@@ -103,6 +142,6 @@ fi
 echo "  Read API   http://localhost:8000"
 echo "  Docs       http://localhost:4000"
 echo
-echo "Dashboard mode: $([ "$REMOTE" = 1 ] && echo remote || echo "$FRONTEND_MODE")"
+echo "Dashboard mode: $([ "$REMOTE" = 1 ] && echo "remote ($TUNNEL)" || echo "$FRONTEND_MODE")"
 echo "Daemon polling is PAUSED. Click 'Resume polling' in the dashboard for live data."
 echo "Logs in $LOGS/   |   Stop with scripts/stop.sh"

@@ -39,7 +39,9 @@ frontend/coverage/
 # Cache
 .pytest_cache
 
-# ngrok runtime
+# tunnel runtime
 .ngrok.pid
 .ngrok.log
+.cloudflared.pid
+.cloudflared.log
 

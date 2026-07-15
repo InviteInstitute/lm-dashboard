@@ -142,7 +142,7 @@ stored in `trigger_event`:
 
 The five: **wheel-spin** (6+ consecutive `edit_distance == 0`), **resilience** (an
 edit after 4+ zeros), **explorer** (a run with `edit_distance >= 13`), **step-by-step**
-(6 runs of `edit_distance > 1`), and **inactive** (idle past 240s). Wheel-spin and
+(6 runs of `edit_distance >= 1`), and **inactive** (idle past 240s). Wheel-spin and
 resilience read the same zero-streak from opposite ends, which is why both can fire on
 one streak; `TRIGGER_PRIORITY` only decides the headline badge.
 

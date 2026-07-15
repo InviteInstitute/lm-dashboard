@@ -188,7 +188,7 @@ There are five trigger types, all defined on the per-run `edit_distance`:
 | `resilience` | Resilience | an edit after 4+ zeros | `recovered after 5 reruns` |
 | `inactive` | Inactive | idle >= 240s (4 min) | `idle 7m` |
 | `explorer` | Explorer | a run with `edit_distance >= 13` | `changed 21` |
-| `iterative` | Step-by-Step | 6 runs with `edit_distance > 1` | `6 steady edits` |
+| `iterative` | Step-by-Step | 6 runs with `edit_distance >= 1` | `6 steady edits` |
 
 `wheel_spin`, `resilience`, `explorer`, and `iterative` are momentary (one row per
 qualifying run); `inactive` is sustained (open while idle, re-alerts after 10 min if

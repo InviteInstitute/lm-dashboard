@@ -15,14 +15,14 @@ TRIGGER_LABELS = {
     "explorer": "Explorer", "iterative": "Step-by-Step",
 }
 RE_ALERT_SECONDS = 600                # re-open an acked sustained trigger still holding after 10 min
-TRIGGER_RECENT_SECONDS = 120          # a resolved (or momentary) trigger lingers in the feed this long (2 min)
+TRIGGER_RECENT_SECONDS = 420          # a resolved (or momentary) trigger lingers in the feed this long (7 min)
 
 # --- Edit-distance trigger thresholds (rules defined in app/pipeline/triggers.py) ---
 WHEEL_SPIN_ZERO_RUNS = 6        # >= this many consecutive zero-edit runs -> wheel_spin
 RESILIENCE_ZERO_RUNS = 4        # an edit after >= this many zeros -> resilience
 INACTIVE_TRIGGER_SECONDS = 240  # idle > this many seconds -> inactive (separate from the segmenter's 300s)
 EXPLORER_EDIT_DISTANCE = 13     # a single run with edit_distance >= this -> explorer
-ITERATIVE_EDIT_MIN = 1          # runs with edit_distance > this count toward iterative
+ITERATIVE_EDIT_MIN = 0          # runs with edit_distance > this count toward iterative (so any real edit, >= 1, counts)
 ITERATIVE_DEFAULT_THRESHOLD = 6 # count of such runs that fires iterative
 
 # Per-playground Step-by-Step thresholds, keyed by the exact `playground` string

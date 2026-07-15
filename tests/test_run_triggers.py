@@ -42,9 +42,11 @@ def test_iterative_fires_at_threshold_then_cooldown_until_zero():
     assert fires == [6, 14]
 
 
-def test_iterative_ignores_distance_one():
+def test_iterative_counts_distance_one():
+    # A single-block edit (edit_distance == 1) now counts toward Step-by-Step
+    # (ITERATIVE_EDIT_MIN = 0), so six of them reach the default threshold.
     seq = [None, 1, 1, 1, 1, 1, 1, 1]
-    assert all(t != "iterative" for t, _ in _types(seq))
+    assert ("iterative", 6) in _types(seq)
 
 
 def test_wheel_spin_and_resilience_both_fire_on_long_then_edit():

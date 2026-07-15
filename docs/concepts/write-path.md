@@ -137,7 +137,7 @@ The five rules:
 | **Wheel-spinning** | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) consecutive `edit_distance == 0` runs; silent until a real edit re-arms it |
 | **Resilience** | momentary | a real edit (`edit_distance > 0`) right after `RESILIENCE_ZERO_RUNS` (4) or more zeros |
 | **Explorer** | momentary | a single run with `edit_distance >= EXPLORER_EDIT_DISTANCE` (13) |
-| **Step-by-Step** | momentary | the count of runs with `edit_distance > 1` reaches the iterative threshold (per playground, default 6); resets on a zero-edit run |
+| **Step-by-Step** | momentary | the count of runs with `edit_distance >= 1` reaches the iterative threshold (per playground, default 6); resets on a zero-edit run |
 | **Inactive** | sustained | no event for at least `INACTIVE_TRIGGER_SECONDS` (240s / 4 min) |
 
 !!! note "Analyzed per playground"

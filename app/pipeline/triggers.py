@@ -6,7 +6,7 @@ defined on each run's integer edit_distance.
                same code); silent until a real edit re-arms it.
   resilience : a real edit right after >= RESILIENCE_ZERO_RUNS zeros (recovered).
   explorer   : a single run with edit_distance >= EXPLORER_EDIT_DISTANCE.
-  iterative  : ITERATIVE_DEFAULT_THRESHOLD runs with edit_distance > 1 (steady edits).
+  iterative  : ITERATIVE_DEFAULT_THRESHOLD runs with edit_distance >= 1 (steady edits).
   inactive   : no event for at least INACTIVE_TRIGGER_SECONDS.
 
 The four edit-distance triggers are momentary: they fire from the worker the

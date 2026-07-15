@@ -55,7 +55,7 @@ has fired that hasn't yet resolved or been acknowledged. There are five:
 | **Resilience** | a real edit right after four or more identical re-runs | `recovered after 5 reruns` |
 | **Inactive** | no events for four minutes (240s) or more | `idle 7m` |
 | **Explorer** | a single run changes 13 or more blocks | `changed 21` |
-| **Step-by-Step** | six runs of steady editing (`edit_distance > 1`) | `6 steady edits` |
+| **Step-by-Step** | six runs of steady editing (`edit_distance >= 1`) | `6 steady edits` |
 
 Each row shows the student ID, the trigger label and its value, and how long ago it
 fired. Click a row to open that student's detail, hit the **✕** to dismiss the alert,

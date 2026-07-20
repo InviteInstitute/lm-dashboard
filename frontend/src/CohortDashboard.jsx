@@ -198,7 +198,7 @@ const Detail = ({ s, sid, status }) => {
     return (
         <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                <span style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700 }}>{s.studentID}</span>
+                <span style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700 }}>{s.display || s.studentID}</span>
                 <span style={{ background: `${cur.c}1f`, color: cur.c, border: `1px solid ${cur.c}55`, borderRadius: 999, padding: '3px 12px', fontSize: 12.5, fontWeight: 700 }}>{cur.label}</span>
                 <span style={{ marginLeft: 'auto', color: T.sub, fontSize: 12.5 }}>runs <b style={{ color: T.ink }}>{s.run_count}</b> · events <b style={{ color: T.ink }}>{s.event_count}</b></span>
             </div>
@@ -270,6 +270,15 @@ const S = {
     colSub: (c) => ({ fontSize: 12, color: c, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }),
     colEmpty: { color: T.sub, fontSize: 13, lineHeight: 1.5 },
     ackBtn: { marginLeft: 'auto', background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, borderRadius: 999, padding: '2px 9px', fontSize: 11, cursor: 'pointer', fontFamily: FONT },
+    switchHead: { fontSize: 12.5, fontWeight: 800, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, margin: '24px 0 14px', paddingTop: 18, borderTop: `1px solid ${T.border}` },
+    toastWrap: { position: 'fixed', top: 72, right: 24, display: 'flex', flexDirection: 'column', gap: 10, zIndex: 60, alignItems: 'flex-end', pointerEvents: 'none' },
+    toast: { display: 'flex', alignItems: 'center', gap: 11, minWidth: 250, maxWidth: '92vw', background: T.panel, border: `1px solid ${T.border}`, borderLeft: '3px solid #eab308', borderRadius: 12, padding: '10px 12px 10px 12px', boxShadow: '0 14px 38px rgba(0,0,0,0.5)', animation: 'toastIn .3s cubic-bezier(.2,.8,.25,1)', pointerEvents: 'auto' },
+    toastIcon: { flexShrink: 0, width: 30, height: 30, borderRadius: 9, background: '#eab30820', color: '#eab308', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800 },
+    toastBody: { display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.25 },
+    toastTitle: { fontFamily: MONO, fontSize: 13.5, fontWeight: 700, color: T.ink },
+    toastSub: { fontSize: 11.5, color: T.sub, whiteSpace: 'nowrap' },
+    toastArrow: { fontFamily: MONO },
+    toastClose: { flexShrink: 0, marginLeft: 'auto', paddingLeft: 8, border: 'none', background: 'transparent', color: T.faint, fontSize: 17, lineHeight: 1, cursor: 'pointer', fontFamily: FONT },
 
     empty: { color: T.sub, fontSize: 14, textAlign: 'center', marginTop: 60 },
     overlay: { position: 'fixed', inset: 0, background: 'rgba(3,5,9,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 24 },
@@ -311,6 +320,8 @@ const CohortDashboard = () => {
     const [detailFull, setDetailFull] = React.useState(null);  // heavy payload for the open student
     const [roster, setRoster] = React.useState([]);
     const [triggers, setTriggers] = React.useState([]);   // backend-fired alerts
+    const [switches, setSwitches] = React.useState([]);   // identity-switch feed
+    const [toasts, setToasts] = React.useState([]);       // transient switch popups
     const [selected, setSelected] = React.useState(null);
     const [query, setQuery] = React.useState('');
     const [pollingOn, setPollingOn] = React.useState(true);   // daemon prod polling
@@ -340,6 +351,37 @@ const CohortDashboard = () => {
         try { setTriggers((await api.get('/api/triggers/')).data.triggers || []); } catch { /* keep */ }
     }, []);
     usePoll(fetchTriggers, visible);
+
+    const fetchSwitches = React.useCallback(async () => {
+        try { setSwitches((await api.get('/api/switches/')).data.switches || []); } catch { /* keep */ }
+    }, []);
+    usePoll(fetchSwitches, visible);
+
+    // Most-recent casing for a handle, looked up from the materialized state
+    // (the feed itself carries the canonical id, used as the fallback).
+    const displayFor = (sid) => (states[sid] && states[sid].display) || sid;
+
+    // Pop a toast for each NEW unacked switch. The first load only seeds the
+    // "seen" set (so opening the board doesn't flood you with the backlog);
+    // after that a fresh switch toasts and auto-dismisses after 6s.
+    const seenSwitch = React.useRef(new Set());
+    const firstSwitchLoad = React.useRef(true);
+    React.useEffect(() => {
+        const fresh = switches.filter(s => !s.acknowledged && !seenSwitch.current.has(s.id));
+        fresh.forEach(s => seenSwitch.current.add(s.id));
+        if (firstSwitchLoad.current) { firstSwitchLoad.current = false; return; }
+        if (!fresh.length) return;
+        const add = fresh.map(s => ({ id: s.id, title: displayFor(s.studentID),
+                                      kind: s.kind, from: s.from, to: s.to }));
+        setToasts(t => [...t, ...add]);
+        add.forEach(a => setTimeout(() => setToasts(t => t.filter(x => x.id !== a.id)), 6000));
+    }, [switches]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+    const ackSwitch = async (id) => {
+        setSwitches(ss => ss.filter(s => s.id !== id));
+        setToasts(t => t.filter(x => x.id !== id));
+        try { await api.post('/api/switches/ack/', { id }); } catch { fetchSwitches(); }
+    };
 
     // Pause state and trigger-config are values ONLY the user changes here (the
     // daemon just reads them), so we do NOT poll them on a timer. Polling created
@@ -468,7 +510,7 @@ const CohortDashboard = () => {
             // poll: the cards, the open detail, the notes, the open note editor,
             // AND the "Needs intervention" alerts (reset wiped trigger_event).
             setSelected(null); setStates({}); setNotes([]);
-            setTriggers([]); setNoteOpen(null); setNoteText('');
+            setTriggers([]); setSwitches([]); setToasts([]); setNoteOpen(null); setNoteText('');
             window.alert('Reset done. Backup saved to:\n' + (data.backup || 'exports/'));
         } catch {
             window.alert('Reset failed, data was NOT cleared.');
@@ -483,6 +525,7 @@ const CohortDashboard = () => {
     const boxes = roster
         .map(r => ({
             studentID: r.studentID,
+            display: r.display || r.studentID,   // most-recent casing; canonical id stays the key
             has_data: r.has_data,
             present: r.present !== false,   // default present for older roster payloads
             picked: !!r.picked,
@@ -513,6 +556,7 @@ const CohortDashboard = () => {
             statusBy[t.studentID] = t.trigger_type;
     });
     const headColor = TRIGGERS.wheel_spin.c;
+    const unackedSwitches = switches.filter(s => !s.acknowledged);
     const detail = detailFull;   // heavy payload fetched per-open student
 
     return (
@@ -571,7 +615,7 @@ const CohortDashboard = () => {
                 {roster.map(r => (
                     <span key={r.studentID} style={S.rchip} onClick={() => setSelected(r.studentID)} title="Open">
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.has_data ? '#22c55e' : '#f59e0b' }} />
-                        {r.studentID}
+                        {r.display || r.studentID}
                         <button style={S.rx} title="Stop tracking"
                                 onClick={e => { e.stopPropagation(); removeTracked(r.studentID); }}>×</button>
                     </span>
@@ -593,7 +637,7 @@ const CohortDashboard = () => {
                                          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = accent + '66'; }}
                                          onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = T.border; }}>
                                         <div style={S.boxHead}>
-                                            <span style={S.sid} title={b.studentID}>{b.studentID}</span>
+                                            <span style={S.sid} title={b.display}>{b.display}</span>
                                             <span style={S.stateBadge(accent)}>
                                                 {sm.label}
                                             </span>
@@ -647,7 +691,7 @@ const CohortDashboard = () => {
                             return (
                                 <div key={t.id} style={S.colItem(meta.c)} onClick={() => setSelected(t.studentID)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={S.colSid}>{t.studentID}</span>
+                                        <span style={S.colSid}>{displayFor(t.studentID)}</span>
                                         {(() => {
                                             const picked = !!(roster.find(r => r.studentID === t.studentID) || {}).picked;
                                             return (
@@ -689,8 +733,54 @@ const CohortDashboard = () => {
                             );
                         })
                     )}
+
+                    {unackedSwitches.length > 0 && (
+                        <>
+                            <div style={S.switchHead}>
+                                <span style={{ color: '#eab308' }}>⇄</span> Identity switches
+                                <span style={S.colCount('#eab308')}>{unackedSwitches.length}</span>
+                            </div>
+                            {unackedSwitches.map(s => (
+                                <div key={s.id} style={S.colItem('#eab308')} onClick={() => setSelected(s.studentID)}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={S.colSid}>{displayFor(s.studentID)}</span>
+                                        <button style={S.ackBtn} title="Dismiss switch"
+                                                onClick={e => { e.stopPropagation(); ackSwitch(s.id); }}>✕</button>
+                                    </div>
+                                    <div style={S.colSub('#eab308')}>
+                                        {s.kind === 'casing'
+                                            ? `casing · ${s.from} → ${s.to}`
+                                            : `new class · ${s.from || '—'} → ${s.to}`}
+                                        <span style={{ marginLeft: 'auto', color: T.faint }}>{relTime(s.ts)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </>
+                    )}
                 </div>
             </div>
+
+            {toasts.length > 0 && (
+                <div style={S.toastWrap}>
+                    {toasts.map(t => (
+                        <div key={t.id} style={S.toast}>
+                            <div style={S.toastIcon}>⇄</div>
+                            <div style={S.toastBody}>
+                                <span style={S.toastTitle}>{t.title}</span>
+                                <span style={S.toastSub}>
+                                    {t.kind === 'casing' ? 'casing changed' : 'new class'}
+                                    {'  '}
+                                    <span style={{ ...S.toastArrow, color: T.faint }}>{t.from}</span>
+                                    <span style={S.toastArrow}> → </span>
+                                    <span style={{ ...S.toastArrow, color: '#eab308' }}>{t.to}</span>
+                                </span>
+                            </div>
+                            <button style={S.toastClose} title="Dismiss"
+                                    onClick={() => setToasts(ts => ts.filter(x => x.id !== t.id))}>×</button>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {selected && (
                 <div style={S.overlay} onClick={() => setSelected(null)}>

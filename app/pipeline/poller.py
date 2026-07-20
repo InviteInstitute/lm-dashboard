@@ -115,7 +115,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
                 max_et = et
             if sid and sid > max_id:
                 max_id = sid
-            if tracked is not None and (ev.get("studentID") or "") not in tracked:
+            if tracked is not None and db.canon_id(ev.get("studentID")) not in tracked:
                 continue
             if since is not None and et is not None and et < since:
                 continue   # before the session cutoff -- skip, but the cursor still advanced above
@@ -130,7 +130,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
                     # tick rebuilds it from the DB (which now has this event),
                     # rather than keep serving a buffer that's silently missing it.
                     from app.pipeline import workers
-                    workers._workers.pop(norm["studentID"], None)
+                    workers._workers.pop(db.canon_id(norm["studentID"]), None)
                     logger.exception(
                         "route failed for %s after persist; dropped worker for rehydrate",
                         norm["studentID"],

@@ -407,4 +407,21 @@ describe('CohortDashboard', () => {
         expect.objectContaining({ studentID: 'alice', text: 'looks stuck on the loop',
           trigger_id: 3, trigger_type: 'wheel_spin' })));
   });
+
+  it('renders the identity-switch feed and acks a switch', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/switches/') {
+        return Promise.resolve({ data: { switches: [
+          { id: 5, studentID: 'cobra3', kind: 'class', from: 'FPFVDH', to: 'AFURRR',
+            ts: new Date().toISOString(), acknowledged: false }], unacked: 1 } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    expect(await screen.findByText(/Identity switches/)).toBeInTheDocument();
+    expect(await screen.findByText(/new class · FPFVDH → AFURRR/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByTitle('Dismiss switch'));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/switches/ack/', { id: 5 }));
+  });
 });

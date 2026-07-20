@@ -22,6 +22,7 @@ from app.runs.apted_similarity import clear_cache as clear_score_cache
 from app.smart_delta_engine import generate_llm_prompt_from_project
 from app.episode_engine import segment_session
 from app.pipeline.triggers import detect_run_triggers_by_playground, _disabled_types
+from app.pipeline.switches import detect_switches
 
 logger = logging.getLogger("pipeline")
 
@@ -33,8 +34,9 @@ RUN_TRIGGER_TYPES = ("wheel_spin", "resilience", "explorer", "iterative")
 
 class StudentWorker:
     def __init__(self, student_id):
-        self.student_id = student_id
+        self.student_id = db.canon_id(student_id)   # canonical (folded) key for all writes
         self.class_code = None
+        self.display_id = None                   # most-recent studentID casing seen live
         self.events = deque(maxlen=BUFFER_MAX)   # in-memory rolling history
         self.latest_project = None
         self.latest_project_ts = None
@@ -55,6 +57,18 @@ class StudentWorker:
         et = ev.get("eventType") or ""
         ts = ev["event_time"].timestamp() if ev.get("event_time") else None
         self.events.append({"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts})
+        # Switch detection: compare this event's casing/class against the
+        # last-seen ones BEFORE we overwrite them. Only tracked students have a
+        # worker, so this is roster-only for free. Non-critical telemetry, so a
+        # failure here must never break ingest.
+        for kind, frm, to in detect_switches(
+                self.display_id, self.class_code, ev.get("studentID"), ev.get("classCode")):
+            try:
+                db.record_switch(self.student_id, kind, frm, to)
+            except Exception:
+                logger.exception("record_switch failed for %s", self.student_id)
+        if ev.get("studentID"):
+            self.display_id = ev["studentID"]
         if ev.get("classCode"):
             self.class_code = ev["classCode"]
         if ev.get("project") is not None:
@@ -130,6 +144,7 @@ class StudentWorker:
         db.upsert_student_state(
             self.student_id,
             {
+                "display_id": self.display_id or self.student_id,
                 "classCode": self.class_code,
                 "run_count": run_count,
                 "event_count": len(events),
@@ -152,10 +167,12 @@ _workers = {}  # studentID -> StudentWorker
 
 def get_worker(student_id):
     """Return the cached worker for a student, creating and rehydrating one from
-    the raw log on first access."""
-    w = _workers.get(student_id)
+    the raw log on first access. Keyed on the canonical id so every casing of a
+    handle shares one worker."""
+    key = db.canon_id(student_id)
+    w = _workers.get(key)
     if w is None:
-        w = _workers[student_id] = StudentWorker(student_id)
+        w = _workers[key] = StudentWorker(student_id)
         _rehydrate(w)
     return w
 
@@ -167,10 +184,10 @@ def route(ev):
     crucially do NOT also ingest(ev): rehydrate already reloads the just-inserted
     vex_log row, so ingesting here too would double-count the event in the
     buffer."""
-    sid = ev["studentID"]
-    w = _workers.get(sid)
+    key = db.canon_id(ev["studentID"])
+    w = _workers.get(key)
     if w is None:
-        w = _workers[sid] = StudentWorker(sid)
+        w = _workers[key] = StudentWorker(ev["studentID"])
         _rehydrate(w)
         return
     w.ingest(ev)
@@ -182,10 +199,12 @@ def dirty_workers():
 
 
 def reconcile(tracked):
-    """Evict cached workers for any student no longer on the tracked allowlist."""
-    for sid in list(_workers.keys()):
-        if sid not in tracked:
-            _workers.pop(sid, None)
+    """Evict cached workers for any student no longer on the tracked allowlist.
+    `tracked` may hold raw casings, so fold both sides to the canonical key."""
+    keep = {db.canon_id(t) for t in tracked}
+    for key in list(_workers.keys()):
+        if key not in keep:
+            _workers.pop(key, None)
 
 
 def reset():
@@ -208,7 +227,7 @@ def set_session_cutoff(since):
 
 
 def has_worker(student_id):
-    return student_id in _workers
+    return db.canon_id(student_id) in _workers
 
 
 def _rehydrate(worker):
@@ -226,6 +245,8 @@ def _rehydrate(worker):
         elif row["received_at"]:
             ts = row["received_at"].timestamp()
         worker.events.append({"event_type": et, "content": row["raw_message"] or "{}", "ts": ts})
+        if row.get("studentID"):
+            worker.display_id = row["studentID"]   # rows are oldest-first, so this ends on the newest casing
         if row["classCode"]:
             worker.class_code = row["classCode"]
         if row["project"] is not None:

@@ -85,6 +85,16 @@ def _jdump(o):
     return json.dumps(o) if o is not None else None
 
 
+def canon_id(sid):
+    """Canonical identity key for a studentID: whitespace- and case-folded.
+    studentIDs are handles, unique only within a class and sometimes typed in
+    different casing (cobra3 vs Cobra3); folding here is what makes the whole
+    system treat those spellings as one student. Derived tables are keyed on
+    this; the raw most-recent casing is kept for display in
+    student_state.display_id."""
+    return (sid or "").strip().lower()
+
+
 # --------------------------------------------------------------------------
 # connection (one shared handle per process; sqlite3 forbids cross-thread use
 # by default, so we opt out of that check)
@@ -190,7 +200,8 @@ CREATE TABLE IF NOT EXISTS ingest_cursor (
 );
 CREATE TABLE IF NOT EXISTS student_state (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL UNIQUE,
+    studentID VARCHAR(128) NOT NULL UNIQUE,   -- canonical (folded) key; see canon_id
+    display_id VARCHAR(128),                  -- most-recent raw casing, for the UI
     classCode VARCHAR(64),
     run_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0,
     runs TEXT, episodes TEXT,
@@ -241,6 +252,16 @@ CREATE TABLE IF NOT EXISTS pick_event (
     trigger_type VARCHAR(64)     -- its type, denormalized for readable exports
 );
 CREATE INDEX IF NOT EXISTS ix_pick_student ON pick_event(studentID, ts);
+CREATE TABLE IF NOT EXISTS switch_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    studentID VARCHAR(128) NOT NULL,   -- the handle, in the casing seen at switch time
+    kind VARCHAR(16) NOT NULL,         -- 'casing' | 'class'
+    from_value TEXT,                   -- previous casing or classCode
+    to_value TEXT,                     -- new casing or classCode
+    ts DATETIME NOT NULL,
+    acknowledged BOOL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_switch_ts ON switch_event(ts);
 """
 
 
@@ -263,6 +284,8 @@ def init_db():
         for dead in ("current_state", "state_label", "stuck", "consecutive_stuck"):
             if dead in sscols:
                 con.execute(f"ALTER TABLE student_state DROP COLUMN {dead}")
+        if "display_id" not in sscols:
+            con.execute("ALTER TABLE student_state ADD COLUMN display_id VARCHAR(128)")
         # Pick provenance: where each toggle came from and, for intervention picks,
         # which trigger. All nullable, so older rows read as pre-provenance NULLs.
         pcols = {r[1] for r in con.execute("PRAGMA table_info(pick_event)")}
@@ -272,6 +295,22 @@ def init_db():
             con.execute("ALTER TABLE pick_event ADD COLUMN trigger_id INTEGER")
         if "trigger_type" not in pcols:
             con.execute("ALTER TABLE pick_event ADD COLUMN trigger_type VARCHAR(64)")
+        # One-time identity fold: collapse case-variant handles to the canonical
+        # (lower) key so cobra3 and Cobra3 stop reading as two students. Derived
+        # tables (student_state, trigger_event) are just cleared -- the daemon
+        # re-materializes them lowercased from the raw log. The roster keeps one
+        # row per handle (earliest id wins). Guarded so it runs once.
+        already = con.execute("SELECT 1 FROM meta WHERE key='idcanon_v1'").fetchone()
+        if not already:
+            con.execute("DELETE FROM student_state")
+            con.execute("DELETE FROM trigger_event")
+            con.execute(
+                "DELETE FROM tracked_student WHERE id NOT IN "
+                "(SELECT MIN(id) FROM tracked_student GROUP BY lower(studentID))")
+            con.execute("UPDATE tracked_student SET studentID = lower(studentID)")
+            con.execute("UPDATE note SET studentID = lower(studentID)")
+            con.execute("UPDATE pick_event SET studentID = lower(studentID)")
+            con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('idcanon_v1', '1')")
 
 
 # --------------------------------------------------------------------------
@@ -362,7 +401,7 @@ def reset_all():
     writes a CSV backup (notes and pick history included) before calling this."""
     with write_txn() as con:
         for t in ("trigger_event", "student_state", "vex_log", "message", "note",
-                  "pick_event"):
+                  "pick_event", "switch_event"):
             con.execute(f"DELETE FROM {t}")
         # Clear the picked toggles but keep the roster + presence.
         con.execute("UPDATE tracked_student SET picked = 0, picked_at = NULL")
@@ -480,6 +519,7 @@ def export_zip_bytes(tables=None, db_path=None):
 def _student_state_row(r):
     return {
         "studentID": r["studentID"],
+        "display_id": r["display_id"],
         "classCode": r["classCode"],
         "run_count": r["run_count"],
         "event_count": r["event_count"],
@@ -515,7 +555,7 @@ def list_student_states(students=None, class_code=None):
     clauses, params = [], []
     if students:
         clauses.append(f"studentID IN ({','.join('?' * len(students))})")
-        params += list(students)
+        params += [canon_id(s) for s in students]
     if class_code:
         clauses.append("classCode = ?")
         params.append(class_code)
@@ -544,7 +584,7 @@ def ack_by_student(sid):
     return _execute(
         "UPDATE trigger_event SET acknowledged = 1 "
         "WHERE studentID = ? AND acknowledged = 0",
-        (sid,),
+        (canon_id(sid),),
     )
 
 
@@ -554,14 +594,15 @@ def tracked_list():
     # studentID is UNIQUE on both tables, so the join is strictly 1:1.
     rows = _query(
         "SELECT t.studentID, t.backfilled, t.present, t.picked, t.picked_at, "
-        "       (s.studentID IS NOT NULL) AS has_data "
+        "       s.display_id, (s.studentID IS NOT NULL) AS has_data "
         "FROM tracked_student t "
         "LEFT JOIN student_state s ON s.studentID = t.studentID "
         "ORDER BY t.studentID"
     )
     return [
         {
-            "studentID": r["studentID"],
+            "studentID": r["studentID"],                       # canonical key
+            "display": r["display_id"] or r["studentID"],      # most-recent casing for the UI
             "backfilled": bool(r["backfilled"]),
             "has_data": bool(r["has_data"]),
             "present": bool(r["present"]),
@@ -576,7 +617,7 @@ def set_presence(sid, present):
     """Researcher toggle for whether the student is physically in the room."""
     _execute(
         "UPDATE tracked_student SET present = ? WHERE studentID = ?",
-        (1 if present else 0, sid),
+        (1 if present else 0, canon_id(sid)),
     )
 
 
@@ -589,6 +630,7 @@ def set_picked(sid, picked, source="roster", trigger_id=None, trigger_type=None)
     Provenance rides only on the log row: `source` is 'roster' (student card) or
     'intervention' (alert card), and trigger_id/trigger_type name the alert an
     intervention pick was clicked from (both None for roster picks)."""
+    sid = canon_id(sid)
     ts = dt_to_db(now())
     with write_txn() as con:
         con.execute(
@@ -606,6 +648,7 @@ def add_note(student_id, text, trigger_id=None, trigger_type=None):
     """Record one note for a student. Pass trigger_id/trigger_type to link it to
     the alert it was written from; leave both None for a free-standing manual
     note. Returns the new row as a dict."""
+    student_id = canon_id(student_id)
     ts = dt_to_db(now())
     with write_txn() as con:
         cur = con.execute(
@@ -625,9 +668,39 @@ def list_notes(student_id):
     rows = _query(
         "SELECT id, studentID, ts, text, trigger_id, trigger_type, created_at "
         "FROM note WHERE studentID = ? ORDER BY ts, id",
-        (student_id,),
+        (canon_id(student_id),),
     )
     return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------
+# switch_event: casing/class switches the daemon detects for a tracked student.
+# The dashboard shows a toast + a reviewable feed off these rows.
+# --------------------------------------------------------------------------
+def record_switch(student_id, kind, from_value, to_value):
+    """Append one detected switch. `kind` is 'casing' or 'class'."""
+    _execute(
+        "INSERT INTO switch_event (studentID, kind, from_value, to_value, ts) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (student_id, kind, from_value, to_value, dt_to_db(now())),
+    )
+
+
+def list_switches(limit=100, unacked_only=False):
+    """Recent switches, newest first. `unacked_only` keeps just the ones not yet
+    dismissed (what the live toast/feed wants)."""
+    where = "WHERE acknowledged = 0 " if unacked_only else ""
+    rows = _query(
+        "SELECT id, studentID, kind, from_value, to_value, ts, acknowledged "
+        f"FROM switch_event {where}ORDER BY ts DESC, id DESC LIMIT ?",
+        (limit,),
+    )
+    return [dict(r) for r in rows]
+
+
+def ack_switch(switch_id):
+    """Dismiss one switch by id so it stops showing as new."""
+    return _execute("UPDATE switch_event SET acknowledged = 1 WHERE id = ?", (switch_id,))
 
 
 def tracked_add(sid):
@@ -636,25 +709,28 @@ def tracked_add(sid):
     _execute(
         "INSERT OR IGNORE INTO tracked_student (studentID, backfilled, created_at) "
         "VALUES (?, 0, ?)",
-        (sid, dt_to_db(now())),
+        (canon_id(sid), dt_to_db(now())),
     )
 
 
 def mark_backfilled(sid):
-    _execute("UPDATE tracked_student SET backfilled = 1 WHERE studentID = ?", (sid,))
+    _execute("UPDATE tracked_student SET backfilled = 1 WHERE studentID = ?", (canon_id(sid),))
 
 
 def tracked_remove(sid):
     """Untrack a student and delete everything tied to them, raw events and
     derived state alike, so they disappear from the board entirely."""
+    sid = canon_id(sid)
     with write_txn() as con:
+        # vex_log keeps the raw casing prod sent, so match it case-insensitively;
+        # the derived/roster tables are already keyed on the canonical id.
         msg_ids = [
             row[0]
             for row in con.execute(
-                "SELECT from_message_id FROM vex_log WHERE studentID = ?", (sid,)
+                "SELECT from_message_id FROM vex_log WHERE lower(studentID) = ?", (sid,)
             ).fetchall()
         ]
-        con.execute("DELETE FROM vex_log WHERE studentID = ?", (sid,))
+        con.execute("DELETE FROM vex_log WHERE lower(studentID) = ?", (sid,))
         if msg_ids:
             con.executemany(
                 "DELETE FROM message WHERE id = ?", [(m,) for m in msg_ids]
@@ -743,7 +819,9 @@ def student_tail(sid, limit, since=None):
     datetime, or None) hides events from before the session: rows whose timestamp
     is earlier are filtered out, so a returning student's prior session stays in
     the log but never replays into the live view."""
-    where, params = "v.studentID = ?", [sid]
+    # vex_log stores the raw casing; the worker keys on the canonical id, so match
+    # case-insensitively to pull every spelling of the handle.
+    where, params = "lower(v.studentID) = ?", [canon_id(sid)]
     if since is not None:
         # Stored datetimes are fixed-width strings, so a lexical >= is chronological.
         where += " AND COALESCE(v.event_time, m.received_at) >= ?"
@@ -757,7 +835,7 @@ def student_tail(sid, limit, since=None):
     
     order_by = "ORDER BY COALESCE(v.event_time, m.received_at) DESC, v.id DESC"
     rows = _query(
-        "SELECT v.eventType, v.classCode, v.project, v.raw_message, v.event_time, "
+        "SELECT v.studentID, v.eventType, v.classCode, v.project, v.raw_message, v.event_time, "
         "       v.source_event_id, m.received_at "
         "FROM vex_log v LEFT JOIN message m ON m.id = v.from_message_id "
         f"WHERE {where} {order_by} LIMIT ?",
@@ -767,6 +845,7 @@ def student_tail(sid, limit, since=None):
     for r in reversed(rows):
         out.append(
             {
+                "studentID": r["studentID"],
                 "eventType": r["eventType"],
                 "classCode": r["classCode"],
                 "project": r["project"],

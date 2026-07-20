@@ -53,6 +53,7 @@ def _shape_state(s, heavy=False):
     of for the whole cohort on every poll."""
     out = {
         "studentID": s["studentID"],
+        "display": s.get("display_id") or s["studentID"],   # most-recent casing for the UI
         "classCode": s["classCode"],
         "run_count": s["run_count"],
         "event_count": s["event_count"],
@@ -150,6 +151,30 @@ def ack_trigger(body: AckBody):
     else:
         raise HTTPException(status_code=400, detail="provide id or studentID")
     return {"acknowledged": n}
+
+
+@app.get("/api/switches/")
+def switches():
+    """Identity switches (a handle's casing flipped, or it showed up in a new
+    class) detected for tracked students, newest first. The dashboard polls this
+    for the live toast and the reviewable Switches feed."""
+    items = [{
+        "id": r["id"], "studentID": r["studentID"], "kind": r["kind"],
+        "from": r["from_value"], "to": r["to_value"],
+        "ts": _iso(db.db_to_dt(r["ts"])),
+        "acknowledged": bool(r["acknowledged"]),
+    } for r in db.list_switches(limit=100)]
+    return {"switches": items, "unacked": sum(1 for i in items if not i["acknowledged"])}
+
+
+class SwitchAckBody(BaseModel):
+    id: int
+
+
+@app.post("/api/switches/ack/")
+def ack_switch(body: SwitchAckBody):
+    """Dismiss one switch so it stops showing as new in the feed."""
+    return {"acknowledged": db.ack_switch(body.id)}
 
 
 class TrackBody(BaseModel):

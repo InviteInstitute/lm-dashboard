@@ -424,4 +424,44 @@ describe('CohortDashboard', () => {
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/switches/ack/', { id: 5 }));
   });
+
+  it('a failed write retries, parks in the outbox, and toasts red', async () => {
+    // Primary write always fails; the outbox endpoint still works.
+    api.post.mockImplementation((url) => url === '/api/outbox/'
+      ? Promise.resolve({ data: { stored: true } })
+      : Promise.reject(new Error('Network Error')));
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByText(/Present/));
+    // After both retries the raw input is parked verbatim...
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/outbox/', {
+      op: 'absent: alice',
+      payload: { studentID: 'alice', present: false },
+      error: 'Network Error',
+    }), { timeout: 3000 });
+    // ...and the failure is loud: a sticky toast naming the action.
+    expect(await screen.findByText('NOT saved')).toBeInTheDocument();
+    expect(screen.getByText('absent: alice')).toBeInTheDocument();
+  });
+
+  it('parks in localStorage when the outbox endpoint is down too', async () => {
+    // jsdom here has no localStorage; give window a tiny in-memory one.
+    const store = {};
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k) => store[k] ?? null,
+        setItem: (k, v) => { store[k] = String(v); },
+        removeItem: (k) => { delete store[k]; },
+      },
+    });
+    api.post.mockRejectedValue(new Error('Network Error'));   // API fully unreachable
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByText(/Present/));
+    await waitFor(() => {
+      const q = JSON.parse(store.lmdOutbox || '[]');
+      expect(q).toHaveLength(1);
+      expect(q[0].op).toBe('absent: alice');
+    }, { timeout: 3000 });
+    expect(await screen.findByText('NOT saved')).toBeInTheDocument();
+  });
 });

@@ -72,8 +72,16 @@ class StudentWorker:
         if ev.get("classCode"):
             self.class_code = ev["classCode"]
         if ev.get("project") is not None:
-            self.latest_project = ev["project"]
-            self.latest_project_ts = ev.get("event_time")
+            # Monotonic in event-time: with the case-insensitive fold, two
+            # devices (with disagreeing clocks) can feed one worker, so "last
+            # to arrive" is not "last to happen". An out-of-order older
+            # snapshot must not roll the playground view backwards. A missing
+            # timestamp on either side can't be compared, so it still accepts.
+            ts_new = ev.get("event_time")
+            if (self.latest_project_ts is None or ts_new is None
+                    or ts_new >= self.latest_project_ts):
+                self.latest_project = ev["project"]
+                self.latest_project_ts = ts_new
         if ev.get("source_event_id") is not None:
             self.last_event_id = max(self.last_event_id, ev["source_event_id"])
         if ev.get("event_time"):

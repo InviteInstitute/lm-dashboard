@@ -7,7 +7,7 @@ import axios from 'axios';
 // that served the page (FastAPI serves the built app behind the Cloudflare
 // tunnel: one host, no CORS). `??` not `||` so an empty string is honored as
 // "relative" instead of falling back to localhost.
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 const api = axios.create({
   baseURL: API_URL,

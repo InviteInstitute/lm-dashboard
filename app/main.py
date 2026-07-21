@@ -8,10 +8,14 @@ toggles, and the reset and polling control flags.
 
     uvicorn app.main:app --port 8000 --reload
 """
+import asyncio
+import json
 from datetime import timedelta
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app import config, db
@@ -99,6 +103,62 @@ def student_states(students: str | None = None, classCode: str | None = None):
     return {"students": rows, "student_count": len(rows)}
 
 
+# --------------------------------------------------------------------------
+# live stream (Server-Sent Events)
+# --------------------------------------------------------------------------
+# One long-lived stream replaces the dashboard's four per-tick poll loops. The
+# server watches a cheap change fingerprint once and pushes a `changed` event
+# naming only the channels that actually moved, so the client refetches just
+# those instead of blind-polling all four every POLL_MS. The open connection
+# also is the viewer-presence signal: while a dashboard holds the stream we
+# stamp viewer_last_seen, so the daemon's dead-man's switch keeps prod polling
+# alive; when the tab closes, the stream ends and the switch pauses.
+STREAM_TICK_SECONDS = 1        # how often to check the fingerprint
+STREAM_HEARTBEAT_TICKS = 15    # stamp presence + send a keepalive comment every N ticks
+
+
+def _changed_channels(prev, cur):
+    """Channel names whose fingerprint changed between two snapshots. Pure and
+    I/O-free so it can be unit-tested; `prev is None` (the first tick) is never a
+    change."""
+    if prev is None:
+        return []
+    return [name for name in cur if cur.get(name) != prev.get(name)]
+
+
+@app.get("/api/stream/")
+async def stream(request: Request, once: bool = False):
+    """Server-Sent Events feed. Emits `hello` immediately (the client does one
+    full fetch on connect), then `changed` events carrying the list of channels
+    that moved. `once=true` returns just the hello and closes -- used by tests so
+    they never block on the live loop."""
+    async def gen():
+        yield "event: hello\ndata: {}\n\n"
+        if once:
+            return
+        prev = await run_in_threadpool(db.data_fingerprint)
+        await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
+        ticks = 0
+        while not await request.is_disconnected():
+            await asyncio.sleep(STREAM_TICK_SECONDS)
+            cur = await run_in_threadpool(db.data_fingerprint)
+            changed = _changed_channels(prev, cur)
+            if changed:
+                prev = cur
+                yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
+            ticks += 1
+            if ticks % STREAM_HEARTBEAT_TICKS == 0:
+                await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
+                yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/student_states/{student_id}/")
 def student_state_detail(student_id: str):
     """The heavy payload for a single student, the cohort fields plus the
@@ -175,6 +235,30 @@ class SwitchAckBody(BaseModel):
 def ack_switch(body: SwitchAckBody):
     """Dismiss one switch so it stops showing as new in the feed."""
     return {"acknowledged": db.ack_switch(body.id)}
+
+
+class OutboxBody(BaseModel):
+    op: str
+    payload: dict | None = None
+    error: str | None = None
+
+
+@app.post("/api/outbox/")
+def outbox_store(body: OutboxBody):
+    """Park a researcher input whose primary write failed its retries. The
+    dashboard sends the original request body verbatim so nothing typed or
+    clicked is ever lost -- the row can be replayed by hand later."""
+    db.record_outbox(body.op,
+                     json.dumps(body.payload) if body.payload is not None else None,
+                     body.error)
+    return {"stored": True}
+
+
+@app.get("/api/outbox/")
+def outbox_list():
+    """The parked failed inputs, newest first (inspection/replay)."""
+    rows = db.list_outbox()
+    return {"outbox": rows, "count": len(rows)}
 
 
 class TrackBody(BaseModel):

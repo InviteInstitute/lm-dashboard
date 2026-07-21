@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -31,6 +32,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Compress JSON responses over ~1KB (the states payload with its run arrays
+# shrinks ~5-10x) -- mostly felt over the remote tunnel. The SSE stream opts out
+# via an explicit Content-Encoding so events are never buffered by gzip.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Outermost middleware (added last = runs first): gate the whole origin with HTTP
 # Basic Auth when DASHBOARD_USER/PASSWORD are set for remote serving. No-op locally.
 app.add_middleware(BasicAuthMiddleware)
@@ -113,8 +118,8 @@ def student_states(students: str | None = None, classCode: str | None = None):
 # also is the viewer-presence signal: while a dashboard holds the stream we
 # stamp viewer_last_seen, so the daemon's dead-man's switch keeps prod polling
 # alive; when the tab closes, the stream ends and the switch pauses.
-STREAM_TICK_SECONDS = 1        # how often to check the fingerprint
-STREAM_HEARTBEAT_TICKS = 15    # stamp presence + send a keepalive comment every N ticks
+STREAM_TICK_SECONDS = 0.25     # how often to check for changes (data_version gate keeps this cheap)
+STREAM_HEARTBEAT_TICKS = 40    # stamp presence + send a keepalive comment every N ticks (~10s)
 
 
 def _changed_channels(prev, cur):
@@ -138,24 +143,39 @@ async def stream(request: Request, once: bool = False):
             return
         prev = await run_in_threadpool(db.data_fingerprint)
         await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
+        # O(1) change gate: PRAGMA data_version on a dedicated read-only
+        # connection bumps when ANY other connection commits, so quiet ticks
+        # cost one pragma read instead of the four fingerprint queries. This is
+        # what makes the 0.25s tick free.
+        probe = await run_in_threadpool(db.data_version_probe)
+        dv = await run_in_threadpool(db.data_version, probe)
         ticks = 0
-        while not await request.is_disconnected():
-            await asyncio.sleep(STREAM_TICK_SECONDS)
-            cur = await run_in_threadpool(db.data_fingerprint)
-            changed = _changed_channels(prev, cur)
-            if changed:
-                prev = cur
-                yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
-            ticks += 1
-            if ticks % STREAM_HEARTBEAT_TICKS == 0:
-                await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
-                yield ": keepalive\n\n"
+        try:
+            while not await request.is_disconnected():
+                await asyncio.sleep(STREAM_TICK_SECONDS)
+                dv_now = await run_in_threadpool(db.data_version, probe)
+                if dv_now != dv:
+                    dv = dv_now
+                    cur = await run_in_threadpool(db.data_fingerprint)
+                    changed = _changed_channels(prev, cur)
+                    if changed:
+                        prev = cur
+                        yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
+                ticks += 1
+                if ticks % STREAM_HEARTBEAT_TICKS == 0:
+                    await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
+                    yield ": keepalive\n\n"
+        finally:
+            probe.close()
 
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
-                 "X-Accel-Buffering": "no"},
+                 "X-Accel-Buffering": "no",
+                 # Pre-set encoding: GZipMiddleware skips responses that already
+                 # carry one, so events are never buffered inside a gzip window.
+                 "Content-Encoding": "identity"},
     )
 
 

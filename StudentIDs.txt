@@ -2,3 +2,6 @@ Armadillo1;Bear2;Cobra3;Dolphin4;Eagle5;Fox6;Gecko7;Horse8;Iguana9;Jackal10;Kang
 
 Maryville
 Bear2;Cobra3;Horse8;Jackal10;Lion12;Narwhal14;
+
+UNCC
+Armadillo1;Bear2;Cobra3;Dolphin4;Eagle5;Fox6;Gecko7;Horse8;Iguana9;Jackal10;Kangaroo11;

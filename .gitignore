@@ -48,3 +48,5 @@ frontend/coverage/
 .cloudflared.pid
 .cloudflared.log
 
+# Graphs
+.ua/

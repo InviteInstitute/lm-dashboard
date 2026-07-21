@@ -7,7 +7,7 @@
 // does writes straight through to the API; nothing is computed here, the daemon
 // already did the work.
 import React from 'react';
-import api from './api';
+import api, { API_URL } from './api';
 import {
     T, FONT, MONO, edColor, ED_ZERO, ED_SMALL, ED_BIG, EP,
     HATCH_AMBER, PAUSE_FILL, PAUSE_LEGEND,
@@ -60,6 +60,33 @@ function usePoll(fn, active) {
         const id = setInterval(fn, POLL_MS);
         return () => clearInterval(id);
     }, [fn, active]);
+}
+
+// Live updates over Server-Sent Events. While `active`, opens one stream to the
+// API and calls `onChanged(channels)` whenever the server reports a change (and
+// once on connect, with all channels, to seed the first fetch). Returns whether
+// the stream is currently connected; the caller gates its poll loops on the
+// negation, so polling is the automatic fallback -- when EventSource is missing
+// (jsdom under test) or the connection drops, the timers take over until the
+// browser reconnects. This is what lets one stream replace four poll loops
+// without ever risking a stale board.
+function useEventStream(onChanged, active) {
+    const [connected, setConnected] = React.useState(false);
+    React.useEffect(() => {
+        if (!active || typeof EventSource === 'undefined') return undefined;
+        const es = new EventSource(`${API_URL}/api/stream/`);
+        const ALL = ['states', 'roster', 'triggers', 'switches'];
+        es.addEventListener('hello', () => { setConnected(true); onChanged(ALL); });
+        es.addEventListener('changed', (e) => {
+            let channels = ALL;
+            try { channels = JSON.parse(e.data).channels || ALL; } catch { /* refetch all */ }
+            onChanged(channels);
+        });
+        es.onopen = () => setConnected(true);
+        es.onerror = () => setConnected(false);   // browser auto-reconnects; polls cover the gap
+        return () => { es.close(); setConnected(false); };
+    }, [active, onChanged]);
+    return connected;
 }
 
 // True while this browser tab is actually on screen, via the Page Visibility
@@ -340,22 +367,35 @@ const CohortDashboard = () => {
             setStates(m);
         } catch { /* keep */ }
     }, []);
-    usePoll(fetchStates, visible);
 
     const fetchRoster = React.useCallback(async () => {
         try { setRoster((await api.get('/api/tracked/')).data.tracked || []); } catch { /* keep */ }
     }, []);
-    usePoll(fetchRoster, visible);
 
     const fetchTriggers = React.useCallback(async () => {
         try { setTriggers((await api.get('/api/triggers/')).data.triggers || []); } catch { /* keep */ }
     }, []);
-    usePoll(fetchTriggers, visible);
 
     const fetchSwitches = React.useCallback(async () => {
         try { setSwitches((await api.get('/api/switches/')).data.switches || []); } catch { /* keep */ }
     }, []);
-    usePoll(fetchSwitches, visible);
+
+    // Refetch only the channels the stream says moved. The map keeps SSE-driven
+    // refetches and the fallback poll loops using the exact same fetch callbacks.
+    const onStreamChanged = React.useCallback((channels) => {
+        if (channels.includes('states')) fetchStates();
+        if (channels.includes('roster')) fetchRoster();
+        if (channels.includes('triggers')) fetchTriggers();
+        if (channels.includes('switches')) fetchSwitches();
+    }, [fetchStates, fetchRoster, fetchTriggers, fetchSwitches]);
+    // One stream when it's available; otherwise the four timers below. Gating the
+    // polls on `!streaming` means exactly one mechanism is live at a time, and a
+    // dropped stream silently falls back to polling until it reconnects.
+    const streaming = useEventStream(onStreamChanged, visible);
+    usePoll(fetchStates, visible && !streaming);
+    usePoll(fetchRoster, visible && !streaming);
+    usePoll(fetchTriggers, visible && !streaming);
+    usePoll(fetchSwitches, visible && !streaming);
 
     // Most-recent casing for a handle, looked up from the materialized state
     // (the feed itself carries the canonical id, used as the fallback).
@@ -377,10 +417,63 @@ const CohortDashboard = () => {
         add.forEach(a => setTimeout(() => setToasts(t => t.filter(x => x.id !== a.id)), 6000));
     }, [switches]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+    // ------------------------------------------------------------------
+    // Resilient writes. Every researcher input goes through submitWrite: try,
+    // retry twice with a short backoff, and only then fail LOUD -- park the
+    // original payload in the server-side outbox (or localStorage if the API
+    // itself is unreachable) and raise a sticky red toast naming the action.
+    // The error is rethrown so each caller's catch can still reconcile its
+    // optimistic UI against server truth. Nothing typed or clicked is ever
+    // silently dropped.
+    const WRITE_RETRIES = 2, WRITE_RETRY_MS = 250, LS_OUTBOX = 'lmdOutbox';
+    const errSeq = React.useRef(0);
+    const failLoud = React.useCallback((op, payload, err) => {
+        const error = err?.message || 'request failed';
+        api.post('/api/outbox/', { op, payload, error }).catch(() => {
+            // API unreachable: last-resort parking in the browser, flushed to
+            // the server-side outbox when the stream reconnects.
+            try {
+                const q = JSON.parse(window.localStorage.getItem(LS_OUTBOX) || '[]');
+                q.push({ op, payload, error, ts: Date.now() });
+                window.localStorage.setItem(LS_OUTBOX, JSON.stringify(q));
+            } catch { /* storage blocked: the toast below still fires */ }
+        });
+        setToasts(t => [...t, { id: `err-${++errSeq.current}`, error: true,
+                                title: 'NOT saved', sub: op }]);
+    }, []);
+    const submitWrite = async (op, payload, post) => {
+        for (let attempt = 0; ; attempt++) {
+            try { return await post(); }
+            catch (e) {
+                if (attempt >= WRITE_RETRIES) { failLoud(op, payload, e); throw e; }
+                await new Promise(r => setTimeout(r, WRITE_RETRY_MS * (attempt + 1)));
+            }
+        }
+    };
+    // Drain browser-parked failures into the server outbox once it's reachable
+    // again (stream connect is the "API is back" signal).
+    React.useEffect(() => {
+        if (!streaming) return;
+        let q = [];
+        try { q = JSON.parse(window.localStorage.getItem(LS_OUTBOX) || '[]'); } catch { return; }
+        if (!q.length) return;
+        window.localStorage.removeItem(LS_OUTBOX);
+        q.forEach(item => api.post('/api/outbox/', item).catch(() => {
+            // Still failing: put it back rather than lose it.
+            try {
+                const back = JSON.parse(window.localStorage.getItem(LS_OUTBOX) || '[]');
+                back.push(item);
+                window.localStorage.setItem(LS_OUTBOX, JSON.stringify(back));
+            } catch { /* keep */ }
+        }));
+    }, [streaming]);   // eslint-disable-line react-hooks/exhaustive-deps
+
     const ackSwitch = async (id) => {
         setSwitches(ss => ss.filter(s => s.id !== id));
         setToasts(t => t.filter(x => x.id !== id));
-        try { await api.post('/api/switches/ack/', { id }); } catch { fetchSwitches(); }
+        try { await submitWrite(`dismiss switch #${id}`, { id },
+                                () => api.post('/api/switches/ack/', { id })); }
+        catch { fetchSwitches(); }
     };
 
     // Pause state and trigger-config are values ONLY the user changes here (the
@@ -397,8 +490,11 @@ const CohortDashboard = () => {
     const togglePolling = async () => {
         const next = !pollingOn;
         setPollingOn(next);   // optimistic; the toggle owns this value
-        try { setPollingOn((await api.post('/api/polling/', { enabled: next })).data.enabled); }
-        catch { fetchPolling(); }
+        try {
+            const r = await submitWrite(`polling ${next ? 'on' : 'off'}`, { enabled: next },
+                                        () => api.post('/api/polling/', { enabled: next }));
+            setPollingOn(r.data.enabled);
+        } catch { fetchPolling(); }
     };
 
     const fetchTriggerCfg = React.useCallback(async () => {
@@ -408,27 +504,35 @@ const CohortDashboard = () => {
     const toggleTrigger = async (type) => {
         const next = !triggerCfg[type];
         setTriggerCfg(c => ({ ...c, [type]: next }));   // optimistic
-        try { setTriggerCfg((await api.post('/api/triggers/config/', { trigger_type: type, enabled: next })).data.enabled); }
-        catch { fetchTriggerCfg(); }
+        const body = { trigger_type: type, enabled: next };
+        try {
+            const r = await submitWrite(`trigger ${type} ${next ? 'on' : 'off'}`, body,
+                                        () => api.post('/api/triggers/config/', body));
+            setTriggerCfg(r.data.enabled);
+        } catch { fetchTriggerCfg(); }
     };
     // Present / picked toggles for the interview workflow. Update the UI first,
     // then persist; because both live on tracked_student they show up in the CSV.
     const setPresence = async (sid, present) => {
         setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, present } : r));
-        try { await api.post('/api/presence/', { studentID: sid, present }); } catch { fetchRoster(); }
+        const body = { studentID: sid, present };
+        try { await submitWrite(`${present ? 'present' : 'absent'}: ${sid}`, body,
+                                () => api.post('/api/presence/', body)); }
+        catch { fetchRoster(); }
     };
     // source is 'roster' (student card) or 'intervention' (alert card); the
     // intervention path also passes the trigger it was clicked from so the pick
     // log records which alert prompted it. Roster picks carry no trigger.
     const setPicked = async (sid, picked, source = 'roster', trigger = null) => {
         setRoster(rs => rs.map(r => r.studentID === sid ? { ...r, picked } : r));
-        try {
-            await api.post('/api/picked/', {
-                studentID: sid, picked, source,
-                trigger_id: trigger?.id ?? null,
-                trigger_type: trigger?.trigger_type ?? null,
-            });
-        } catch { fetchRoster(); }
+        const body = {
+            studentID: sid, picked, source,
+            trigger_id: trigger?.id ?? null,
+            trigger_type: trigger?.trigger_type ?? null,
+        };
+        try { await submitWrite(`${picked ? 'pick' : 'unpick'}: ${sid}`, body,
+                                () => api.post('/api/picked/', body)); }
+        catch { fetchRoster(); }
     };
     // Notes for whichever learner is currently open; reloaded when the modal
     // opens and after a note is added.
@@ -460,7 +564,10 @@ const CohortDashboard = () => {
         if (!sid || !t) return;
         const body = { studentID: sid, text: t };
         if (trigger) { body.trigger_id = trigger.id; body.trigger_type = trigger.trigger_type; }
-        try { await api.post('/api/notes/', body); } catch { /* ignore */ }
+        // A typed note is the most irreplaceable input on the board; it either
+        // lands or gets parked in the outbox with a red toast -- never dropped.
+        try { await submitWrite(`note on ${sid}`, body, () => api.post('/api/notes/', body)); }
+        catch { /* parked in the outbox; the toast already said so */ }
         if (sid === selected) fetchNotes(sid);
     };
 
@@ -468,7 +575,9 @@ const CohortDashboard = () => {
         // Drop the row right away so the click feels instant, then persist.
         setTriggers(ts => ts.filter(t => t.id !== id));
         if (noteOpen === id) { setNoteOpen(null); setNoteText(''); }
-        try { await api.post('/api/triggers/ack/', { id }); } catch { fetchTriggers(); }
+        try { await submitWrite(`dismiss alert #${id}`, { id },
+                                () => api.post('/api/triggers/ack/', { id })); }
+        catch { fetchTriggers(); }
     };
 
     // Track one or many: split on ';', strip ALL whitespace from each id (ids
@@ -480,11 +589,16 @@ const CohortDashboard = () => {
         )];
         if (ids.length === 0) return;
         await Promise.all(ids.map(sid =>
-            api.post('/api/tracked/', { studentID: sid }).catch(() => {})));
+            submitWrite(`track: ${sid}`, { studentID: sid },
+                        () => api.post('/api/tracked/', { studentID: sid }))
+                .catch(() => {})));
         setQuery(''); fetchRoster();
     };
     const removeTracked = async (sid) => {
-        try { await api.post('/api/tracked/', { studentID: sid, remove: true }); } catch { /* */ }
+        const body = { studentID: sid, remove: true };
+        try { await submitWrite(`untrack: ${sid}`, body,
+                                () => api.post('/api/tracked/', body)); }
+        catch { fetchRoster(); }
         setRoster(r => r.filter(x => x.studentID !== sid));
         if (selected === sid) setSelected(null);
         fetchStates();
@@ -763,16 +877,26 @@ const CohortDashboard = () => {
             {toasts.length > 0 && (
                 <div style={S.toastWrap}>
                     {toasts.map(t => (
-                        <div key={t.id} style={S.toast}>
-                            <div style={S.toastIcon}>⇄</div>
+                        // Two flavors share the card: amber switch toasts
+                        // (auto-dismiss) and red failed-write toasts, which are
+                        // sticky -- an error that vanishes on its own isn't loud.
+                        <div key={t.id} style={t.error
+                                ? { ...S.toast, borderLeft: '3px solid #ef4444' } : S.toast}>
+                            <div style={t.error
+                                    ? { ...S.toastIcon, background: '#ef444420', color: '#ef4444' }
+                                    : S.toastIcon}>{t.error ? '!' : '⇄'}</div>
                             <div style={S.toastBody}>
-                                <span style={S.toastTitle}>{t.title}</span>
+                                <span style={t.error
+                                        ? { ...S.toastTitle, color: '#ef4444' } : S.toastTitle}>
+                                    {t.title}</span>
                                 <span style={S.toastSub}>
-                                    {t.kind === 'casing' ? 'casing changed' : 'new class'}
-                                    {'  '}
-                                    <span style={{ ...S.toastArrow, color: T.faint }}>{t.from}</span>
-                                    <span style={S.toastArrow}> → </span>
-                                    <span style={{ ...S.toastArrow, color: '#eab308' }}>{t.to}</span>
+                                    {t.error ? t.sub : (<>
+                                        {t.kind === 'casing' ? 'casing changed' : 'new class'}
+                                        {'  '}
+                                        <span style={{ ...S.toastArrow, color: T.faint }}>{t.from}</span>
+                                        <span style={S.toastArrow}> → </span>
+                                        <span style={{ ...S.toastArrow, color: '#eab308' }}>{t.to}</span>
+                                    </>)}
                                 </span>
                             </div>
                             <button style={S.toastClose} title="Dismiss"

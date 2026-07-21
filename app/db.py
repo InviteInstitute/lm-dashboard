@@ -262,6 +262,18 @@ CREATE TABLE IF NOT EXISTS switch_event (
     acknowledged BOOL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_switch_ts ON switch_event(ts);
+
+-- Failed researcher inputs, parked verbatim so they are never lost. The
+-- dashboard writes here (via /api/outbox/) only after a primary write has
+-- failed its retries; rows carry the raw payload so any input can be replayed
+-- by hand later. Deliberately NOT wiped by reset_all.
+CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    op VARCHAR(64) NOT NULL,           -- which action failed ('presence cobra3', ...)
+    payload TEXT,                      -- the original request body, as JSON
+    error TEXT,                        -- what the failure looked like client-side
+    created_at DATETIME NOT NULL
+);
 """
 
 
@@ -331,6 +343,33 @@ def get_meta(key):
     return rows[0]["value"] if rows else None
 
 
+def data_fingerprint():
+    """A cheap per-channel change signal for the SSE stream. Each value moves
+    whenever anything in that channel changes (a new event materialized, a
+    trigger fired/acked/resolved, a switch recorded/acked, a roster/presence/
+    picked edit), so the stream can push only the channels that actually moved
+    instead of the dashboard blind-polling all four. Reads only -- aggregate
+    scans over small, indexed tables -- so it never contends with the daemon's
+    writes. Returns a dict of channel name -> opaque fingerprint string; callers
+    compare successive snapshots and never parse the value."""
+    def row(sql):
+        rows = _query(sql)
+        return dict(rows[0]) if rows else {}
+    s = row("SELECT COUNT(*) c, MAX(updated_at) m FROM student_state")
+    t = row("SELECT COUNT(*) c, MAX(id) m, COALESCE(SUM(acknowledged),0) a, "
+            "MAX(resolved_at) r FROM trigger_event")
+    w = row("SELECT COUNT(*) c, MAX(id) m, COALESCE(SUM(acknowledged),0) a "
+            "FROM switch_event")
+    k = row("SELECT COUNT(*) c, MAX(created_at) m, COALESCE(SUM(present),0) p, "
+            "COALESCE(SUM(picked),0) k FROM tracked_student")
+    return {
+        "states":   f"{s.get('c')}:{s.get('m')}",
+        "triggers": f"{t.get('c')}:{t.get('m')}:{t.get('a')}:{t.get('r')}",
+        "switches": f"{w.get('c')}:{w.get('m')}:{w.get('a')}",
+        "roster":   f"{k.get('c')}:{k.get('m')}:{k.get('p')}:{k.get('k')}",
+    }
+
+
 # In-process cache for the control flags. polling_enabled, reset_requested_at,
 # and disabled_triggers only change when a human clicks something, yet the
 # daemon would otherwise re-read them every tick. The 200ms TTL keeps a UI
@@ -395,7 +434,8 @@ def reset_all():
     """Clear the local mirror for a fresh session: raw events, derived state, the
     researcher notes, and the interview-pick state (the picked flags plus the
     pick/unpick history). Deliberately spared are the tracked roster itself, each
-    student's presence flag, the ingest cursor, and meta -- so the board keeps its
+    student's presence flag, the ingest cursor, meta, and the failed-write
+    outbox (parked inputs survive a reset) -- so the board keeps its
     students (and who's in the room) and rebuilds only from activity that arrives
     after the reset rather than re-pulling old events. The /api/reset/ endpoint
     writes a CSV backup (notes and pick history included) before calling this."""
@@ -684,6 +724,24 @@ def record_switch(student_id, kind, from_value, to_value):
         "VALUES (?, ?, ?, ?, ?)",
         (student_id, kind, from_value, to_value, dt_to_db(now())),
     )
+
+
+def record_outbox(op, payload, error):
+    """Park a researcher input whose primary write failed, verbatim, so it can
+    be replayed by hand later. `payload` is the original request body (already a
+    JSON string, or None)."""
+    _execute(
+        "INSERT INTO outbox (op, payload, error, created_at) VALUES (?, ?, ?, ?)",
+        (op, payload, error, dt_to_db(now())),
+    )
+
+
+def list_outbox(limit=200):
+    """Parked failed inputs, newest first."""
+    rows = _query(
+        "SELECT id, op, payload, error, created_at FROM outbox "
+        "ORDER BY id DESC LIMIT ?", (limit,))
+    return [dict(r) for r in rows]
 
 
 def list_switches(limit=100, unacked_only=False):

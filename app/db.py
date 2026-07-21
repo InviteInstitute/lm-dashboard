@@ -168,6 +168,22 @@ def write_txn():
     return _WriteTxn()
 
 
+def data_version_probe():
+    """A dedicated read-only connection for change detection. Its PRAGMA
+    data_version bumps whenever ANY other connection commits a write -- the
+    daemon's and the API's shared handle alike, since this connection never
+    writes. The SSE stream polls it as an O(1) 'did anything change at all?'
+    gate so quiet ticks skip the per-channel fingerprint queries entirely.
+    Caller owns closing it."""
+    return sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True,
+                           timeout=5.0, check_same_thread=False)
+
+
+def data_version(con):
+    """The current PRAGMA data_version of a probe connection (see above)."""
+    return con.execute("PRAGMA data_version").fetchone()[0]
+
+
 # --------------------------------------------------------------------------
 # schema. Every statement is CREATE ... IF NOT EXISTS, so this is safe to run
 # on every startup: it builds the tables on a fresh DB and is a no-op on one
@@ -190,6 +206,10 @@ CREATE TABLE IF NOT EXISTS vex_log (
     source_event_id BIGINT UNIQUE
 );
 CREATE INDEX IF NOT EXISTS ix_vex_student ON vex_log(studentID, id);
+-- The case-insensitive fold queries vex_log by lower(studentID) (student_tail,
+-- tracked_remove); a plain-column index can't serve an expression filter, so
+-- without this every rehydrate is a full scan that grows with the log.
+CREATE INDEX IF NOT EXISTS ix_vex_student_lower ON vex_log(lower(studentID));
 CREATE INDEX IF NOT EXISTS ix_vex_event_time ON vex_log(event_time);
 CREATE TABLE IF NOT EXISTS ingest_cursor (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

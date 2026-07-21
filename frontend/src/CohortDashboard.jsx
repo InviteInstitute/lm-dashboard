@@ -544,21 +544,22 @@ const CohortDashboard = () => {
     React.useEffect(() => { fetchNotes(selected); }, [selected, fetchNotes]);
 
     // The heavy payload (playground prompt included) for just the open student,
-    // fetched on open and refreshed on the poll timer so the cohort list itself
-    // stays light. `alive` discards a late response that arrives after you've
-    // already switched to a different student.
+    // fetched on open and re-fetched whenever the cohort states refresh -- so
+    // under SSE it's event-driven (states only refreshes when something actually
+    // changed) instead of re-shipping the largest payload on a blind timer.
+    // Under the polling fallback, states updates each tick, which degrades this
+    // to the old POLL_MS cadence automatically. `alive` discards a late response
+    // that arrives after you've already switched to a different student.
     React.useEffect(() => {
         if (!selected) { setDetailFull(null); return; }
         if (!visible) return;   // tab hidden: keep the open detail, just stop refreshing it
         let alive = true;
-        const load = async () => {
+        (async () => {
             try { const d = (await api.get(`/api/student_states/${encodeURIComponent(selected)}/`)).data; if (alive) setDetailFull(d); }
             catch { if (alive) setDetailFull(null); }
-        };
-        load();
-        const id = setInterval(load, POLL_MS);
-        return () => { alive = false; clearInterval(id); };
-    }, [selected, visible]);
+        })();
+        return () => { alive = false; };
+    }, [selected, visible, states]);
     const addNote = async (sid, text, trigger) => {
         const t = (text || '').trim();
         if (!sid || !t) return;

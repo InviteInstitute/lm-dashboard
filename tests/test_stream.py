@@ -39,6 +39,19 @@ def test_fingerprint_moves_when_presence_toggles():
     assert after["roster"] != before["roster"]
 
 
+def test_data_version_bumps_on_any_committed_write():
+    """The O(1) SSE change gate: a read-only probe's data_version must move when
+    another connection commits, and hold steady when nothing writes."""
+    probe = db.data_version_probe()
+    try:
+        v0 = db.data_version(probe)
+        assert db.data_version(probe) == v0        # no write -> unchanged
+        db.tracked_add("cobra3")                   # commit on the shared handle
+        assert db.data_version(probe) != v0        # probe sees it
+    finally:
+        probe.close()
+
+
 def test_stream_endpoint_opens_with_hello(client):
     r = client.get("/api/stream/?once=1")
     assert r.status_code == 200

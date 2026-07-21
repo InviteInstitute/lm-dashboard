@@ -229,7 +229,11 @@ const Detail = ({ s, sid, status }) => {
                 <span style={{ background: `${cur.c}1f`, color: cur.c, border: `1px solid ${cur.c}55`, borderRadius: 999, padding: '3px 12px', fontSize: 12.5, fontWeight: 700 }}>{cur.label}</span>
                 <span style={{ marginLeft: 'auto', color: T.sub, fontSize: 12.5 }}>runs <b style={{ color: T.ink }}>{s.run_count}</b> · events <b style={{ color: T.ink }}>{s.event_count}</b></span>
             </div>
-            <div style={lbl}>Playground</div>
+            <div style={lbl}>Program</div>
+            {s.block && s.block.readable
+                ? <pre style={pre}>{s.block.readable}</pre>
+                : <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No program yet</div>}
+            <div style={{ ...lbl, marginTop: 22 }}>Playground</div>
             {s.block && s.block.llm_prompt
                 ? <pre style={pre}>{s.block.llm_prompt}</pre>
                 : <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No playground yet due to no runs</div>}

@@ -184,6 +184,18 @@ def data_version(con):
     return con.execute("PRAGMA data_version").fetchone()[0]
 
 
+def latest_project(sid):
+    """The most-recent non-empty project snapshot for a student (the raw project
+    JSON string), or None. The detail view renders it into a readable program.
+    Case-insensitive via the lower(studentID) index; newest by event time."""
+    rows = _query(
+        "SELECT project FROM vex_log WHERE lower(studentID) = ? "
+        "AND project IS NOT NULL AND project != '' "
+        "ORDER BY COALESCE(event_time, '') DESC, id DESC LIMIT 1",
+        (canon_id(sid),))
+    return rows[0]["project"] if rows else None
+
+
 # --------------------------------------------------------------------------
 # schema. Every statement is CREATE ... IF NOT EXISTS, so this is safe to run
 # on every startup: it builds the tables on a fresh DB and is a no-op on one

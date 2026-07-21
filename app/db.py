@@ -306,6 +306,62 @@ CREATE TABLE IF NOT EXISTS outbox (
     error TEXT,                        -- what the failure looked like client-side
     created_at DATETIME NOT NULL
 );
+
+-- Per-channel change counters for the SSE stream. Each row's rev is bumped by
+-- the triggers below whenever its source table changes, so data_fingerprint()
+-- reads four fixed rows (O(1)) instead of scanning the tables (O(rows)). The
+-- bump is one PK update inside the write's own transaction; a bulk delete
+-- (reset) fires it per row, but reset is already O(rows) so the class is
+-- unchanged. Triggers live in the schema, so the daemon's writes fire them too.
+CREATE TABLE IF NOT EXISTS channel_rev (
+    channel TEXT PRIMARY KEY,
+    rev INTEGER NOT NULL DEFAULT 0
+);
+-- The triggers upsert (not plain UPDATE) so a bump works even if the row is
+-- absent -- e.g. the test harness truncates every table between tests. This
+-- makes channel_rev self-healing; the seed below just gives a defined start.
+INSERT OR IGNORE INTO channel_rev (channel, rev) VALUES
+    ('states', 0), ('triggers', 0), ('switches', 0), ('roster', 0);
+
+CREATE TRIGGER IF NOT EXISTS trg_rev_states_i AFTER INSERT ON student_state BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('states', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_states_u AFTER UPDATE ON student_state BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('states', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_states_d AFTER DELETE ON student_state BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('states', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+
+CREATE TRIGGER IF NOT EXISTS trg_rev_trig_i AFTER INSERT ON trigger_event BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('triggers', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_trig_u AFTER UPDATE ON trigger_event BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('triggers', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_trig_d AFTER DELETE ON trigger_event BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('triggers', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+
+CREATE TRIGGER IF NOT EXISTS trg_rev_switch_i AFTER INSERT ON switch_event BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('switches', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_switch_u AFTER UPDATE ON switch_event BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('switches', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_switch_d AFTER DELETE ON switch_event BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('switches', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+
+CREATE TRIGGER IF NOT EXISTS trg_rev_roster_i AFTER INSERT ON tracked_student BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('roster', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_roster_u AFTER UPDATE ON tracked_student BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('roster', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
+CREATE TRIGGER IF NOT EXISTS trg_rev_roster_d AFTER DELETE ON tracked_student BEGIN
+    INSERT INTO channel_rev (channel, rev) VALUES ('roster', 1)
+    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
 """
 
 
@@ -376,30 +432,14 @@ def get_meta(key):
 
 
 def data_fingerprint():
-    """A cheap per-channel change signal for the SSE stream. Each value moves
-    whenever anything in that channel changes (a new event materialized, a
-    trigger fired/acked/resolved, a switch recorded/acked, a roster/presence/
-    picked edit), so the stream can push only the channels that actually moved
-    instead of the dashboard blind-polling all four. Reads only -- aggregate
-    scans over small, indexed tables -- so it never contends with the daemon's
-    writes. Returns a dict of channel name -> opaque fingerprint string; callers
-    compare successive snapshots and never parse the value."""
-    def row(sql):
-        rows = _query(sql)
-        return dict(rows[0]) if rows else {}
-    s = row("SELECT COUNT(*) c, MAX(updated_at) m FROM student_state")
-    t = row("SELECT COUNT(*) c, MAX(id) m, COALESCE(SUM(acknowledged),0) a, "
-            "MAX(resolved_at) r FROM trigger_event")
-    w = row("SELECT COUNT(*) c, MAX(id) m, COALESCE(SUM(acknowledged),0) a "
-            "FROM switch_event")
-    k = row("SELECT COUNT(*) c, MAX(created_at) m, COALESCE(SUM(present),0) p, "
-            "COALESCE(SUM(picked),0) k FROM tracked_student")
-    return {
-        "states":   f"{s.get('c')}:{s.get('m')}",
-        "triggers": f"{t.get('c')}:{t.get('m')}:{t.get('a')}:{t.get('r')}",
-        "switches": f"{w.get('c')}:{w.get('m')}:{w.get('a')}",
-        "roster":   f"{k.get('c')}:{k.get('m')}:{k.get('p')}:{k.get('k')}",
-    }
+    """A per-channel change signal for the SSE stream: a dict of channel name ->
+    revision. Each rev is maintained by the channel_rev triggers, bumped once per
+    write to the channel's source table, so this is an O(1) read of four fixed
+    rows regardless of how large those tables grow -- not the O(rows) aggregate
+    scan it used to be. Callers compare successive snapshots and never parse the
+    value. Any of the four channels missing (fresh DB mid-migration) reads as 0."""
+    revs = {r["channel"]: r["rev"] for r in _query("SELECT channel, rev FROM channel_rev")}
+    return {c: str(revs.get(c, 0)) for c in ("states", "triggers", "switches", "roster")}
 
 
 # In-process cache for the control flags. polling_enabled, reset_requested_at,

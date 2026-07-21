@@ -220,3 +220,28 @@ def test_session_cutoff_hides_pre_session_events_on_rehydrate():
     w = workers.get_worker("s1")
     assert len(w.events) == 1            # only the post-cutoff event replayed
     assert w.last_event_id == 2
+
+
+def test_out_of_order_project_snapshot_does_not_regress():
+    """With the case-insensitive fold, two devices (skewed clocks) feed one
+    worker. A late-arriving OLDER snapshot must not overwrite newer code; the
+    playground view is monotonic in event-time. Missing timestamps still accept
+    (can't compare a clock that isn't there)."""
+    from datetime import timedelta
+
+    def _ev(project, when):
+        return {"studentID": "cobra3", "classCode": "FPFVDH", "eventType": "blockMoved",
+                "raw_message": "{}", "project": project, "event_time": when}
+
+    now = db.now()
+    w = workers.StudentWorker("cobra3")
+    w.ingest(_ev('{"newer": true}', now))
+    w.ingest(_ev('{"older": true}', now - timedelta(minutes=4)))   # skewed device, late arrival
+    assert w.latest_project == '{"newer": true}'
+    assert w.latest_project_ts == now
+
+    w.ingest(_ev('{"newest": true}', now + timedelta(seconds=1)))  # genuinely newer still lands
+    assert w.latest_project == '{"newest": true}'
+
+    w.ingest(_ev('{"unstamped": true}', None))                     # no clock -> accept as before
+    assert w.latest_project == '{"unstamped": true}'

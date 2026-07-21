@@ -52,6 +52,20 @@ def test_data_version_bumps_on_any_committed_write():
         probe.close()
 
 
+def test_fingerprint_counters_isolate_per_channel():
+    """The O(1) counter design: each source table's write bumps only its own
+    channel_rev, so an unrelated channel never moves."""
+    base = db.data_fingerprint()
+    db.tracked_add("cobra3")                              # roster write
+    a = db.data_fingerprint()
+    assert a["roster"] != base["roster"]
+    assert a["switches"] == base["switches"] and a["states"] == base["states"]
+    db.record_switch("cobra3", "class", "A", "B")        # switch write
+    b = db.data_fingerprint()
+    assert b["switches"] != a["switches"]
+    assert b["roster"] == a["roster"]                     # a switch doesn't move roster
+
+
 def test_stream_endpoint_opens_with_hello(client):
     r = client.get("/api/stream/?once=1")
     assert r.status_code == 200

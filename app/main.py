@@ -21,6 +21,8 @@ from pydantic import BaseModel
 
 from app import config, db
 from app.auth import BasicAuthMiddleware
+from app.runs.ast_builder import extract_workspace_xml
+from app.runs.humanize import humanize_text
 from app.constants import (
     TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
 )
@@ -187,7 +189,14 @@ def student_state_detail(student_id: str):
     rows = db.list_student_states([student_id])
     if not rows:
         raise HTTPException(status_code=404, detail="no state for that student")
-    return _shape_state(rows[0], heavy=True)
+    payload = _shape_state(rows[0], heavy=True)
+    # Readable program listing (feature #12): the student's latest blocks with
+    # their parameters spelled out, incl. the numbers the edit-distance AST drops.
+    # Best-effort and isolated -- a parse miss just yields "".
+    proj = db.latest_project(student_id)
+    payload["block"]["readable"] = (
+        humanize_text(extract_workspace_xml({"project": proj})) if proj else "")
+    return payload
 
 
 @app.get("/api/triggers/")

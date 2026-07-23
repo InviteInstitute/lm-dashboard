@@ -205,11 +205,20 @@ def triggers():
     last TRIGGER_RECENT_SECONDS, newest first, unacknowledged only."""
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
+    feed = db.triggers_feed(cutoff)
+    # Each alert also carries the student's PREVIOUS trigger (what and when), so
+    # the card can say "last: Wheel-spinning · 10:24". One history fetch per
+    # distinct student in the feed; the feed is small, so this stays cheap.
+    history = {sid: db.trigger_history(sid) for sid in {t["studentID"] for t in feed}}
     items, counts = [], {}
-    for t in db.triggers_feed(cutoff):
+    for t in feed:
         active = t["resolved_at"] is None
         d = t["detail"] or {}
         started = t["started_at"]
+        prev = next((h for h in history[t["studentID"]]
+                     if h["id"] != t["id"] and h["started_at"] and started
+                     and h["started_at"] <= started), None)
+        pd = (prev or {}).get("detail") or {}
         items.append({
             "id": t["id"], "studentID": t["studentID"], "trigger_type": t["trigger_type"],
             "label": d.get("label", t["trigger_type"]), "value": d.get("value"),
@@ -217,12 +226,38 @@ def triggers():
             "resolved_at": _iso(t["resolved_at"]),
             "active": active,
             "age_seconds": (now - started).total_seconds() if started else None,
+            "prev": {
+                "trigger_type": prev["trigger_type"],
+                "label": pd.get("label", prev["trigger_type"]),
+                "at": _iso(prev["started_at"]),
+            } if prev else None,
         })
         if active:
             counts[t["trigger_type"]] = counts.get(t["trigger_type"], 0) + 1
     return {"triggers": items,
             "active_count": sum(1 for i in items if i["active"]),
             "counts": counts}
+
+
+@app.get("/api/triggers/history/")
+def trigger_history(studentID: str):
+    """One student's full trigger history (since the last reset), newest first --
+    open, resolved, and dismissed alike. The detail modal renders this as the
+    trigger-history grid."""
+    if not studentID:
+        raise HTTPException(status_code=400, detail="provide studentID")
+    rows = []
+    for t in db.trigger_history(studentID):
+        d = t["detail"] or {}
+        rows.append({
+            "id": t["id"], "trigger_type": t["trigger_type"],
+            "label": d.get("label", t["trigger_type"]), "value": d.get("value"),
+            "started_at": _iso(t["started_at"]),
+            "resolved_at": _iso(t["resolved_at"]),
+            "status": ("dismissed" if t["acknowledged"]
+                       else "active" if t["resolved_at"] is None else "resolved"),
+        })
+    return {"history": rows, "count": len(rows)}
 
 
 class AckBody(BaseModel):

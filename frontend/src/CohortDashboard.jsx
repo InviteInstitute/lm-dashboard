@@ -35,6 +35,12 @@ export function fmtDur(s) {
     if (s < 3600) return `${(s / 60).toFixed(1)}m`;
     return `${(s / 3600).toFixed(1)}h`;
 }
+// Wall-clock time for "at what time did that fire" readouts (alert prev-line,
+// trigger-history grid). Locale-aware, e.g. "10:24 AM".
+export function clockTime(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
 // Save a Blob to the user's computer as `filename`. A browser can't write to
 // disk directly, so the trick is to point a temporary <a download> at an
 // in-memory object URL for the blob, click it, then release the URL.
@@ -219,7 +225,7 @@ const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 // ---------------- detail (inside modal) ----------------
 // The body of the drill-down modal for one student: header + state badge, the
 // playground prompt, and full-size episode and strategy timelines.
-const Detail = ({ s, sid, status }) => {
+const Detail = ({ s, sid, status, history = [] }) => {
     if (!s) return <div style={{ color: T.sub, padding: 30 }}>No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>.</div>;
     const cur = status || STATUS_OK;
     return (
@@ -241,6 +247,31 @@ const Detail = ({ s, sid, status }) => {
             <EpisodeTrack data={s.episodes} />
             <div style={{ ...lbl, marginTop: 22 }}>Runs · edit distance per run</div>
             <RunTrack data={s.runs} />
+            <div style={{ ...lbl, marginTop: 22 }}>Trigger history</div>
+            {history.length === 0
+                ? <div style={{ color: T.sub, fontSize: 13 }}>No triggers yet this session</div>
+                : (
+                <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'auto auto 1fr auto',
+                                  gap: '5px 16px', fontSize: 12.5, fontFamily: MONO,
+                                  alignItems: 'center' }}>
+                        {['Time', 'Trigger', 'Value', 'Status'].map(h => (
+                            <span key={h} style={{ color: T.faint, fontSize: 10.5,
+                                                   textTransform: 'uppercase', letterSpacing: 0.6 }}>{h}</span>
+                        ))}
+                        {history.map(h => {
+                            const m = triggerMeta(h.trigger_type);
+                            return (
+                                <React.Fragment key={h.id}>
+                                    <span style={{ color: T.sub }} title={h.started_at}>{clockTime(h.started_at)}</span>
+                                    <span style={{ color: m.c, fontWeight: 700 }}>{m.icon} {h.label}</span>
+                                    <span style={{ color: T.ink }}>{h.value || '—'}</span>
+                                    <span style={{ color: h.status === 'active' ? m.c : T.faint }}>{h.status}</span>
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+                </div>)}
         </div>
     );
 };
@@ -547,6 +578,19 @@ const CohortDashboard = () => {
     }, []);
     React.useEffect(() => { fetchNotes(selected); }, [selected, fetchNotes]);
 
+    // Trigger history for the open student's grid. Depending on `triggers` too
+    // keeps the grid current while the modal is open: whenever the live feed
+    // refetches (a new alert, an ack), the history follows on the same beat.
+    const [history, setHistory] = React.useState([]);
+    React.useEffect(() => {
+        if (!selected) { setHistory([]); return undefined; }
+        let alive = true;
+        api.get('/api/triggers/history/', { params: { studentID: selected } })
+            .then(r => { if (alive) setHistory(r.data.history || []); })
+            .catch(() => { if (alive) setHistory([]); });
+        return () => { alive = false; };
+    }, [selected, triggers]);
+
     // The heavy payload (playground prompt included) for just the open student,
     // fetched on open and re-fetched whenever the cohort states refresh -- so
     // under SSE it's event-driven (states only refreshes when something actually
@@ -848,6 +892,12 @@ const CohortDashboard = () => {
                                             {t.age_seconds != null ? fmtDur(t.age_seconds) : '—'}
                                         </span>
                                     </div>
+                                    {t.prev && (
+                                        <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>
+                                            last: {triggerMeta(t.prev.trigger_type).icon} {t.prev.label}
+                                            {' · '}{clockTime(t.prev.at)} ({relTime(t.prev.at)} ago)
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })
@@ -915,7 +965,8 @@ const CohortDashboard = () => {
                 <div style={S.overlay} onClick={() => setSelected(null)}>
                     <div style={S.modal} onClick={e => e.stopPropagation()}>
                         <button style={S.modalX} onClick={() => setSelected(null)}>×</button>
-                        <Detail s={detail} sid={selected} status={statusMeta(statusBy[selected], !!detail)} />
+                        <Detail s={detail} sid={selected} status={statusMeta(statusBy[selected], !!detail)}
+                                history={history} />
                         <NotesPanel notes={notes} onAdd={text => addNote(selected, text, null)} />
                     </div>
                 </div>

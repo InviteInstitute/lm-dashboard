@@ -425,6 +425,53 @@ describe('CohortDashboard', () => {
       expect(api.post).toHaveBeenCalledWith('/api/switches/ack/', { id: 5 }));
   });
 
+  it('shows the previous trigger (what and when) on an alert card', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/triggers/') {
+        return Promise.resolve({ data: {
+          triggers: [{ id: 2, studentID: 'alice', trigger_type: 'inactive',
+            label: 'Inactive', value: 'idle 6m', active: true, age_seconds: 360,
+            prev: { trigger_type: 'wheel_spin', label: 'Wheel-spinning',
+                    at: '2026-07-21T10:24:00+00:00' } }],
+          active_count: 1, counts: { inactive: 1 } } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    expect(await screen.findByText(/last:.*Wheel-spinning/)).toBeInTheDocument();
+  });
+
+  it('renders the trigger-history grid in the detail modal', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/student_states/alice/') {
+        return Promise.resolve({ data: {
+          studentID: 'alice', run_count: 4, event_count: 12,
+          block: { llm_prompt: 'x', timestamp: null },
+          episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+        }});
+      }
+      if (url === '/api/notes/') return Promise.resolve({ data: { notes: [], count: 0 } });
+      if (url === '/api/triggers/history/') {
+        return Promise.resolve({ data: { history: [
+          { id: 9, trigger_type: 'wheel_spin', label: 'Wheel-spinning',
+            value: '6 identical reruns', started_at: '2026-07-21T10:24:00+00:00',
+            resolved_at: null, status: 'active' },
+          { id: 7, trigger_type: 'explorer', label: 'Explorer', value: 'changed 21',
+            started_at: '2026-07-21T10:01:00+00:00',
+            resolved_at: '2026-07-21T10:01:00+00:00', status: 'dismissed' },
+        ], count: 2 } });
+      }
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle('alice'));       // open the modal
+    expect(await screen.findByText('Trigger history')).toBeInTheDocument();
+    expect(await screen.findByText('6 identical reruns')).toBeInTheDocument();
+    expect(await screen.findByText('dismissed')).toBeInTheDocument();
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(
+      '/api/triggers/history/', { params: { studentID: 'alice' } }));
+  });
+
   it('a failed write retries, parks in the outbox, and toasts red', async () => {
     // Primary write always fails; the outbox endpoint still works.
     api.post.mockImplementation((url) => url === '/api/outbox/'

@@ -688,6 +688,19 @@ def triggers_feed(cutoff, limit=100):
     return [_trigger_row(r) for r in rows]
 
 
+def trigger_history(sid, limit=100):
+    """Every trigger ever fired for one student (since the last reset), newest
+    first -- open, resolved, and dismissed alike. The detail modal renders this
+    as the trigger-history grid, and the feed uses it to show each alert's
+    previous trigger. Case-insensitive via the canonical key."""
+    rows = _query(
+        "SELECT * FROM trigger_event WHERE studentID = ? "
+        "ORDER BY started_at DESC, id DESC LIMIT ?",
+        (canon_id(sid), limit),
+    )
+    return [_trigger_row(r) for r in rows]
+
+
 def ack_by_id(tid):
     return _execute("UPDATE trigger_event SET acknowledged = 1 WHERE id = ?", (tid,))
 

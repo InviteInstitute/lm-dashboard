@@ -4,20 +4,23 @@ description: Every endpoint the FastAPI read API exposes, with request and respo
 
 # API Reference
 
-The read API runs at `http://localhost:8000`. It serves the materialized state the
-daemon computes and performs only small writes (track, ack, notes, toggles, reset,
-export, polling).
+The read API runs at `http://localhost:8000` and also serves the built dashboard at
+`/`. It serves the materialized state the daemon computes and performs only small,
+per-board writes (track, ack, notes, toggles, reset, export, polling).
 
-By default the endpoints are open (local-only). When served remotely, an origin-wide
-HTTP Basic Auth gate is turned on (see [Configuration](../guides/configuration.md));
-it applies to every route below, including the static dashboard. In remote builds the
-API also serves the built React app at `/`, so the paths below live under `/api`.
+**Auth.** The whole origin is behind **HTTP Basic Auth** — the browser's native login
+dialog, verified against the researcher table (see
+[Configuration](../guides/configuration.md)). Every `/api` route below (and the static
+app) requires it; `/healthz` is the only open path. Each request also carries the
+browser's **board id** — the `X-Board-Id` header, or a `?board_id=` query param on the
+SSE stream — which scopes the response to that board's own roster, notes, and picks.
 
 ## Endpoints At A Glance
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET`  | `/healthz` | health check |
+| `GET`  | `/healthz` | health check (the only unauthenticated route) |
+| `GET`  | `/api/me/` | the authenticated researcher (id + username) |
 | `GET`  | `/api/stream/` | the live Server-Sent Events stream (pushes which channels changed) |
 | `GET`  | `/api/student_states/` | materialized per-student state (the dashboard's main read) |
 | `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt and readable program) |
@@ -36,8 +39,8 @@ API also serves the built React app at `/`, so the paths below live under `/api`
 | `POST` | `/api/notes/` | add a note |
 | `GET`  | `/api/outbox/` | failed researcher inputs parked for replay |
 | `POST` | `/api/outbox/` | park a failed researcher input |
-| `POST` | `/api/export/` | download a zip of CSV snapshots of all current data |
-| `POST` | `/api/reset/` | clear all local progress and flags + signal the daemon |
+| `POST` | `/api/export/` | download a zip of CSV snapshots of this board's data |
+| `POST` | `/api/reset/` | clear THIS board's researcher data (notes, picks, acks); the shared mirror stays |
 | `GET`  | `/api/polling/` | whether the daemon is currently polling production |
 | `POST` | `/api/polling/` | pause or resume the daemon's production polling |
 
@@ -87,9 +90,9 @@ The channels are `states`, `triggers`, `switches`, and `roster`, mapping to
 | `once` | bool | return just the `hello` and close (used by tests) |
 
 !!! note "The stream is the viewer heartbeat"
-    While a dashboard holds this connection open, the server stamps
-    `meta.viewer_last_seen` (on connect and every 15 seconds), which is what the
-    daemon's dead-man's switch reads. A hidden tab closes the stream; if no dashboard
+    While a dashboard holds this connection open, the server stamps this board's
+    `viewer_last_seen` (on connect and every ~10 seconds), which is what the daemon's
+    per-board dead-man's switch reads. A hidden tab closes the stream; if no dashboard
     is connected or polling, prod polling can wind down. See
     [Configuration](../guides/configuration.md#the-dead-mans-switch).
 
@@ -462,10 +465,11 @@ everything.
 
 ## POST /api/export/
 
-Download a **zip of CSV snapshots** of all current data (one CSV per table: raw
-events, materialized state, triggers, roster, notes). The zip is built entirely in
-memory and streamed to the browser, so nothing is written to disk and the database is
-never touched. This is **read-only** and safe to run any time.
+Download a **zip of CSV snapshots** of **this board's** data (one CSV per table: the
+board's roster/notes/picks, plus the shared events, materialized state, and triggers
+for the students it tracks). The zip is built entirely in memory and streamed to the
+browser, so nothing is written to disk and the database is never touched. This is
+**read-only** and safe to run any time.
 
 ```http title="Response"
 200 OK
@@ -479,14 +483,16 @@ Content-Disposition: attachment; filename="lm-dashboard_export_2026-06-14_103100
 
 ## POST /api/reset/
 
-Clear all local student data (logs, episodes, run/trigger state, flags) and the
-researcher notes, and tell the daemon to drop its in-memory workers. Students stay
-tracked; the board rebuilds from new activity.
+Clear **this board's** researcher state for a fresh session: its notes, the
+interview-pick state (picked toggles + pick history), and its trigger dismissals.
+Its roster and presence stay. Unlike the old single-board reset, the **shared**
+per-student mirror (`vex_log`, `student_state`, `trigger_event`) is left intact —
+other boards depend on it, and this board just re-derives its view from it.
 
 !!! info
-    A CSV backup (notes included) is written to `exports/reset_<timestamp>/` before
-    anything is cleared, so nothing is lost. The [outbox](#get-apioutbox) is
-    deliberately spared. Local only; production is untouched.
+    A CSV backup of this board (notes and picks included) is written to
+    `exports/reset_<timestamp>/` before anything is cleared, so nothing is lost. The
+    [outbox](#get-apioutbox) is deliberately spared. Production is untouched.
 
 ```json title="Response"
 {
@@ -500,7 +506,8 @@ tracked; the board rebuilds from new activity.
 
 ## GET /api/polling/
 
-Whether the daemon is currently polling production. Defaults to enabled.
+Whether the daemon is polling production for **this board**. New boards default to
+enabled.
 
 ```json title="Response"
 { "enabled": true }
@@ -523,12 +530,12 @@ without killing the process.
 { "enabled": true }
 ```
 
-Returns the new state, e.g. `{ "enabled": false }`. This is a local control flag
-(stored in `meta`); production is untouched.
+Returns the new state, e.g. `{ "enabled": false }`. This is a per-board control flag
+(stored in `workspace_setting`); production is untouched.
 
 !!! note
-    This is the *manual* pause. When the daemon runs with `--require-viewer` (remote
-    serving arms it automatically), there's also an *automatic* pause: prod polling
-    stops whenever no dashboard has polled recently. The two are independent, the
-    daemon polls only when it's manually enabled **and** a viewer is present. See
+    This is the *manual* pause. When the daemon runs with `--require-viewer` (the prod
+    deployment arms it), there's also an *automatic* pause: prod polling stops for a
+    board whenever its dashboard hasn't polled recently. The two are independent — the
+    daemon polls a board only when it's manually enabled **and** a viewer is present. See
     [Configuration](../guides/configuration.md#the-dead-mans-switch).

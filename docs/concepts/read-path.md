@@ -17,10 +17,10 @@ The API is a FastAPI app (`uvicorn app.main:app`), and it does very little:
 - It makes sure the schema exists on load, so a fresh clone works whether the API or
   the daemon starts first.
 
-Beyond reads, the API only does tiny writes: add or remove a tracked student, ack a
-trigger or an identity switch, add a note, toggle presence or picked, signal a reset,
-pause or resume polling, and park a failed input in the outbox. The
-[API reference](../reference/api.md) lists every endpoint.
+Beyond reads, the API only does tiny writes, all scoped to the caller's board: add or
+remove a tracked student, ack a trigger or an identity switch, add a note, toggle
+presence or picked, reset the board, pause or resume its polling, and park a failed
+input in the outbox. The [API reference](../reference/api.md) lists every endpoint.
 
 ## The Dashboard
 
@@ -70,8 +70,8 @@ cohort grid itself can stay light.
 ## Why The Dashboard Is Fast
 
 It's fast because it reads a precomputed materialized view: small, indexed rows. It
-still hits SQLite on every request, but what it's reading is cheap. The speed has
-nothing to do with the in-memory workers.
+still hits Postgres on every request, but what it's reading is cheap (and scoped to
+the board's roster). The speed has nothing to do with the in-memory workers.
 
 !!! note
     The in-memory workers speed up the daemon, not the dashboard. The dashboard is
@@ -103,7 +103,7 @@ dashboard:
 
 1.  **Optimistic.** The UI applies the change immediately.
 2.  **Retry.** The write is retried a couple of times with a short backoff, so a
-    transient SQLite lock resolves invisibly.
+    transient error resolves invisibly.
 3.  **Fail loud.** If it still can't land, the raw input is parked in the `outbox`
     table (via [`POST /api/outbox/`](../reference/api.md#post-apioutbox)), or in the
     browser's `localStorage` when the API itself is unreachable, and a sticky red

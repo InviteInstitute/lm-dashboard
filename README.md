@@ -11,8 +11,8 @@ only ever reads from production.
 flowchart LR
     students["Students coding<br/>in VEX"] --> prod[("Reflecks<br/>production server")]
     prod -. "polls, read-only" .-> daemon["Local daemon<br/>mirror and analyze"]
-    daemon --> sqlite[("Local SQLite<br/>mirror")]
-    sqlite --> api["Read API"]
+    daemon --> pg[("Postgres<br/>mirror")]
+    pg --> api["Read API"]
     api --> dash["Researcher<br/>dashboard"]
 ```
 
@@ -21,27 +21,39 @@ flowchart LR
 
 ## Quick Start
 
-You'll need Python 3.12+, Node 18+, and Docker (Postgres runs in a container).
+All you need is **Docker** (Desktop on Mac/Windows, or Docker + the compose plugin
+on Linux). The whole stack — Postgres, the API (which serves the built dashboard),
+and the ingestion daemon — runs from one compose file, the same on your laptop and
+in prod.
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env.mirror                         # set DATABASE_URL's password + PROD_USERNAME / PROD_PASSWORD
+# 1. app secrets
+cp .env.example .env.mirror        # fill in SESSION_SECRET + PROD_USERNAME / PROD_PASSWORD
 
-# One-time: start Postgres (latest) in a container backing DATABASE_URL.
-docker run -d --name lmdash-pg --restart unless-stopped \
-  -e POSTGRES_USER=lmdash -e POSTGRES_PASSWORD=<same as DATABASE_URL> -e POSTGRES_DB=lm_dashboard \
-  -p 127.0.0.1:5432:5432 -v lmdash_pgdata:/var/lib/postgresql postgres:latest
+# 2. database password for compose
+echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16))')" > .env
 
-./scripts/stop.sh && ./scripts/start.sh --prod      # API :8000, daemon (paused), dashboard :3000, docs :4000
+# 3. bring it all up
+docker compose up -d               # dev: Vite hot-reload on :3000, API on :8000
 ```
 
-The schema is created automatically on startup (`db.init_db()`); there is no
-separate migration step. `scripts/start.sh` starts the `lmdash-pg` container if
-it's stopped.
+- **Dev** (`docker compose up`) auto-loads `compose.override.yml`: the frontend runs
+  under Vite with hot-reload on **http://localhost:3000** (it proxies `/api` to the
+  API), and the API/daemon reload on code changes.
+- **Prod** (`docker compose -f compose.yml up -d`) skips the override: the API serves
+  the pre-built SPA on **:8000** (put a tunnel/reverse-proxy in front of it).
 
-Open http://localhost:3000, add a student ID, and click **Resume polling** to start
-pulling live data. Shut everything back down with `./scripts/stop.sh`.
+The schema is created automatically on API startup (`db.init_db()`), so there's no
+separate migration step. Sign in with `PROD_USERNAME` / `PROD_PASSWORD` (the interim
+shared login), or create real accounts with `scripts/create_researcher.py`. Tear it
+down with `docker compose down`.
+
+> Each browser gets its own isolated board (per-device isolation) even under a
+> shared login. Prefer stable per-person boards? Make individual accounts with
+> `scripts/create_researcher.py`.
+
+Open the dashboard, add a student ID, and its data begins flowing while the board is
+open.
 
 ## What You Get
 
@@ -56,16 +68,15 @@ pulling live data. Shut everything back down with `./scripts/stop.sh`.
 
 ## Serving It Remotely
 
-`./scripts/start.sh --remote` puts the whole origin behind an HTTP Basic Auth gate (the
-prod login) and exposes it through an ngrok tunnel, so collaborators can watch while the
-data stays on your machine. While served, a dead-man's switch pauses production polling
-whenever no dashboard is actually open. See the
-[Configuration guide](https://inviteinstitute.github.io/lm-dashboard/guides/configuration/)
-for details.
+Run the prod stack (`docker compose -f compose.yml up -d`) and put a tunnel or reverse
+proxy in front of the API on :8000. Every `/api` route requires a researcher **login**
+(a signed session cookie), so the data is never exposed ungated; the static dashboard
+loads openly and shows the login screen. While served, a dead-man's switch pauses a
+board's production polling whenever its dashboard isn't open.
 
 ## Under the Hood
 
-The daemon is the only process that writes; the API and dashboard just read a SQLite
-cache that can be rebuilt from the raw event log at any time. The full write-up,
+The daemon is the only process that writes; the API and dashboard just read a Postgres
+store that can be rebuilt from the raw event log at any time. The full write-up,
 covering configuration, the API, and the architecture, lives at
 <https://inviteinstitute.github.io/lm-dashboard/>.

@@ -1,0 +1,32 @@
+# Dev-only extras, auto-merged by `docker compose up` (prod runs
+# `docker compose -f compose.yml up` to skip this). It layers in:
+#   - the Vite dev server on :3000 with hot-reload (proxying /api to the api service)
+#   - uvicorn --reload + the daemon watching live source, via bind mounts
+# so both frontend and backend changes reload without a rebuild.
+services:
+  api:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./app:/app/app
+    environment:
+      PIPELINE_REQUIRE_VIEWER: "0"     # local: poll as soon as a board has students
+
+  daemon:
+    volumes:
+      - ./app:/app/app
+    environment:
+      PIPELINE_REQUIRE_VIEWER: "0"
+
+  web:
+    image: node:20-slim
+    working_dir: /web
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 3000"
+    environment:
+      VITE_PROXY_TARGET: http://api:8000     # Vite dev-proxy target on the compose network
+    volumes:
+      - ./frontend:/web
+      - /web/node_modules                    # keep the container's node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

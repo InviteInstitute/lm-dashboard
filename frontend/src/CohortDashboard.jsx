@@ -7,7 +7,7 @@
 // does writes straight through to the API; nothing is computed here, the daemon
 // already did the work.
 import React from 'react';
-import api, { API_URL } from './api';
+import api, { API_URL, boardId } from './api';
 import {
     T, FONT, MONO, edColor, ED_ZERO, ED_SMALL, ED_BIG, EP,
     HATCH_AMBER, PAUSE_FILL, PAUSE_LEGEND,
@@ -80,7 +80,9 @@ function useEventStream(onChanged, active) {
     const [connected, setConnected] = React.useState(false);
     React.useEffect(() => {
         if (!active || typeof EventSource === 'undefined') return undefined;
-        const es = new EventSource(`${API_URL}/api/stream/`);
+        // EventSource can't set headers, so the per-browser board id rides as a
+        // query param (the API accepts it there for the stream).
+        const es = new EventSource(`${API_URL}/api/stream/?board_id=${encodeURIComponent(boardId())}`);
         const ALL = ['states', 'roster', 'triggers', 'switches'];
         es.addEventListener('hello', () => { setConnected(true); onChanged(ALL); });
         es.addEventListener('changed', (e) => {

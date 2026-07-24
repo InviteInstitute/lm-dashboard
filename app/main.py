@@ -17,11 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
-from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 
 from app import config, db
-from app.auth import SessionAuthMiddleware, authenticate, ensure_bootstrap_researcher
+from app.auth import BasicAuthMiddleware, ensure_bootstrap_researcher
 from app.runs.ast_builder import extract_workspace_xml
 from app.runs.humanize import humanize_text
 from app.constants import (
@@ -30,21 +29,17 @@ from app.constants import (
 
 app = FastAPI(title="LM Dashboard")
 # Middleware runs outermost-first in reverse add order, so these are added
-# inner -> outer: GZip (compresses route responses) inside SessionAuthMiddleware
-# (the /api gate) inside SessionMiddleware (parses the signed session cookie)
-# inside CORS (handles preflight + credentialed cross-origin in dev). The result
-# order is CORS -> Session -> SessionAuth -> GZip -> routes.
+# inner -> outer: GZip inside BasicAuthMiddleware (the browser-native login gate
+# over the whole origin) inside CORS (handles preflight). Result order:
+# CORS -> BasicAuth -> GZip -> routes.
 #
 # The SSE stream opts out of gzip via an explicit Content-Encoding so events are
 # never buffered by a gzip window.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-app.add_middleware(SessionAuthMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET,
-                   same_site="lax", https_only=False)
+app.add_middleware(BasicAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
-    allow_credentials=True,          # session cookie rides cross-origin in dev
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -99,61 +94,31 @@ def health():
 
 
 # --------------------------------------------------------------------------
-# auth: researcher login/logout + the current-session probe the SPA calls on
-# load. Everything else under /api requires the session these establish (see
-# app/auth.SessionAuthMiddleware).
+# auth: the whole origin is behind HTTP Basic (see app/auth.BasicAuthMiddleware),
+# so there's no login/logout route -- the browser's native dialog handles it.
+# /api/me just reports who the browser is authenticated as (handy for the UI).
 # --------------------------------------------------------------------------
-class LoginBody(BaseModel):
-    username: str
-    password: str
-    board_id: str | None = None      # per-browser board key (from the SPA's localStorage)
-
-
-@app.post("/api/login/")
-async def login(body: LoginBody, request: Request):
-    researcher = await run_in_threadpool(authenticate, body.username, body.password)
-    if not researcher:
-        raise HTTPException(status_code=401, detail="invalid username or password")
-    request.session["researcher_id"] = researcher["id"]
-    request.session["username"] = researcher["username"]
-    # Per-browser isolation: bind this session to the workspace for the browser's
-    # persistent key (get-or-create), so everyone can share one login yet each
-    # browser gets its own board. Without a board_id (e.g. a named account), the
-    # workspace falls back to the researcher's own (see current_workspace_id).
-    if body.board_id:
-        request.session["workspace_id"] = await run_in_threadpool(
-            db.workspace_for_client_key, body.board_id)
-    else:
-        request.session.pop("workspace_id", None)
-    return {"id": researcher["id"], "username": researcher["username"]}
-
-
-@app.post("/api/logout/")
-async def logout(request: Request):
-    request.session.clear()
-    return {"ok": True}
-
-
 @app.get("/api/me/")
 async def me(request: Request):
-    # Reachable only past the auth gate, so a session always exists here; the SPA
-    # reads a 401 from this route (via the gate) as "show the login screen".
-    return {"id": request.session.get("researcher_id"),
-            "username": request.session.get("username")}
+    return {"id": getattr(request.state, "researcher_id", None),
+            "username": getattr(request.state, "username", None)}
 
 
 async def current_workspace_id(request: Request) -> int:
     """The workspace this request acts in, so every data route scopes to the
-    caller's own board. Prefers the per-browser workspace bound to the session at
-    login (board_id); otherwise falls back to the logged-in researcher's own
-    workspace (named accounts). Resolved once and cached on request.state."""
+    caller's own board. Prefers the per-browser board the SPA names via the
+    X-Board-Id header (or a ?board_id= query param on the SSE stream, which can't
+    send headers); otherwise falls back to the authenticated researcher's own
+    workspace (named accounts / non-browser clients). Cached on request.state."""
     cached = getattr(request.state, "workspace_id", None)
     if cached is not None:
         return cached
-    wsid = request.session.get("workspace_id")
-    if wsid is None:
-        rid = request.session.get("researcher_id")
-        ids = await run_in_threadpool(db.workspace_ids_for_researcher, rid)
+    board = request.headers.get("X-Board-Id") or request.query_params.get("board_id")
+    if board:
+        wsid = await run_in_threadpool(db.workspace_for_client_key, board)
+    else:
+        rid = getattr(request.state, "researcher_id", None)
+        ids = await run_in_threadpool(db.workspace_ids_for_researcher, rid) if rid else []
         wsid = ids[0] if ids else await run_in_threadpool(
             db.ensure_workspace_for_researcher, rid, str(rid))
     request.state.workspace_id = wsid

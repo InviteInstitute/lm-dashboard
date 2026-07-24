@@ -1,0 +1,18 @@
+# Keep the build context small and never bake secrets or build output into the image.
+.git/
+.venv/
+**/node_modules/
+frontend/dist/
+.devlogs/
+exports/
+site/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.sqlite3
+*.sqlite3-*
+.env
+.env.mirror
+.pytest_cache/
+htmlcov/
+.coverage

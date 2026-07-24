@@ -115,15 +115,8 @@ def test_rehydrate_reads_mixed_casing_and_lands_on_newest():
     assert w.display_id == "Cobra3"             # newest casing survives a restart
 
 
-def test_one_time_migration_folds_existing_rows():
-    # Simulate a pre-fold database: mixed-case roster + a note, migration flag absent.
-    ts = db.dt_to_db(db.now())
-    with db.write_txn() as con:
-        con.execute("DELETE FROM meta WHERE key='idcanon_v1'")
-        con.execute("INSERT INTO tracked_student (studentID, created_at) VALUES ('Cobra3', ?)", (ts,))
-        con.execute("INSERT INTO tracked_student (studentID, created_at) VALUES ('cobra3', ?)", (ts,))
-        con.execute("INSERT INTO note (studentID, ts, text, created_at) VALUES ('Cobra3', ?, 'n', ?)", (ts, ts))
-    db.init_db()                                # runs the guarded one-time fold
-    rows = db.tracked_list()
-    assert len(rows) == 1 and rows[0]["studentID"] == "cobra3"
-    assert db.list_notes("cobra3")[0]["studentID"] == "cobra3"
+# The one-time SQLite identity-fold migration that used to live in init_db is
+# gone: on Postgres the schema starts fresh (the old db.sqlite3 was discarded, not
+# migrated) and every studentID is written canonically via canon_id, so there is
+# no pre-existing mixed-case data to fold. Live case-insensitivity is covered by
+# the tests above.

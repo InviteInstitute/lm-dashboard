@@ -2,6 +2,11 @@
 fastapi
 uvicorn[standard]
 
+# data layer (shared by API + daemon): Postgres via psycopg 3 with a pooled
+# connection. Selected through DATABASE_URL; see app/config.py.
+psycopg[binary]>=3.2
+psycopg_pool>=3.2
+
 # ingestion daemon
 requests
 python-dotenv

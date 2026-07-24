@@ -56,6 +56,24 @@ def _parse_args(argv=None):
     return p.parse_args(argv)
 
 
+def _live_workspace_ids(states, require_viewer, now):
+    """Ids of the workspaces the daemon should poll prod for right now: polling
+    enabled and, when --require-viewer is on, a dashboard seen within
+    VIEWER_PRESENT_SECONDS. `states` is db.workspace_polling_states()."""
+    live = []
+    for ws in states:
+        if ws["polling_enabled"] == "0":
+            continue
+        if require_viewer:
+            seen = ws["viewer_last_seen"]
+            fresh = bool(seen) and (
+                now - datetime.fromisoformat(seen)).total_seconds() <= VIEWER_PRESENT_SECONDS
+            if not fresh:
+                continue
+        live.append(ws["id"])
+    return live
+
+
 def main(argv=None):
     logging.basicConfig(
         level=logging.INFO,
@@ -79,17 +97,13 @@ def main(argv=None):
     log.info("Pipeline up. interval=%ss limit=%s cursor.last_event_time=%s",
              interval, limit, cursor.last_event_time)
 
-    # Reset handshake: the API stamps meta['reset_requested_at'], and when we see
-    # that value change we drop the in-memory workers so their buffered events
-    # don't re-materialize the state that was just wiped. Prime last_reset with
-    # the current value so an already-set flag doesn't fire a spurious reset on
-    # boot.
-    last_reset = db.get_meta("reset_requested_at")
-    last_paused = None
-    last_no_viewer = None   # tracks dead-man's-switch transitions for logging
-    # Remembered across ticks only to log pause transitions; the disabled set is
-    # re-read each tick (it changes at human speed and is cheaply cached).
-    last_disabled = None
+    # Fan-out model: the daemon is still the single writer, but it now serves
+    # every workspace at once. It ingests the UNION of all boards' rosters (one
+    # shared mirror per student) and polls prod only for students on a LIVE board
+    # (polling enabled and, with --require-viewer, a fresh viewer). Reset is now a
+    # per-workspace API action that never touches the shared mirror, so there is
+    # no reset handshake here any more.
+    last_live = None   # tracks live/paused transitions for logging
 
     # Session cutoff: only ingest events at/after the moment this daemon started,
     # for both the per-student backfill and the live drain. That's what keeps a
@@ -101,7 +115,7 @@ def main(argv=None):
     # session-only events, and we re-materialize every tracked student now so their
     # card reads empty at startup (the raw vex_log stays intact and recoverable).
     workers.set_session_cutoff(session_start)
-    for r in db.tracked_list():
+    for r in db.tracked_union():
         try:
             workers.get_worker(r["studentID"]).recompute_and_write()
         except Exception as e:
@@ -112,66 +126,48 @@ def main(argv=None):
         t0 = time.monotonic()
         backfilled_now = False
 
-        # Read the control flags in a single round-trip per tick. Their cache TTL
-        # is 200ms, so a dashboard click still lands within ~200ms.
-        flags = db.get_meta_many(
-            ("reset_requested_at", "polling_enabled", "disabled_triggers", "viewer_last_seen"))
-        rr = flags["reset_requested_at"]
-        paused = (flags["polling_enabled"] == "0")
-        disabled = {t for t in (flags["disabled_triggers"] or "").split(",") if t}
+        # disabled_triggers stays a global setting (which alert TYPES are active);
+        # polling on/off and viewer presence are per-workspace. Compute the live
+        # boards and the union of their rosters -- that's the prod-poll allowlist.
+        disabled = {t for t in (db.get_meta("disabled_triggers") or "").split(",") if t}
+        now = db.now()
+        live_ids = _live_workspace_ids(db.workspace_polling_states(), require_viewer, now)
+        active_tracked = db.students_in_workspaces(live_ids)
 
-        # Dead-man's switch: when --require-viewer is on, only poll prod while a
-        # dashboard is actually open. The read API stamps viewer_last_seen on each
-        # grid poll, and the frontend stops polling when its tab is hidden, so a
-        # stale stamp means nobody is looking -> stop burning prod calls.
-        no_viewer = False
-        if require_viewer:
-            seen = flags["viewer_last_seen"]
-            fresh = bool(seen) and (db.now() - datetime.fromisoformat(seen)).total_seconds() <= VIEWER_PRESENT_SECONDS
-            no_viewer = not fresh
-
-        if rr != last_reset:
-            workers.reset()
-            db.reset_all()
-            last_reset = rr
-            log.info("reset handled (%s) — cleared in-memory workers + local data", rr)
-
-        if paused != last_paused:
-            log.info("polling %s (dashboard toggle)", "PAUSED" if paused else "RESUMED")
-            last_paused = paused
-        if no_viewer != last_no_viewer:
-            if no_viewer:
-                log.info("prod polling PAUSED (no dashboard open for >%ds)", VIEWER_PRESENT_SECONDS)
-            elif last_no_viewer is not None:
-                log.info("prod polling RESUMED (dashboard active)")
-            last_no_viewer = no_viewer
-        if paused or no_viewer:
+        live = bool(live_ids)
+        if live != last_live:
+            log.info("prod polling %s (%d live workspace(s), %d student(s))",
+                     "RESUMED" if live else "PAUSED", len(live_ids), len(active_tracked))
+            last_live = live
+        if not live_ids:                    # no board wants polling right now
             idle = 0  # resume responsive
             time.sleep(PAUSED_POLL_S)
             continue
 
         try:
-            # The roster is the allowlist: we only ingest and compute the
-            # students the researcher is tracking.
-            roster = db.tracked_list()
-            tracked = {r["studentID"] for r in roster}
-            workers.reconcile(tracked)
+            # Keep a worker for every tracked student (the union across all boards)
+            # so a board whose polling is paused still shows already-ingested data;
+            # but only poll prod for students on a LIVE board.
+            union = db.tracked_union()
+            all_tracked = {r["studentID"] for r in union}
+            workers.reconcile(all_tracked)
 
-            # A freshly-added student gets a one-time history backfill, then an
-            # immediate materialize so their card fills in right away.
-            for r in roster:
-                if not r["backfilled"]:
-                    try:
-                        poller.backfill_student(client, r["studentID"], since=session_start)
-                        workers.get_worker(r["studentID"]).recompute_and_write()
-                        db.mark_backfilled(r["studentID"])
-                        backfilled_now = True
-                        log.info("backfilled + materialized %s", r["studentID"])
-                    except Exception as e:
-                        log.warning("backfill failed for %s: %s", r["studentID"], e)
+            # A freshly-added student on a live board gets a one-time, shared
+            # history backfill (once per student), then an immediate materialize.
+            for r in union:
+                if r["backfilled"] or r["studentID"] not in active_tracked:
+                    continue
+                try:
+                    poller.backfill_student(client, r["studentID"], since=session_start)
+                    workers.get_worker(r["studentID"]).recompute_and_write()
+                    db.mark_backfilled(r["studentID"])
+                    backfilled_now = True
+                    log.info("backfilled + materialized %s", r["studentID"])
+                except Exception as e:
+                    log.warning("backfill failed for %s: %s", r["studentID"], e)
 
             new = poller.drain(client, cursor, limit=limit, overlap_seconds=overlap,
-                               tracked=tracked, since=session_start)
+                               tracked=active_tracked, since=session_start)
             fails = 0
         except ProdClientError as e:   # transient: 504/timeout/auth/etc.
             fails += 1

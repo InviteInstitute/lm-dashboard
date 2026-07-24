@@ -92,16 +92,13 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 
-# Start the daemon PAUSED so it makes no requests to production until you click
-# "Resume polling" in the dashboard. Set the flag straight in the DB (works even
-# when the API is gated, where an unauthenticated POST would be rejected).
-"$VENV/python" -c "from app import db; db.set_meta('polling_enabled','0')" 2>/dev/null
-
-echo "Starting ingestion daemon (paused) ..."
-# Remote/served sessions arm the dead-man's switch: prod polling auto-pauses
-# whenever no dashboard is open (the read API stamps viewer_last_seen on each
-# poll, and the frontend stops polling when its tab is hidden). Local sessions
-# leave it off so a manual run polls normally.
+echo "Starting ingestion daemon ..."
+# Polling is now per-board (per workspace), so there's no global "start paused"
+# flag any more. The daemon only polls prod for a board that is BOTH un-paused
+# (its own toggle) and, when the dead-man's switch is armed, actually being
+# watched -- so a served session makes no prod calls until a researcher opens
+# their dashboard. Remote/served sessions arm that switch; local runs leave it
+# off so a manual run polls as soon as a board has students.
 [ "$REMOTE" = "1" ] && export PIPELINE_REQUIRE_VIEWER=1
 "$VENV/python" -m app.pipeline > "$LOGS/daemon.log" 2>&1 &
 
@@ -170,5 +167,5 @@ echo "  Read API   http://localhost:8000"
 echo "  Docs       http://localhost:4000"
 echo
 echo "Dashboard mode: $([ "$REMOTE" = 1 ] && echo "remote ($TUNNEL)" || echo "$FRONTEND_MODE")"
-echo "Daemon polling is PAUSED. Click 'Resume polling' in the dashboard for live data."
+echo "Polling is per-board: open a dashboard and add students; use each board's pause toggle to stop its prod polling."
 echo "Logs in $LOGS/   |   Stop with scripts/stop.sh"

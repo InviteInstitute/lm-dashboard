@@ -64,7 +64,8 @@ def test_one_full_tick_drains_then_sleeps(patched_daemon):
 
 
 def test_paused_daemon_makes_no_prod_calls(patched_daemon):
-    db.set_meta("polling_enabled", "0")
+    # Pausing the only workspace leaves no live board, so the daemon short-circuits.
+    db.set_workspace_setting(db.default_workspace_id(), "polling_enabled", "0")
     client = FakeClient()
     patched_daemon(client, stop_after=2)   # 2 ticks: exercise the paused continue
     with pytest.raises(_StopLoop):
@@ -156,20 +157,49 @@ def test_non_transient_error_reraises(patched_daemon, monkeypatch):
         daemon.main(["--backfill-hours", "0"])
 
 
-def test_reset_handshake_wipes_data(patched_daemon, monkeypatch):
-    db.tracked_add("s1")
-    db.mark_backfilled("s1")
-    db.set_meta("reset_requested_at", "2026-01-01T00:00:00")
-    # The loop primes last_reset from get_meta before ticking; force that to read
-    # stale (None) so the in-loop get_meta_many value trips the reset handshake.
-    monkeypatch.setattr(daemon.db, "get_meta", lambda k, default=None: None)
-    fired = {}
-    monkeypatch.setattr(daemon.db, "reset_all", lambda: fired.setdefault("reset", True))
-    monkeypatch.setattr(daemon.workers, "reset", lambda: fired.setdefault("workers", True))
+# The old daemon reset handshake (meta['reset_requested_at'] -> db.reset_all +
+# workers.reset) is gone: reset is now a per-workspace, API-driven action that
+# clears only that board's researcher data and never wipes the shared mirror, so
+# the daemon has nothing to do on a reset.
+
+
+def _capture_drain(monkeypatch):
+    """Patch poller.drain to record the `tracked` allowlist it was handed."""
+    captured = {}
+
+    def fake_drain(client, cursor, limit=None, overlap_seconds=None, tracked=None, since=None):
+        captured["tracked"] = set(tracked)
+        return 0
+
+    monkeypatch.setattr(daemon.poller, "drain", fake_drain)
+    monkeypatch.setattr(daemon.poller, "backfill_student", lambda *a, **k: None)
+    return captured
+
+
+def test_daemon_polls_the_union_of_all_boards_once(patched_daemon, monkeypatch):
+    a, b = db.create_workspace("A"), db.create_workspace("B")
+    db.tracked_add("cobra3", workspace_id=a)
+    db.tracked_add("viper1", workspace_id=b)
+    db.tracked_add("cobra3", workspace_id=b)      # overlap -> polled once, not twice
+    captured = _capture_drain(monkeypatch)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
         daemon.main(["--backfill-hours", "0"])
-    assert fired == {"reset": True, "workers": True}
+    assert captured["tracked"] == {"cobra3", "viper1"}
+
+
+def test_paused_board_excludes_its_exclusive_students(patched_daemon, monkeypatch):
+    a, b = db.create_workspace("A"), db.create_workspace("B")
+    db.tracked_add("cobra3", workspace_id=a)      # live board
+    db.tracked_add("viper1", workspace_id=b)      # only on the paused board
+    db.tracked_add("cobra3", workspace_id=b)      # shared with the live board
+    db.set_workspace_setting(b, "polling_enabled", "0")   # pause B
+    captured = _capture_drain(monkeypatch)
+    patched_daemon(FakeClient(), stop_after=1)
+    with pytest.raises(_StopLoop):
+        daemon.main(["--backfill-hours", "0"])
+    # viper1 (only on paused B) is not polled; cobra3 stays live via A.
+    assert captured["tracked"] == {"cobra3"}
 
 
 def test_session_cutoff_passed_to_backfill_and_drain(patched_daemon, monkeypatch):

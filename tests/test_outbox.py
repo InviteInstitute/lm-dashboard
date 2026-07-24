@@ -26,7 +26,7 @@ def test_outbox_api_stores_and_lists(client):
 
 def test_reset_spares_the_outbox():
     db.record_outbox("pick: bear2", None, "locked")
-    db.reset_all()
+    db.reset_workspace()
     assert len(db.list_outbox()) == 1   # parked inputs survive a board reset
 
 

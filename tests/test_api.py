@@ -11,10 +11,11 @@ def test_root_health(client):
 
 def test_student_states_stamps_viewer_heartbeat(client):
     # The grid poll doubles as the dead-man's-switch heartbeat: each hit records
-    # viewer_last_seen so the daemon knows a dashboard is open.
-    assert db.get_meta("viewer_last_seen") is None
+    # this workspace's viewer_last_seen so the daemon knows a dashboard is open.
+    ws = db.default_workspace_id()
+    assert db.get_workspace_setting(ws, "viewer_last_seen") is None
     client.get("/api/student_states/")
-    assert db.get_meta("viewer_last_seen") is not None
+    assert db.get_workspace_setting(ws, "viewer_last_seen") is not None
 
 
 # The origin-wide HTTP Basic gate was replaced by per-researcher session auth;
@@ -52,9 +53,8 @@ def test_student_states_sort_by_recency(client, seed_state):
     assert rows[0]["studentID"] == "newer"      # most recent activity first
 
 
-def test_student_states_too_many_ids_rejected(client):
-    ids = ",".join(f"s{i}" for i in range(600))
-    assert client.get(f"/api/student_states/?students={ids}").status_code == 400
+# The grid now fetches this workspace's whole roster (no per-request `students`
+# list), so the MAX_STUDENT_IDS cap no longer applies to student_states.
 
 
 # --- tracked roster --------------------------------------------------------
@@ -122,7 +122,7 @@ def test_polling_defaults_on_and_toggles(client):
     assert client.get("/api/polling/").json()["enabled"] is True
     assert client.post("/api/polling/", json={"enabled": False}).json()["enabled"] is False
     assert client.get("/api/polling/").json()["enabled"] is False
-    assert db.get_meta("polling_enabled") == "0"
+    assert db.get_workspace_setting(db.default_workspace_id(), "polling_enabled") == "0"
 
 
 # --- trigger config --------------------------------------------------------
@@ -141,6 +141,7 @@ def test_trigger_config_toggle_and_unknown_type(client):
 
 # --- triggers feed + ack ---------------------------------------------------
 def test_triggers_feed_and_ack(client):
+    db.tracked_add("s1")   # the feed is scoped to the workspace roster
     db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None,
                       {"label": "Wheel-spinning", "value": "3 re-runs"})
     feed = client.get("/api/triggers/").json()
@@ -194,9 +195,11 @@ def test_reset_backs_up_then_wipes(client, seed_state, tmp_path, monkeypatch):
 
     r = client.post("/api/reset/")
     assert r.json()["reset"] is True and r.json()["backup"]
-    # data wiped, roster kept
-    assert client.get("/api/student_states/").json()["student_count"] == 0
+    # Per-workspace reset clears this board's researcher data (notes/picks) but
+    # keeps the roster and the SHARED per-student mirror (other boards need it).
     assert client.get("/api/tracked/").json()["count"] == 1
+    assert client.get("/api/student_states/").json()["student_count"] == 1
+    assert client.get("/api/notes/?studentID=s1").json()["count"] == 0
     # the note survived into the backup CSV
     import os
     note_csv = os.path.join(r.json()["backup"], "note.csv")

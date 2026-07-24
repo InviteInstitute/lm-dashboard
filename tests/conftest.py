@@ -44,6 +44,9 @@ def fresh_db():
             "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")]
         if tables:
             con.execute("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE")
+    # TRUNCATE wiped the default workspace too; recreate it so writes that fall
+    # back to it (roster, presence, picks) have a workspace to land in.
+    db.ensure_default_workspace()
     # The control-flag cache is a module global with a 200ms TTL; clear it so a
     # flag set in one test can't leak into the next (the daemon reads through it).
     db._meta_cache.clear()
@@ -61,9 +64,13 @@ def anon_client():
 @pytest.fixture
 def client():
     """A TestClient logged in as a throwaway researcher, so the data API (gated by
-    SessionAuthMiddleware) is reachable. Most tests want this."""
+    SessionAuthMiddleware) is reachable. The researcher is made a member of the
+    DEFAULT workspace, so their routes resolve to it -- the same workspace that
+    db.* helpers (tracked_add, add_note, ...) write to by default. Most tests want
+    this."""
     from app import auth
-    db.upsert_researcher("tester", auth.hash_password("secret"))
+    rid = db.upsert_researcher("tester", auth.hash_password("secret"))
+    db.add_workspace_member(db.default_workspace_id(), rid)
     c = TestClient(fastapi_app)
     resp = c.post("/api/login/", json={"username": "tester", "password": "secret"})
     assert resp.status_code == 200, resp.text
@@ -72,7 +79,8 @@ def client():
 
 @pytest.fixture
 def seed_state():
-    """Helper: upsert a materialized student_state row and return the studentID."""
+    """Helper: upsert a materialized student_state row AND track the student on the
+    default workspace (reads are roster-scoped now), then return the studentID."""
     def _seed(sid="stu1", **overrides):
         payload = {
             "classCode": "C1",
@@ -89,5 +97,6 @@ def seed_state():
         }
         payload.update(overrides)
         db.upsert_student_state(sid, payload)
+        db.tracked_add(sid)
         return sid
     return _seed

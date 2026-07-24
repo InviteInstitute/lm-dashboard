@@ -84,9 +84,13 @@ dependency-free (no numpy, no ML), and safe to restart on its own.
 You get eventual consistency, but it's bounded, and the bound is small:
 
 - The read model is at most one tick behind the event log.
-- The UI is at most one poll behind the read model (about 1.5s).
-- So end to end you're looking at roughly one tick plus 1.5s of staleness, which is
-  nothing on human timescales.
+- The UI is at most one stream tick behind the read model: the API watches an O(1)
+  per-channel change counter four times a second and pushes over Server-Sent Events,
+  so a change lands on screen in about a quarter second (see the
+  [read path](read-path.md#the-dashboard)). Under the polling fallback that stretches
+  to about 1.5s.
+- So end to end you're looking at roughly one daemon tick plus a quarter second,
+  which is nothing on human timescales.
 
 Most of the coordination between the two processes happens implicitly through SQLite.
 The one explicit signal is **Reset**: the API stamps `meta.reset_requested_at` and

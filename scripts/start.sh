@@ -5,8 +5,8 @@
 #   scripts/start.sh           local dev: Vite dev server on :3000, hot reload
 #   scripts/start.sh --prod    local: production build served on :3000
 #   scripts/start.sh --remote  GATED + exposed via a tunnel. The API itself serves the
-#                              UI (no :3000), and the prod login is REQUIRED, so
-#                              there is no way to expose an ungated dashboard.
+#                              UI (no :3000). The /api data routes always require a
+#                              researcher login, so the data can't be exposed ungated.
 #                              Pick the tunnel with --cloudflare (default) or --ngrok:
 #                                scripts/start.sh --remote --cloudflare
 #                                scripts/start.sh --remote --ngrok
@@ -69,16 +69,16 @@ else
   echo "docker not found -- ensure DATABASE_URL points at a running Postgres."
 fi
 
-# --remote: turn on the prod-credential gate and serve the UI from the API itself
-# (single origin). The gate lives in this launch environment only, so local runs
-# and the test suite stay open.
+# --remote: serve the UI from the API itself (single origin) and expose it via a
+# tunnel. The /api data routes are gated by per-researcher session login (see
+# app/auth.py) -- always on, so collaborators log in with their own account; the
+# static SPA loads openly and shows the login screen.
 if [ "$REMOTE" = "1" ]; then
   if [ "$TUNNEL" = "ngrok" ]; then
     command -v ngrok >/dev/null || { echo "ngrok not installed (brew install ngrok)"; exit 1; }
   else
     command -v cloudflared >/dev/null || { echo "cloudflared not installed (brew install cloudflared)"; exit 1; }
   fi
-  export DASHBOARD_AUTH=prod
   echo "Building UI for single-origin remote serving ..."
   ( cd frontend && VITE_API_URL='' npm run build > "$LOGS/frontend-build.log" 2>&1 )
 fi
@@ -121,14 +121,15 @@ fi
 echo "Starting docs on :4000 ..."
 "$VENV/mkdocs" serve > "$LOGS/docs.log" 2>&1 &
 
-# --remote: open the tunnel, but only after confirming the API is gated (a no-login
-# request must get 401). Belt-and-suspenders, even though --remote sets the gate.
+# --remote: open the tunnel, but only after confirming the data API is gated -- a
+# no-login request to an /api route must get 401 (the static SPA at / is open by
+# design, so we probe /api, not /).
 NGROK_URL="${NGROK_URL:-https://unretired-generic-backache.ngrok-free.dev}"
 REMOTE_URL=""
 if [ "$REMOTE" = "1" ]; then
-  code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)
+  code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/api/student_states/ || true)
   if [ "$code" != "401" ]; then
-    echo "WARNING: API answered '$code' to a no-login request (NOT gated) -- tunnel NOT opened."
+    echo "WARNING: /api answered '$code' to a no-login request (NOT gated) -- tunnel NOT opened."
   elif [ "$TUNNEL" = "ngrok" ]; then
     nohup ngrok http --url="${NGROK_URL#https://}" 8000 --log=stdout > "$LOGS/ngrok.log" 2>&1 &
     echo $! > "$ROOT/.ngrok.pid"
@@ -160,7 +161,7 @@ sleep 5
 echo
 echo "Up:"
 if [ "$REMOTE" = "1" ]; then
-  echo "  Dashboard (remote)  ${REMOTE_URL:-<check $LOGS/cloudflared.log>}   (log in with the prod credentials)"
+  echo "  Dashboard (remote)  ${REMOTE_URL:-<check $LOGS/cloudflared.log>}   (log in with your researcher account)"
   echo "  Dashboard (local)   http://localhost:8000   (also behind the login)"
 else
   echo "  Dashboard  http://localhost:3000"

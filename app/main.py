@@ -21,7 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 
 from app import config, db
-from app.auth import SessionAuthMiddleware, authenticate
+from app.auth import SessionAuthMiddleware, authenticate, ensure_bootstrap_researcher
 from app.runs.ast_builder import extract_workspace_xml
 from app.runs.humanize import humanize_text
 from app.constants import (
@@ -52,6 +52,9 @@ app.add_middleware(
 # Create the schema if it isn't there yet (a no-op otherwise), so a fresh clone
 # works no matter whether the API or the daemon happens to start first.
 db.init_db()
+# Interim: seed the shared researcher login from the env-file prod creds until
+# per-researcher accounts + the login UI land (see app/auth.py).
+ensure_bootstrap_researcher()
 
 
 # --------------------------------------------------------------------------

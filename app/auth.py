@@ -50,6 +50,8 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if not (USER and PASSWORD):
             return await call_next(request)
+        if request.url.path == "/healthz":
+            return await call_next(request)
         if _ok(request.headers.get("Authorization", "")):
             return await call_next(request)
         return Response(status_code=401,

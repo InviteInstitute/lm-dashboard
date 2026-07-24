@@ -31,15 +31,41 @@ flowchart LR
 |---|---|---|
 | Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` |
 | Cursor | `ingest_cursor` | how far we've consumed |
-| Read model (cache) | `student_state`, `trigger_event` | the materialized projection, rebuildable |
+| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable |
 | Roster | `tracked_student` | the allowlist, plus the presence/picked toggles |
-| Researcher input | `note`, `pick_event` | observations and the pick/unpick history |
-| Control | `meta` | cross-process signals (reset, polling, disabled triggers, the viewer heartbeat) |
+| Researcher input | `note`, `pick_event`, `outbox` | observations, the pick/unpick history, and failed inputs parked verbatim |
+| Control | `meta`, `channel_rev` | cross-process signals (reset, polling, disabled triggers, the viewer heartbeat) and the per-channel change counters |
 
 !!! tip
     The read-model tables are just a cache of the event log. Delete them, or hit
     [Reset](../guides/using-the-dashboard.md#reset), and they rebuild from `vex_log`
     to exactly the same state.
+
+### Tables That Are Not A Cache Of The Log
+
+Three tables hold things the event log can't reproduce, so they get treated
+differently:
+
+- **`note` and `pick_event`** are the researcher's own judgments. Reset writes them
+  into a CSV backup before wiping so nothing is lost.
+- **`outbox`** parks a researcher input verbatim when its write failed its retries (a
+  crash, or a rare lock). It's the one store with no upstream source to re-pull from,
+  so it is deliberately **spared by reset** and rides along in the CSV export. See
+  [resilient writes](read-path.md#resilient-writes-and-the-outbox).
+- **`channel_rev`** is four counter rows, one per dashboard channel, bumped by SQLite
+  triggers on every write to a source table. The live stream reads them as an O(1)
+  "what changed?" check instead of scanning the tables (see the
+  [read path](read-path.md#the-dashboard)). It's derived state, so a wipe is harmless;
+  the triggers rebuild it on the next write.
+
+### Case-Insensitive Identity
+
+A VEX handle is unique only within a class and sometimes arrives in different casing
+(`cobra3` vs `Cobra3`). `db.canon_id` folds every derived table onto a lowercase key
+so those spellings are one student, while `student_state.display_id` keeps the
+most-recent raw casing for the UI. `switch_event` records when a tracked student's
+handle casing flips or their handle turns up under a new class code, which is what
+drives the identity-switch toasts and feed.
 
 ## Two Contracts That Have To Hold
 

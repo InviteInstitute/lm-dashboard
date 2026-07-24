@@ -5,8 +5,10 @@ description: Student cards, the who-needs-help column, drill-down detail, and th
 # Using The Dashboard
 
 The dashboard is a single screen at [http://localhost:3000](http://localhost:3000).
-Everything on it comes from the same handful of polled endpoints, so the whole view
-stays in sync with itself.
+It holds one live stream to the API and refetches only what changed, so the whole
+view stays in sync with itself and updates land in about a quarter second. If the
+stream ever drops, it silently falls back to polling until it reconnects; you never
+have to think about it.
 
 ## Track A Student
 
@@ -58,8 +60,11 @@ has fired that hasn't yet resolved or been acknowledged. There are five:
 | **Step-by-Step** | six runs of steady editing (`edit_distance >= 1`) | `6 steady edits` |
 
 Each row shows the student ID, the trigger label and its value, and how long ago it
-fired. Click a row to open that student's detail, hit the **✕** to dismiss the alert,
-or use **Notes** to jot an observation right against the alert.
+fired, plus a faint **last:** line with the student's previous trigger and its
+wall-clock time (for example `last: Wheel-spinning · 10:24 AM (12m ago)`), so a first
+flag reads differently from the fifth in ten minutes. Click a row to open that
+student's detail, hit the **✕** to dismiss the alert, or use **Notes** to jot an
+observation right against the alert.
 
 !!! note "Wheel-spinning and Resilience are a pair"
     They read the same streak from opposite ends: wheel-spinning fires while a student
@@ -74,6 +79,26 @@ or use **Notes** to jot an observation right against the alert.
 You can also turn whole trigger types on or off from the **⚙ Triggers** button in the
 top bar. Switching one off tells the daemon to stop firing it and clear its open
 alerts.
+
+## Identity Switches
+
+Student handles are folded case-insensitively, so `cobra3` and `Cobra3` are one
+student (the board shows whichever casing arrived most recently). When a tracked
+handle flips casing or turns up under a new class code, an amber **toast** pops in the
+top-right corner and the switch lands in the **Identity Switches** feed under the
+alerts. That's usually the signal that one person or a shared device is active in two
+places, which is worth knowing before you read too much into their timeline. Dismiss
+a switch with its **✕** once you've seen it.
+
+## When A Click Fails To Save
+
+Your inputs (presence, picked, notes, dismissals, roster edits) are the one thing the
+system can't recompute, so they never fail silently. Every click applies instantly,
+retries quietly if the write hiccups, and if it still can't land you get a sticky
+**red "NOT saved" toast** naming the action. The input itself is parked verbatim in
+the outbox (on the server, or in the browser until the server is reachable again), so
+nothing you typed or clicked is ever lost. Red toasts stay until you dismiss them; if
+you see one, the outbox has the details.
 
 ## Pause / Resume Polling
 
@@ -97,14 +122,19 @@ daemon itself.
 
 Click any card to open the full detail:
 
-- The **playground prompt**, which is their current code described in plain language
-  for an LLM.
+- The **Program**, their latest blocks rendered as a readable listing with every
+  parameter spelled out, including the numbers: `drive for forward, mm, amount 200`,
+  and nested conditions inline like `if (not (object distance < 200))`.
+- The **playground prompt**, the same code described in plain language for an LLM.
 - Full-size **run** and **episode** timelines.
+- The **trigger history grid**: every trigger fired for this student this session
+  (Time, Trigger, Value, Status), newest first, including resolved and dismissed
+  rows, so you can see the pattern behind the current alert.
 - The complete **notes and observations** log for that student, with a box to add
   more.
 
 The detail view fetches its own per-student payload on open and keeps it refreshed
-while the modal is up.
+while the modal is up, following the same live stream as the rest of the board.
 
 ## Export
 
@@ -121,6 +151,7 @@ starts fresh from new activity.
 
 !!! info
     Reset writes a CSV backup (notes included) to `exports/reset_<timestamp>/` on the
-    server before it wipes, so nothing is actually lost. It's local only, production is
-    never touched. The raw event cursor stays put, so the board rebuilds only from
-    activity that arrives after the reset, and tracked students stay tracked.
+    server before it wipes, so nothing is actually lost, and the failed-write outbox
+    is deliberately spared. It's local only, production is never touched. The raw
+    event cursor stays put, so the board rebuilds only from activity that arrives
+    after the reset, and tracked students stay tracked.

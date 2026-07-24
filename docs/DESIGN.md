@@ -156,9 +156,10 @@ contained change (reimplement `db.py`, keep the signatures).
 |---|---|---|
 | Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` |
 | Cursor | `ingest_cursor` | how far we've consumed |
-| Read model (cache) | `student_state`, `trigger_event` | materialized projection, rebuildable |
-| Roster | `tracked_student` | the allowlist |
-| Control | `meta` | cross-process signals (reset and polling flags) |
+| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | materialized projection, rebuildable |
+| Roster | `tracked_student` | the allowlist, plus presence/picked |
+| Researcher input | `note`, `pick_event`, `outbox` | observations, pick history, and failed inputs parked verbatim |
+| Control | `meta`, `channel_rev` | cross-process signals (reset and polling flags) plus the per-channel change counters the live stream reads |
 
 Two contracts live in `db.py`: a datetime contract (UTC-naive
 `%Y-%m-%d %H:%M:%S.%f`, so comparing strings is the same as comparing times for the
@@ -170,11 +171,15 @@ as JSON text).
 - **API.** FastAPI. Reads the materialized view and shapes it. No ML imports. It
   makes sure the schema exists on load so a fresh clone works no matter which process
   starts first.
-- **Dashboard.** Polls `/api/student_states/` (about every 1.5s) and builds the
-  student-card grid from that payload; it polls `/api/triggers/` for the who-needs-
-  help column and `/api/tracked/` for the roster on the same timer, and the detail
-  modal fetches the heavier per-student payload on open. Cards are ordered by
-  `studentID` (stable) so a card never jumps when its own data updates.
+- **Dashboard.** Holds one Server-Sent Events stream (`/api/stream/`); the server
+  watches an O(1) per-channel change counter and pushes which of the four channels
+  (states, triggers, switches, roster) moved, and the dashboard refetches only those.
+  The old four poll loops remain as an automatic fallback when the stream is down.
+  The detail modal fetches the heavier per-student payload (playground prompt,
+  readable program, trigger history) on open and refreshes it on the same beat.
+  Cards are ordered by `studentID` (stable) so a card never jumps when its own data
+  updates. Researcher writes go through a resilient path: optimistic UI, short
+  retries, then a loud red toast plus the input parked verbatim in the outbox.
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
 rows), so the edit-distance and episode work already happened on the write side. It
@@ -186,8 +191,9 @@ polling whenever its browser tab is hidden.
 ## 7. Consistency And Coordination
 
 - **Eventual consistency, but bounded.** The read model is at most one tick behind
-  the event log, and the UI is at most one poll behind the read model. End to end
-  that's roughly a tick plus 1.5s of staleness, which is nothing on human timescales.
+  the event log, and the UI is at most one stream tick (0.25s) behind the read model,
+  or one poll (~1.5s) under the fallback. End to end that's roughly a tick plus a
+  quarter second of staleness, which is nothing on human timescales.
 - **Coordination is mostly implicit** through SQLite. The one explicit signal is
   Reset: the API stamps `meta.reset_requested_at` and wipes the local data, and the
   daemon notices the flag changed and drops its in-memory workers so they don't

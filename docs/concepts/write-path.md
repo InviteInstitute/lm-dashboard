@@ -83,6 +83,11 @@ Every tracked student gets a `StudentWorker` that holds a rolling
   `vex_log` (the one SQL read on the hot path). In-memory state is lost on restart,
   but it's reconstructed straight from the log, and each trigger's already-fired run
   indices are re-seeded from `trigger_event` so a restart can't repeat old alerts.
+- **Identity-switch detection.** Workers are keyed on the case-folded handle, so
+  `cobra3` and `Cobra3` land in one worker. On each ingested event the worker compares
+  the incoming casing and class code against its last-seen values and records any flip
+  to `switch_event`, which is what feeds the dashboard's identity-switch toasts and
+  feed. The most-recent raw casing is kept as `display_id` for the UI.
 
 ## Inference
 
@@ -114,6 +119,22 @@ On top of the edit distances, every tick also segments the session into episodes
 vendored, dependency-free `app.episode_engine` package) and builds a "playground" LLM
 prompt describing the current blocks. The [Read path](read-path.md) page covers how
 all of this surfaces.
+
+!!! note "The playground snapshot is monotonic in event-time"
+    With the case-insensitive identity fold, two devices with disagreeing clocks can
+    feed one worker (the cobra3/Cobra3 pair had about four minutes of skew). So "last
+    event to arrive" is not "last to happen," and a delayed upload used to be able to
+    overwrite newer code with an older snapshot. The worker now accepts a `project`
+    snapshot only when its `event_time` is not older than the one it holds; a missing
+    timestamp still accepts, since a clock that isn't there can't be compared.
+    Rehydrate already sorts by event time, so live ingest and the restart path agree.
+
+!!! note "Every write bumps a channel counter"
+    Each write to `student_state`, `trigger_event`, `switch_event`, or
+    `tracked_student` also bumps that channel's row in `channel_rev`, via SQLite
+    triggers that live in the schema. The daemon doesn't know or care; the triggers
+    fire inside its own transaction. That counter is what lets the live stream answer
+    "what changed?" in O(1) (see the [read path](read-path.md#the-dashboard)).
 
 ## Triggers
 

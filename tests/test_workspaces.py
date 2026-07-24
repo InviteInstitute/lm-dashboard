@@ -82,10 +82,14 @@ def _login(username):
 
 
 def test_workspace_for_client_key_is_stable():
+    before = db._query("SELECT COUNT(*) AS c FROM workspace")[0]["c"]
     a = db.workspace_for_client_key("k1")
     b = db.workspace_for_client_key("k1")   # same key -> same board
+    b2 = db.workspace_for_client_key("k1")  # ... and repeat calls create NO new rows
     c = db.workspace_for_client_key("k2")   # new key -> new board
-    assert a == b and a != c
+    assert a == b == b2 and a != c
+    after = db._query("SELECT COUNT(*) AS c FROM workspace")[0]["c"]
+    assert after - before == 2              # exactly k1 + k2, not one per call
 
 
 def _basic(username, password="pw"):

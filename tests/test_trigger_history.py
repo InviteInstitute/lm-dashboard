@@ -7,6 +7,7 @@ from app import db
 
 def _fire(sid, ttype, label, minutes_ago, resolved=True, acked=False):
     at = db.now() - timedelta(minutes=minutes_ago)
+    db.tracked_add(sid)   # the intervention feed is scoped to the workspace roster
     db.create_trigger(sid, ttype, started_at=at, last_seen_at=at,
                       resolved_at=at if resolved else None,
                       detail={"label": label, "value": f"v-{ttype}"})

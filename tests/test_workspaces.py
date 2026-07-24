@@ -67,3 +67,43 @@ def test_creating_a_researcher_provisions_a_workspace():
     # Password reset (re-upsert) doesn't create a second workspace.
     db.upsert_researcher("dr_x", auth.hash_password("pw2"))
     assert db.workspace_ids_for_researcher(rid) == ws
+
+
+def _login(username):
+    """A TestClient logged in as a fresh researcher (its own workspace)."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    db.upsert_researcher(username, auth.hash_password("pw"))
+    c = TestClient(app)
+    assert c.post("/api/login/", json={"username": username, "password": "pw"}).status_code == 200
+    return c
+
+
+def test_api_isolation_between_two_researchers():
+    """End-to-end: two logged-in researchers watching the SAME student see the
+    same underlying state but fully isolated rosters, notes, and presence."""
+    ca, cb = _login("ra"), _login("rb")
+    for c in (ca, cb):
+        c.post("/api/tracked/", json={"studentID": "cobra3"})
+    db.upsert_student_state("cobra3", {"run_count": 3})   # shared per-student state
+
+    # Both boards see the shared student's state ...
+    assert ca.get("/api/student_states/").json()["student_count"] == 1
+    assert cb.get("/api/student_states/").json()["student_count"] == 1
+
+    # ... but a note A writes is invisible to B.
+    ca.post("/api/notes/", json={"studentID": "cobra3", "text": "A only"})
+    assert ca.get("/api/notes/?studentID=cobra3").json()["count"] == 1
+    assert cb.get("/api/notes/?studentID=cobra3").json()["count"] == 0
+
+    # ... and presence toggled on A doesn't move B's board.
+    ca.post("/api/presence/", json={"studentID": "cobra3", "present": False})
+    a_row = next(t for t in ca.get("/api/tracked/").json()["tracked"] if t["studentID"] == "cobra3")
+    b_row = next(t for t in cb.get("/api/tracked/").json()["tracked"] if t["studentID"] == "cobra3")
+    assert a_row["present"] is False and b_row["present"] is True
+
+    # B untracking cobra3 leaves A's roster (and the shared state) intact.
+    cb.post("/api/tracked/", json={"studentID": "cobra3", "remove": True})
+    assert cb.get("/api/tracked/").json()["count"] == 0
+    assert ca.get("/api/tracked/").json()["count"] == 1
+    assert ca.get("/api/student_states/").json()["student_count"] == 1

@@ -48,28 +48,26 @@ def test_exported_rows_are_single_line(tmp_path, seed_state):
     assert "\n" not in rows[1][prompt_col]
 
 
-def test_reset_all_wipes_data_but_keeps_roster_cursor_meta(seed_state):
+def test_reset_workspace_clears_researcher_data_keeps_shared_mirror(seed_state):
     db.tracked_add("s1")
     seed_state("s1")
     db.add_note("s1", "note")
     db.set_picked("s1", True)                       # picked + a pick_event row
     db.set_presence("s1", False)                    # presence should survive reset
     db.get_or_create_cursor("vex_poll")
-    db.set_meta("polling_enabled", "0")
     db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {"label": "x"})
 
-    db.reset_all()
+    db.reset_workspace()
 
-    # cleared
-    assert db.list_student_states(["s1"]) == []
+    # cleared: this board's researcher data (notes, pick history + picked flag)
     assert db.list_notes("s1") == []
-    assert db._query("SELECT 1 FROM trigger_event") == []
-    # picks cleared: flag reset, timestamp gone, history wiped
     row = db.tracked_list()[0]
     assert row["picked"] is False and row["picked_at"] is None
     assert db._query("SELECT 1 FROM pick_event") == []
-    # kept: roster, presence, cursor, meta
+    # KEPT: the shared per-student mirror (other boards depend on it) ...
+    assert db.list_student_states(["s1"])
+    assert db._query("SELECT 1 FROM trigger_event")
+    # ... and this board's roster, presence, and the ingest cursor.
     assert [r["studentID"] for r in db.tracked_list()] == ["s1"]
     assert row["present"] is False                  # presence is NOT reset
-    assert db.get_meta("polling_enabled") == "0"
     assert db.get_or_create_cursor("vex_poll")["name"] == "vex_poll"

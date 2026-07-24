@@ -156,20 +156,10 @@ def test_non_transient_error_reraises(patched_daemon, monkeypatch):
         daemon.main(["--backfill-hours", "0"])
 
 
-def test_reset_handshake_wipes_data(patched_daemon, monkeypatch):
-    db.tracked_add("s1")
-    db.mark_backfilled("s1")
-    db.set_meta("reset_requested_at", "2026-01-01T00:00:00")
-    # The loop primes last_reset from get_meta before ticking; force that to read
-    # stale (None) so the in-loop get_meta_many value trips the reset handshake.
-    monkeypatch.setattr(daemon.db, "get_meta", lambda k, default=None: None)
-    fired = {}
-    monkeypatch.setattr(daemon.db, "reset_all", lambda: fired.setdefault("reset", True))
-    monkeypatch.setattr(daemon.workers, "reset", lambda: fired.setdefault("workers", True))
-    patched_daemon(FakeClient(), stop_after=1)
-    with pytest.raises(_StopLoop):
-        daemon.main(["--backfill-hours", "0"])
-    assert fired == {"reset": True, "workers": True}
+# The old daemon reset handshake (meta['reset_requested_at'] -> db.reset_all +
+# workers.reset) is gone: reset is now a per-workspace, API-driven action that
+# clears only that board's researcher data and never wipes the shared mirror, so
+# the daemon has nothing to do on a reset.
 
 
 def test_session_cutoff_passed_to_backfill_and_drain(patched_daemon, monkeypatch):

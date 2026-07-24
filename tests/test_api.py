@@ -17,21 +17,8 @@ def test_student_states_stamps_viewer_heartbeat(client):
     assert db.get_meta("viewer_last_seen") is not None
 
 
-def test_basic_auth_gate(client, monkeypatch):
-    # When DASHBOARD_USER/PASSWORD are set (remote serving), the whole origin needs
-    # the shared Basic login; without them it's open (local dev). Unset by default,
-    # so every other test stays open.
-    import base64
-    from app import auth
-    monkeypatch.setattr(auth, "USER", "research")
-    monkeypatch.setattr(auth, "PASSWORD", "secret")
-    assert client.get("/api/student_states/").status_code == 401          # no creds
-    good = base64.b64encode(b"research:secret").decode()
-    assert client.get("/api/student_states/",
-                      headers={"Authorization": f"Basic {good}"}).status_code == 200
-    bad = base64.b64encode(b"research:wrong").decode()
-    assert client.get("/api/student_states/",
-                      headers={"Authorization": f"Basic {bad}"}).status_code == 401
+# The origin-wide HTTP Basic gate was replaced by per-researcher session auth;
+# that gate is covered by tests/test_auth.py.
 
 
 # --- student_states: light list vs heavy detail (issue #9) -----------------

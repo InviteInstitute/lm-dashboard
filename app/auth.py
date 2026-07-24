@@ -1,58 +1,65 @@
 """
-Origin-level access gate for remote serving (e.g. behind an ngrok tunnel).
+Researcher authentication for the API.
 
-When `DASHBOARD_USER` / `DASHBOARD_PASSWORD` are set, every request to the whole
-origin (the UI and /api) must carry matching HTTP Basic credentials. The browser
-shows its native login popup on the first page load, so there's nothing to build
-and nothing for viewers to install; once they log in, the browser attaches the
-cached credentials to every same-origin request after that, including the SPA's
-/api calls.
+Replaces the old origin-wide HTTP Basic gate (whose password was the production
+hub login) with per-researcher accounts. Each researcher logs in once; a signed
+session cookie then carries their id (Starlette's SessionMiddleware signs it with
+SESSION_SECRET, so it can't be forged). Password hashes are argon2.
 
-It is OFF unless configured: with the two env vars unset (local dev on
-localhost), the middleware is a no-op and nothing changes. This is intentionally
-provider-independent, so it works behind ngrok, a Tailscale Funnel, or anything
-else that just proxies HTTP to the local app.
+The gate here protects the data API only: every `/api/*` route requires a logged-in
+session except the public ones (`/api/login`). Non-`/api` paths -- the static SPA
+bundle and `/healthz` -- stay open so the app can load and show its login screen;
+all the actual data lives behind `/api`.
 """
-import base64
-import os
-import secrets
-
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse
 
-# With DASHBOARD_AUTH=prod the remote login reuses the prod credentials
-# (PROD_USERNAME / PROD_PASSWORD), so there's no second password to manage.
-# Otherwise it uses the dedicated DASHBOARD_USER / DASHBOARD_PASSWORD. Either way
-# the gate is off unless one of those pairs is set (local dev, tests).
-if os.environ.get("DASHBOARD_AUTH") == "prod":
-    USER = os.environ.get("PROD_USERNAME") or ""
-    PASSWORD = os.environ.get("PROD_PASSWORD") or ""
-else:
-    USER = os.environ.get("DASHBOARD_USER") or ""
-    PASSWORD = os.environ.get("DASHBOARD_PASSWORD") or ""
+from app import db
+
+_hasher = PasswordHasher()
+
+# `/api/*` paths reachable without a session (compared with any trailing slash
+# stripped). Everything else under /api requires a logged-in researcher.
+_PUBLIC_API = {"/api/login"}
 
 
-def _ok(header):
-    """True if the Authorization header carries the configured Basic credentials.
-    Uses compare_digest so a wrong guess can't be timed character by character."""
-    if not header.startswith("Basic "):
-        return False
+def hash_password(password):
+    """Return an argon2 hash for a new/updated password."""
+    return _hasher.hash(password)
+
+
+def verify_password(password_hash, password):
+    """True iff `password` matches the stored argon2 hash."""
     try:
-        user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
-    except Exception:
+        _hasher.verify(password_hash, password)
+        return True
+    except (VerificationError, InvalidHashError):
         return False
-    return secrets.compare_digest(user, USER) and secrets.compare_digest(pw, PASSWORD)
 
 
-class BasicAuthMiddleware(BaseHTTPMiddleware):
-    """Gate the whole app with HTTP Basic Auth when configured; no-op otherwise."""
+def authenticate(username, password):
+    """Return {'id', 'username'} for valid credentials, else None."""
+    r = db.get_researcher_by_username(username)
+    if r and verify_password(r["password_hash"], password):
+        return {"id": r["id"], "username": r["username"]}
+    return None
+
+
+class SessionAuthMiddleware(BaseHTTPMiddleware):
+    """Require a logged-in session for the data API. Reads the researcher id off
+    the signed session cookie (populated by SessionMiddleware, which must sit
+    outside this one). Trusting the signed id avoids a per-request DB lookup; a
+    route that needs the full researcher resolves it via db.get_researcher_by_id."""
 
     async def dispatch(self, request, call_next):
-        if not (USER and PASSWORD):
+        path = request.url.path
+        # Static SPA, /healthz, and other non-API routes are open.
+        if not path.startswith("/api/"):
             return await call_next(request)
-        if request.url.path == "/healthz":
+        if path.rstrip("/") in _PUBLIC_API:
             return await call_next(request)
-        if _ok(request.headers.get("Authorization", "")):
+        if request.session.get("researcher_id"):
             return await call_next(request)
-        return Response(status_code=401,
-                        headers={"WWW-Authenticate": 'Basic realm="LM Dashboard"'})
+        return JSONResponse({"detail": "authentication required"}, status_code=401)

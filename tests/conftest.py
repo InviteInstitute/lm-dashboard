@@ -53,9 +53,21 @@ def fresh_db():
 
 
 @pytest.fixture
-def client():
-    """A FastAPI TestClient bound to the temp DB."""
+def anon_client():
+    """An unauthenticated TestClient (no session) -- for exercising the auth gate."""
     return TestClient(fastapi_app)
+
+
+@pytest.fixture
+def client():
+    """A TestClient logged in as a throwaway researcher, so the data API (gated by
+    SessionAuthMiddleware) is reachable. Most tests want this."""
+    from app import auth
+    db.upsert_researcher("tester", auth.hash_password("secret"))
+    c = TestClient(fastapi_app)
+    resp = c.post("/api/login/", json={"username": "tester", "password": "secret"})
+    assert resp.status_code == 200, resp.text
+    return c
 
 
 @pytest.fixture

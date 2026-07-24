@@ -17,10 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 
 from app import config, db
-from app.auth import BasicAuthMiddleware
+from app.auth import SessionAuthMiddleware, authenticate
 from app.runs.ast_builder import extract_workspace_xml
 from app.runs.humanize import humanize_text
 from app.constants import (
@@ -28,19 +29,25 @@ from app.constants import (
 )
 
 app = FastAPI(title="LM Dashboard")
+# Middleware runs outermost-first in reverse add order, so these are added
+# inner -> outer: GZip (compresses route responses) inside SessionAuthMiddleware
+# (the /api gate) inside SessionMiddleware (parses the signed session cookie)
+# inside CORS (handles preflight + credentialed cross-origin in dev). The result
+# order is CORS -> Session -> SessionAuth -> GZip -> routes.
+#
+# The SSE stream opts out of gzip via an explicit Content-Encoding so events are
+# never buffered by a gzip window.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(SessionAuthMiddleware)
+app.add_middleware(SessionMiddleware, secret_key=config.SESSION_SECRET,
+                   same_site="lax", https_only=False)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
+    allow_credentials=True,          # session cookie rides cross-origin in dev
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Compress JSON responses over ~1KB (the states payload with its run arrays
-# shrinks ~5-10x) -- mostly felt over the remote tunnel. The SSE stream opts out
-# via an explicit Content-Encoding so events are never buffered by gzip.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-# Outermost middleware (added last = runs first): gate the whole origin with HTTP
-# Basic Auth when DASHBOARD_USER/PASSWORD are set for remote serving. No-op locally.
-app.add_middleware(BasicAuthMiddleware)
 
 # Create the schema if it isn't there yet (a no-op otherwise), so a fresh clone
 # works no matter whether the API or the daemon happens to start first.
@@ -86,6 +93,40 @@ def _shape_state(s, heavy=False):
 def health():
     # Not at "/" so the static frontend mount can serve the dashboard there.
     return {"service": "luc-dashboard", "ok": True}
+
+
+# --------------------------------------------------------------------------
+# auth: researcher login/logout + the current-session probe the SPA calls on
+# load. Everything else under /api requires the session these establish (see
+# app/auth.SessionAuthMiddleware).
+# --------------------------------------------------------------------------
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login/")
+async def login(body: LoginBody, request: Request):
+    researcher = await run_in_threadpool(authenticate, body.username, body.password)
+    if not researcher:
+        raise HTTPException(status_code=401, detail="invalid username or password")
+    request.session["researcher_id"] = researcher["id"]
+    request.session["username"] = researcher["username"]
+    return {"id": researcher["id"], "username": researcher["username"]}
+
+
+@app.post("/api/logout/")
+async def logout(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/me/")
+async def me(request: Request):
+    # Reachable only past the auth gate, so a session always exists here; the SPA
+    # reads a 401 from this route (via the gate) as "show the login screen".
+    return {"id": request.session.get("researcher_id"),
+            "username": request.session.get("username")}
 
 
 @app.get("/api/student_states/")

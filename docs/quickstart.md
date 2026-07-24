@@ -86,13 +86,6 @@ their card appears within a tick or two.
     The dashboard is read-only against your Postgres mirror. Tracking, analyzing,
     and resetting never reach back to production.
 
-## Running Without Docker (a local venv)
-
-You can still run the pieces from a Python venv (`uvicorn app.main:app` + `python -m
-app.pipeline`) against a Postgres you point `DATABASE_URL` at — that's how the test
-suite runs. `scripts/start.sh` / `stop.sh` wrap that path. For everyday use, prefer
-compose.
-
 ## Run These Docs Locally
 
 This site is [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/):

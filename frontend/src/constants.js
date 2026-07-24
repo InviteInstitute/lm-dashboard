@@ -9,7 +9,7 @@
 export const T = {
     bg: 'var(--lmd-bg)', panel: 'var(--lmd-panel)', border: 'var(--lmd-border)',
     ink: 'var(--lmd-ink)', sub: 'var(--lmd-sub)', faint: 'var(--lmd-faint)',
-    track: 'var(--lmd-track)',
+    track: 'var(--lmd-track)', code: 'var(--lmd-code)',
 };
 export const FONT = "'Source Sans Pro',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 export const HEADFONT = "'Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";

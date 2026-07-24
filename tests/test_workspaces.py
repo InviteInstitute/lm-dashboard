@@ -79,6 +79,38 @@ def _login(username):
     return c
 
 
+def test_workspace_for_client_key_is_stable():
+    a = db.workspace_for_client_key("k1")
+    b = db.workspace_for_client_key("k1")   # same key -> same board
+    c = db.workspace_for_client_key("k2")   # new key -> new board
+    assert a == b and a != c
+
+
+def _browser(board_id, username="shared"):
+    """A TestClient logged in under a shared account, bound to a browser key."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    db.upsert_researcher(username, auth.hash_password("pw"))
+    c = TestClient(app)
+    assert c.post("/api/login/", json={
+        "username": username, "password": "pw", "board_id": board_id}).status_code == 200
+    return c
+
+
+def test_per_browser_boards_isolated_under_one_shared_login():
+    """The device-isolation model: everyone uses one login, but each browser
+    (distinct localStorage board_id) gets its own isolated board."""
+    b1 = _browser("browser-aaaa")
+    b2 = _browser("browser-bbbb")
+    b1.post("/api/tracked/", json={"studentID": "cobra3"})
+    assert b1.get("/api/tracked/").json()["count"] == 1
+    assert b2.get("/api/tracked/").json()["count"] == 0     # other browser, own board
+
+    # The same browser key returns to the same board on a later login.
+    b1_again = _browser("browser-aaaa")
+    assert b1_again.get("/api/tracked/").json()["count"] == 1
+
+
 def test_api_isolation_between_two_researchers():
     """End-to-end: two logged-in researchers watching the SAME student see the
     same underlying state but fully isolated rosters, notes, and presence."""

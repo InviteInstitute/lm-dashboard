@@ -106,6 +106,7 @@ def health():
 class LoginBody(BaseModel):
     username: str
     password: str
+    board_id: str | None = None      # per-browser board key (from the SPA's localStorage)
 
 
 @app.post("/api/login/")
@@ -115,6 +116,15 @@ async def login(body: LoginBody, request: Request):
         raise HTTPException(status_code=401, detail="invalid username or password")
     request.session["researcher_id"] = researcher["id"]
     request.session["username"] = researcher["username"]
+    # Per-browser isolation: bind this session to the workspace for the browser's
+    # persistent key (get-or-create), so everyone can share one login yet each
+    # browser gets its own board. Without a board_id (e.g. a named account), the
+    # workspace falls back to the researcher's own (see current_workspace_id).
+    if body.board_id:
+        request.session["workspace_id"] = await run_in_threadpool(
+            db.workspace_for_client_key, body.board_id)
+    else:
+        request.session.pop("workspace_id", None)
     return {"id": researcher["id"], "username": researcher["username"]}
 
 
@@ -133,16 +143,19 @@ async def me(request: Request):
 
 
 async def current_workspace_id(request: Request) -> int:
-    """The workspace the logged-in researcher is acting in. Resolved once from the
-    session (guaranteed present past the auth gate) and cached on request.state,
-    so every data route scopes to the caller's own board."""
+    """The workspace this request acts in, so every data route scopes to the
+    caller's own board. Prefers the per-browser workspace bound to the session at
+    login (board_id); otherwise falls back to the logged-in researcher's own
+    workspace (named accounts). Resolved once and cached on request.state."""
     cached = getattr(request.state, "workspace_id", None)
     if cached is not None:
         return cached
-    rid = request.session.get("researcher_id")
-    ids = await run_in_threadpool(db.workspace_ids_for_researcher, rid)
-    wsid = ids[0] if ids else await run_in_threadpool(
-        db.ensure_workspace_for_researcher, rid, str(rid))
+    wsid = request.session.get("workspace_id")
+    if wsid is None:
+        rid = request.session.get("researcher_id")
+        ids = await run_in_threadpool(db.workspace_ids_for_researcher, rid)
+        wsid = ids[0] if ids else await run_in_threadpool(
+            db.ensure_workspace_for_researcher, rid, str(rid))
     request.state.workspace_id = wsid
     return wsid
 

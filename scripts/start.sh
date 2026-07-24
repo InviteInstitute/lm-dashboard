@@ -43,6 +43,32 @@ if lsof -ti tcp:8000 >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- Postgres (local dev runs it in a Docker container) --------------------
+# The data layer needs the lmdash-pg container up before the API/daemon start.
+# The container is created once during setup (postgres:latest, volume
+# lmdash_pgdata, POSTGRES_* from .env.mirror's DATABASE_URL); here we just make
+# sure it's running and ready. In prod the systemd units depend on docker.service
+# and the container's restart policy handles this instead.
+PG_CONTAINER="${PG_CONTAINER:-lmdash-pg}"
+if command -v docker >/dev/null 2>&1; then
+  if ! sudo docker ps --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
+    if sudo docker ps -a --format '{{.Names}}' | grep -qx "$PG_CONTAINER"; then
+      echo "Starting Postgres container ($PG_CONTAINER) ..."
+      sudo docker start "$PG_CONTAINER" >/dev/null
+    else
+      echo "Postgres container '$PG_CONTAINER' not found -- create it once (see README)."
+      exit 1
+    fi
+  fi
+  echo "Waiting for Postgres ..."
+  for _ in $(seq 1 30); do
+    sudo docker exec "$PG_CONTAINER" pg_isready -U lmdash -q 2>/dev/null && break
+    sleep 1
+  done
+else
+  echo "docker not found -- ensure DATABASE_URL points at a running Postgres."
+fi
+
 # --remote: turn on the prod-credential gate and serve the UI from the API itself
 # (single origin). The gate lives in this launch environment only, so local runs
 # and the test suite stay open.

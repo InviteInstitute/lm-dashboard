@@ -21,14 +21,24 @@ flowchart LR
 
 ## Quick Start
 
-You'll need Python 3.12+ and Node 18+.
+You'll need Python 3.12+, Node 18+, and Docker (Postgres runs in a container).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env.mirror                         # then add PROD_USERNAME / PROD_PASSWORD
+cp .env.example .env.mirror                         # set DATABASE_URL's password + PROD_USERNAME / PROD_PASSWORD
+
+# One-time: start Postgres (latest) in a container backing DATABASE_URL.
+docker run -d --name lmdash-pg --restart unless-stopped \
+  -e POSTGRES_USER=lmdash -e POSTGRES_PASSWORD=<same as DATABASE_URL> -e POSTGRES_DB=lm_dashboard \
+  -p 127.0.0.1:5432:5432 -v lmdash_pgdata:/var/lib/postgresql postgres:latest
+
 ./scripts/stop.sh && ./scripts/start.sh --prod      # API :8000, daemon (paused), dashboard :3000, docs :4000
 ```
+
+The schema is created automatically on startup (`db.init_db()`); there is no
+separate migration step. `scripts/start.sh` starts the `lmdash-pg` container if
+it's stopped.
 
 Open http://localhost:3000, add a student ID, and click **Resume polling** to start
 pulling live data. Shut everything back down with `./scripts/stop.sh`.

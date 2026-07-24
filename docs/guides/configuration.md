@@ -56,13 +56,15 @@ Idle backoff slows prod polling when nothing's happening, but it never stops. Th
 dead-man's switch does: with `--require-viewer` (or `PIPELINE_REQUIRE_VIEWER=1`) the
 daemon only polls prod while a dashboard is actually open.
 
-It works off a heartbeat. The read API stamps `viewer_last_seen` every time the dashboard
-fetches the grid, and the frontend stops polling the moment its tab is hidden, so a fresh
-stamp means someone is genuinely looking. Each tick the daemon checks that stamp: if it's
-gone stale, prod polling pauses, and it resumes on the next tick once a dashboard polls
-again. The staleness window is the `VIEWER_PRESENT_SECONDS` constant in
-`app/constants.py` (90 seconds), which is the one knob here that lives in code rather than
-an environment variable, since it rarely needs touching.
+It works off a heartbeat. The read API stamps `viewer_last_seen` while a dashboard
+holds the live stream open (on connect and every 15 seconds), and on every grid fetch
+under the polling fallback. The frontend closes the stream the moment its tab is
+hidden, so a fresh stamp means someone is genuinely looking. Each tick the daemon
+checks that stamp: if it's gone stale, prod polling pauses, and it resumes on the next
+tick once a dashboard reconnects. The staleness window is the
+`VIEWER_PRESENT_SECONDS` constant in `app/constants.py` (90 seconds), which is the one
+knob here that lives in code rather than an environment variable, since it rarely
+needs touching.
 
 `scripts/start.sh --remote` arms this automatically, so a session served over ngrok stops
 hitting prod whenever the last viewer closes or backgrounds their tab. It's left off for

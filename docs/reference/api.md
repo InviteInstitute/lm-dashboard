@@ -18,22 +18,33 @@ API also serves the built React app at `/`, so the paths below live under `/api`
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET`  | `/healthz` | health check |
+| `GET`  | `/api/stream/` | the live Server-Sent Events stream (pushes which channels changed) |
 | `GET`  | `/api/student_states/` | materialized per-student state (the dashboard's main read) |
-| `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt) |
+| `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt and readable program) |
 | `GET`  | `/api/tracked/` | the tracked-student roster |
 | `POST` | `/api/tracked/` | track or untrack a student |
 | `GET`  | `/api/triggers/` | active + recently-resolved intervention feed |
 | `POST` | `/api/triggers/ack/` | dismiss a trigger |
+| `GET`  | `/api/triggers/history/` | one student's full trigger history (the detail grid) |
 | `GET`  | `/api/triggers/config/` | which trigger types are enabled |
 | `POST` | `/api/triggers/config/` | enable or disable a trigger type |
+| `GET`  | `/api/switches/` | identity switches (casing flips, new class codes) for tracked students |
+| `POST` | `/api/switches/ack/` | dismiss an identity switch |
 | `POST` | `/api/presence/` | toggle whether a student is present in the room |
 | `POST` | `/api/picked/` | toggle whether a student has been picked/interviewed |
 | `GET`  | `/api/notes/` | a student's notes |
 | `POST` | `/api/notes/` | add a note |
+| `GET`  | `/api/outbox/` | failed researcher inputs parked for replay |
+| `POST` | `/api/outbox/` | park a failed researcher input |
 | `POST` | `/api/export/` | download a zip of CSV snapshots of all current data |
 | `POST` | `/api/reset/` | clear all local progress and flags + signal the daemon |
 | `GET`  | `/api/polling/` | whether the daemon is currently polling production |
 | `POST` | `/api/polling/` | pause or resume the daemon's production polling |
+
+!!! tip "Responses are gzipped"
+    Any JSON response over ~1KB is gzip-compressed when the client accepts it (the
+    run arrays and playground payloads compress roughly 10x). The SSE stream is the
+    one exception; it's sent uncompressed so events are never buffered.
 
 ---
 
@@ -45,6 +56,42 @@ served from the root in remote builds.
 ```json title="Response"
 { "service": "luc-dashboard", "ok": true }
 ```
+
+---
+
+## GET /api/stream/
+
+The live feed the dashboard actually runs on: one long-lived Server-Sent Events
+connection instead of polling. On connect the server sends a `hello` (the client does
+one full fetch), then it checks an O(1) per-channel change counter four times a
+second and pushes a `changed` event naming only the channels that moved. The client
+refetches just those endpoints.
+
+```text title="Response stream (text/event-stream)"
+event: hello
+data: {}
+
+event: changed
+data: {"channels": ["triggers", "states"]}
+
+: keepalive
+```
+
+The channels are `states`, `triggers`, `switches`, and `roster`, mapping to
+`/api/student_states/`, `/api/triggers/`, `/api/switches/`, and `/api/tracked/`.
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `once` | bool | return just the `hello` and close (used by tests) |
+
+!!! note "The stream is the viewer heartbeat"
+    While a dashboard holds this connection open, the server stamps
+    `meta.viewer_last_seen` (on connect and every 15 seconds), which is what the
+    daemon's dead-man's switch reads. A hidden tab closes the stream; if no dashboard
+    is connected or polling, prod polling can wind down. See
+    [Configuration](../guides/configuration.md#the-dead-mans-switch).
 
 ---
 
@@ -94,23 +141,33 @@ The dashboard's main read: the materialized per-student state.
     student IDs returns `400`.
 
 !!! note "Viewer heartbeat"
-    A `GET` here also stamps `meta.viewer_last_seen`. Because the dashboard polls this
-    on a timer (and stops when its tab is hidden), a fresh stamp means a dashboard is
-    open, which is what the daemon's dead-man's switch reads. See
+    A `GET` here also stamps `meta.viewer_last_seen`, and so does an open
+    [`/api/stream/`](#get-apistream) connection. Either way, a fresh stamp means a
+    dashboard is open, which is what the daemon's dead-man's switch reads. See
     [Configuration](../guides/configuration.md#the-dead-mans-switch).
 
 ---
 
 ## GET /api/student_states/{id}/
 
-The heavy payload for one student. Same fields as a row above, plus the playground
-`block`:
+The heavy payload for one student. Same fields as a row above (including `display`,
+the handle in its most-recent casing), plus the playground `block`:
 
 ```json title="Response (extra field)"
 {
-  "block": { "llm_prompt": "...", "timestamp": "2026-06-14T10:31:00" }
+  "block": {
+    "llm_prompt": "...",
+    "timestamp": "2026-06-14T10:31:00",
+    "readable": "when started\ndrive for forward, mm, amount 200\nturn for right, amount 90"
+  }
 }
 ```
+
+`readable` is the student's latest blocks rendered as a program listing, with block
+names from the official VEX mapping and every parameter spelled out, including the
+numbers (how far they drive, how much they turn). Nested conditions render inline,
+for example `if (not ((object distance < 200) and eye near object))`. It's
+best-effort: an unparseable or missing snapshot yields `""`.
 
 Returns `404` when the student is tracked but has no materialized state yet.
 
@@ -172,13 +229,18 @@ newest first, unacknowledged only.
       "started_at": "2026-06-14T10:25:00",
       "resolved_at": null,
       "active": true,
-      "age_seconds": 360.0
+      "age_seconds": 360.0,
+      "prev": { "trigger_type": "explorer", "label": "Explorer", "at": "2026-06-14T10:12:00" }
     }
   ],
   "active_count": 1,
   "counts": { "wheel_spin": 1 }
 }
 ```
+
+`prev` is the student's most recent trigger before this one (what it was and at what
+time), so the alert card can show context at a glance. It's `null` for a student's
+first-ever alert.
 
 There are five trigger types, all defined on the per-run `edit_distance`:
 
@@ -212,6 +274,34 @@ Returns `{ "acknowledged": n }`. Providing neither returns `400`.
 
 ---
 
+## GET /api/triggers/history/
+
+One student's full trigger history for the session, newest first, open, resolved, and
+dismissed alike. This is what the detail modal's trigger-history grid renders.
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `studentID` | string | required; case-insensitive |
+
+```json title="Response"
+{
+  "history": [
+    { "id": 44, "trigger_type": "inactive", "label": "Inactive", "value": "idle 6m",
+      "started_at": "2026-06-14T10:31:00", "resolved_at": null, "status": "active" },
+    { "id": 42, "trigger_type": "wheel_spin", "label": "Wheel-spinning", "value": "6 identical reruns",
+      "started_at": "2026-06-14T10:25:00", "resolved_at": "2026-06-14T10:27:00", "status": "dismissed" }
+  ],
+  "count": 2
+}
+```
+
+`status` is `active` (still open), `resolved` (closed by new activity), or
+`dismissed` (acknowledged by the researcher).
+
+---
+
 ## GET /api/triggers/config/
 
 Which trigger types are currently enabled (all on by default), with their labels.
@@ -238,6 +328,41 @@ and resolve its open alerts on the next tick.
 ```
 
 Returns the full `enabled` map. An unknown `trigger_type` returns `400`.
+
+---
+
+## GET /api/switches/
+
+Identity switches detected for tracked students, newest first: a handle arriving in a
+different casing (`cobra3` to `Cobra3`), or a handle turning up under a new class
+code. These drive the dashboard's switch toasts and the Identity Switches feed.
+
+```json title="Response"
+{
+  "switches": [
+    { "id": 5, "studentID": "cobra3", "kind": "class",
+      "from": "FPFVDH", "to": "AFURRR",
+      "ts": "2026-06-14T10:31:00", "acknowledged": false }
+  ],
+  "unacked": 1
+}
+```
+
+`kind` is `casing` or `class`. Identity is folded case-insensitively, so both
+spellings are one student; the switch is the signal that the same handle is active
+from a new spelling or class (often a shared device).
+
+---
+
+## POST /api/switches/ack/
+
+Dismiss one identity switch so it stops showing as new.
+
+```json title="Request"
+{ "id": 5 }
+```
+
+Returns `{ "acknowledged": 1 }`.
 
 ---
 
@@ -300,6 +425,41 @@ Returns the created note row. A missing `studentID` or empty `text` returns `400
 
 ---
 
+## POST /api/outbox/
+
+Park a researcher input whose write failed its retries. The dashboard calls this
+automatically as the last step of its resilient-write path (see the
+[read path](../concepts/read-path.md#resilient-writes-and-the-outbox)); you normally
+never call it by hand. The raw payload is stored verbatim so the input can be
+replayed later.
+
+```json title="Request"
+{ "op": "note on cobra3", "payload": { "studentID": "cobra3", "text": "..." }, "error": "Network Error" }
+```
+
+Returns `{ "stored": true }`.
+
+---
+
+## GET /api/outbox/
+
+The parked failed inputs, newest first. The outbox is deliberately spared by
+[reset](#post-apireset) and included in the CSV export, so a failed input survives
+everything.
+
+```json title="Response"
+{
+  "outbox": [
+    { "id": 1, "op": "note on cobra3",
+      "payload": "{\"studentID\": \"cobra3\", \"text\": \"...\"}",
+      "error": "Network Error", "created_at": "2026-06-14 10:31:00" }
+  ],
+  "count": 1
+}
+```
+
+---
+
 ## POST /api/export/
 
 Download a **zip of CSV snapshots** of all current data (one CSV per table: raw
@@ -325,7 +485,8 @@ tracked; the board rebuilds from new activity.
 
 !!! info
     A CSV backup (notes included) is written to `exports/reset_<timestamp>/` before
-    anything is cleared, so nothing is lost. Local only; production is untouched.
+    anything is cleared, so nothing is lost. The [outbox](#get-apioutbox) is
+    deliberately spared. Local only; production is untouched.
 
 ```json title="Response"
 {

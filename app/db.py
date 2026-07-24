@@ -1,33 +1,41 @@
 """
-The whole data layer, on top of the standard-library sqlite3 module (no ORM).
+The whole data layer, on top of psycopg 3 talking to Postgres (no ORM).
 
-Everything about the database is concentrated here: the schema, the one shared
-connection and its pragmas, and every read and write the API and pipeline make.
-Keeping the SQL in a single module is deliberate, it's the seam that would let
-a move to Postgres be a self-contained rewrite of this file.
+Everything about the database is concentrated here: the schema, the pooled
+connection, and every read and write the API and pipeline make. Keeping the SQL
+in a single module is deliberate; it's the seam that made the move off SQLite a
+self-contained rewrite of this file.
 
 Who writes what: the daemon owns all the derived state, while the API is mostly
 a reader that also makes a few small writes (the tracked roster, acks, notes,
-control flags). WAL mode plus a busy_timeout let the writer and the readers run
-at the same time without blocking each other.
+control flags). Postgres MVCC lets the writer and the readers run at the same
+time without blocking each other.
+
+SQL dialect note: query bodies are written with `?` placeholders (a SQLite
+legacy) and translated to psycopg's `%s` by _ph() in one place, so the ~40
+functions below read unchanged. Postgres folds unquoted identifiers to lower
+case, so the mixed-case column names (studentID, classCode, ...) come back
+lower-cased; the row factory is case-insensitive so `r["studentID"]` still works.
 
 Datetime contract: rows are stored as UTC-naive strings in the fixed-width
-format '%Y-%m-%d %H:%M:%S.%f', a legacy of the original Django writer. Because
-the width is fixed, comparing the strings lexically is the same as comparing the
-instants, which is what lets the cursor and cutoff SQL (ORDER BY started_at,
-resolved_at >= cutoff) work directly on the stored text.
+format '%Y-%m-%d %H:%M:%S.%f', a legacy of the original Django writer, kept as
+Postgres `text` columns. Because the width is fixed, comparing the strings
+lexically is the same as comparing the instants, which is what lets the cursor
+and cutoff SQL (ORDER BY started_at, resolved_at >= cutoff) work on the text.
 """
 import csv
 import io
 import json
 import os
-import sqlite3
 import threading
 import time
 import zipfile
 from datetime import datetime, timezone
 
-from app.config import DB_PATH
+import psycopg
+from psycopg_pool import ConnectionPool
+
+from app.config import DATABASE_URL
 
 UTC = timezone.utc
 _FMT = "%Y-%m-%d %H:%M:%S.%f"
@@ -96,72 +104,104 @@ def canon_id(sid):
 
 
 # --------------------------------------------------------------------------
-# connection (one shared handle per process; sqlite3 forbids cross-thread use
-# by default, so we opt out of that check)
+# connection (a psycopg pool; each read/write borrows a connection and returns
+# it, so the API's threadpool workers and the daemon get real concurrency via
+# Postgres MVCC instead of contending on one shared handle)
 # --------------------------------------------------------------------------
-_con = None
-_con_lock = threading.Lock()
-# Guards multi-statement transactions. sqlite3 already serializes a single
-# execute/fetchall with its own mutex, but a BEGIN..COMMIT spanning several
-# statements is not atomic against other threads on the shared connection, so
-# those transactions take this lock to stay atomic under FastAPI's threadpool.
-_write_lock = threading.Lock()
+class _CIRow(dict):
+    """A result row. Postgres lower-cases unquoted identifiers, so a column
+    written as `studentID` comes back keyed `studentid`; this makes lookups
+    case-insensitive so the ~40 query functions can keep reading r["studentID"].
+    `dict(r)` yields the lower-cased keys as Postgres returns them, so the two
+    call sites that leak column names into API JSON re-key explicitly."""
+
+    def __getitem__(self, key):
+        # Integer index -> positional access (dicts preserve column order), so the
+        # few `row[0]` call sites keep working alongside `row["studentID"]`.
+        if isinstance(key, int):
+            return list(self.values())[key]
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return super().__getitem__(key.lower())
 
 
-def connect():
-    """Return the process's single configured connection, creating it on first
-    call. WAL is a file-level pragma that persists, so setting it once is enough;
-    busy_timeout is per-connection but harmless to re-assert. The lock only
-    guards the lazy initialization. check_same_thread=False lets the daemon's
-    thread and FastAPI's worker threads share this one handle."""
-    global _con
-    if _con is not None:
-        return _con
-    with _con_lock:
-        if _con is None:
-            _con = sqlite3.connect(DB_PATH, timeout=5.0, check_same_thread=False)
-            _con.row_factory = sqlite3.Row
-            _con.execute("PRAGMA journal_mode=WAL")
-            _con.execute("PRAGMA synchronous=NORMAL")
-            _con.execute("PRAGMA busy_timeout=5000")
-    return _con
+def _ci_row_factory(cursor):
+    cols = [c.name for c in cursor.description] if cursor.description else []
+    return lambda values: _CIRow(zip(cols, values))
+
+
+def _configure(conn):
+    conn.row_factory = _ci_row_factory
+
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    """The process-wide connection pool, opened on first use."""
+    global _pool
+    if _pool is not None:
+        return _pool
+    with _pool_lock:
+        if _pool is None:
+            if not DATABASE_URL:
+                raise RuntimeError("DATABASE_URL is not set (see .env.mirror)")
+            _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10,
+                                   configure=_configure, open=True)
+    return _pool
+
+
+def _ph(sql):
+    """Translate the `?` placeholders the query bodies use into psycopg's `%s`.
+    Safe because no SQL string here contains a literal `%` or `?`."""
+    return sql.replace("?", "%s")
 
 
 def _query(sql, params=()):
-    return connect().execute(sql, params).fetchall()
+    with _get_pool().connection() as con:
+        return con.execute(_ph(sql), tuple(params)).fetchall()
 
 
 def _execute(sql, params=()):
-    """Run one self-contained write and commit it; returns the affected
-    rowcount. Safe to call from multiple threads because a single statement on
-    the shared connection is serialized by SQLite's own mutex."""
-    con = connect()
-    cur = con.execute(sql, params)
-    con.commit()
-    return cur.rowcount
+    """Run one self-contained write in its own transaction; returns the affected
+    rowcount. The pooled connection commits on a clean block exit."""
+    with _get_pool().connection() as con:
+        cur = con.execute(_ph(sql), tuple(params))
+        return cur.rowcount
+
+
+class _TxnConn:
+    """Wraps a borrowed psycopg connection so the multi-statement transaction
+    bodies keep their `?`-placeholder `con.execute(...)` / `con.executemany(...)`
+    calls. Postgres has no lastrowid, so inserts that need the new id use a
+    `RETURNING id` clause and fetch it off the returned cursor."""
+
+    def __init__(self, con):
+        self._con = con
+
+    def execute(self, sql, params=()):
+        return self._con.execute(_ph(sql), tuple(params))
+
+    def executemany(self, sql, seq):
+        cur = self._con.cursor()
+        cur.executemany(_ph(sql), list(seq))
+        return cur
 
 
 class _WriteTxn:
-    """A context manager for a multi-statement transaction on the shared
-    connection. It holds _write_lock for the duration so the BEGIN..COMMIT stays
-    atomic against other worker threads, commits on a clean exit, and rolls back
-    if the block raises. Use it as `with db.write_txn() as con:`."""
+    """Context manager for a multi-statement atomic write. Borrows a pooled
+    connection whose context manager commits on a clean exit and rolls back if
+    the block raises. Use it as `with db.write_txn() as con:`."""
 
     def __enter__(self):
-        _write_lock.acquire()
-        self.con = connect()
-        self.con.execute("BEGIN")
-        return self.con
+        self._cm = _get_pool().connection()
+        self._con = self._cm.__enter__()
+        return _TxnConn(self._con)
 
     def __exit__(self, exc_type, exc, tb):
-        try:
-            if exc_type is None:
-                self.con.commit()
-            else:
-                self.con.rollback()
-        finally:
-            _write_lock.release()
-        return False
+        return self._cm.__exit__(exc_type, exc, tb)
 
 
 def write_txn():
@@ -169,19 +209,19 @@ def write_txn():
 
 
 def data_version_probe():
-    """A dedicated read-only connection for change detection. Its PRAGMA
-    data_version bumps whenever ANY other connection commits a write -- the
-    daemon's and the API's shared handle alike, since this connection never
-    writes. The SSE stream polls it as an O(1) 'did anything change at all?'
-    gate so quiet ticks skip the per-channel fingerprint queries entirely.
-    Caller owns closing it."""
-    return sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True,
-                           timeout=5.0, check_same_thread=False)
+    """A dedicated autocommit connection for the SSE change gate. Postgres has no
+    global data_version, so data_version() below sums the channel_rev counters --
+    every write bumps one of them via the schema triggers, so the sum changes iff
+    something changed. Autocommit is essential: without it the connection would
+    hold one snapshot and never see later commits. Caller owns closing it."""
+    return psycopg.connect(DATABASE_URL, autocommit=True)
 
 
 def data_version(con):
-    """The current PRAGMA data_version of a probe connection (see above)."""
-    return con.execute("PRAGMA data_version").fetchone()[0]
+    """A monotonic 'did anything change at all?' number: the sum of the per-
+    channel revision counters. One cheap read that the SSE loop polls so quiet
+    ticks skip the per-channel fingerprint queries."""
+    return con.execute("SELECT COALESCE(SUM(rev), 0) FROM channel_rev").fetchone()[0]
 
 
 def latest_project(sid):
@@ -197,220 +237,172 @@ def latest_project(sid):
 
 
 # --------------------------------------------------------------------------
-# schema. Every statement is CREATE ... IF NOT EXISTS, so this is safe to run
-# on every startup: it builds the tables on a fresh DB and is a no-op on one
-# that already has them.
+# schema. A list of individual, idempotent statements (psycopg's extended
+# protocol runs one command per execute(), so we don't concatenate them). Tables
+# and indexes are IF NOT EXISTS; the change-counter function is CREATE OR
+# REPLACE; its triggers are DROP IF EXISTS + CREATE. Safe to run every startup.
+#
+# Types vs the old SQLite schema: DATETIME columns are Postgres `text` (the
+# fixed-width UTC-naive string contract is preserved, see the module docstring);
+# BOOL columns are `smallint` holding 0/1 so the query bodies keep writing 1/0
+# and reading ints; AUTOINCREMENT ids are identity columns.
 # --------------------------------------------------------------------------
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS message (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    queue_name VARCHAR(255) NOT NULL,
-    routing_key VARCHAR(255) NOT NULL DEFAULT '',
-    exchange VARCHAR(255) NOT NULL DEFAULT '',
-    content TEXT NOT NULL,
-    received_at DATETIME NOT NULL
-);
-CREATE TABLE IF NOT EXISTS vex_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_message_id BIGINT NOT NULL REFERENCES message(id),
-    classCode TEXT, eventType TEXT, studentID TEXT, project TEXT,
-    raw_message TEXT, event_time DATETIME,
-    source_event_id BIGINT UNIQUE
-);
-CREATE INDEX IF NOT EXISTS ix_vex_student ON vex_log(studentID, id);
--- The case-insensitive fold queries vex_log by lower(studentID) (student_tail,
--- tracked_remove); a plain-column index can't serve an expression filter, so
--- without this every rehydrate is a full scan that grows with the log.
-CREATE INDEX IF NOT EXISTS ix_vex_student_lower ON vex_log(lower(studentID));
-CREATE INDEX IF NOT EXISTS ix_vex_event_time ON vex_log(event_time);
-CREATE TABLE IF NOT EXISTS ingest_cursor (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name VARCHAR(32) NOT NULL UNIQUE,
-    last_source_id BIGINT NOT NULL DEFAULT 0,
-    last_event_time DATETIME,
-    updated_at DATETIME NOT NULL
-);
-CREATE TABLE IF NOT EXISTS student_state (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL UNIQUE,   -- canonical (folded) key; see canon_id
-    display_id VARCHAR(128),                  -- most-recent raw casing, for the UI
-    classCode VARCHAR(64),
-    run_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0,
-    runs TEXT, episodes TEXT,
-    playground_prompt TEXT, playground_time DATETIME,
-    last_event_id BIGINT NOT NULL DEFAULT 0, last_event_time DATETIME,
-    updated_at DATETIME NOT NULL
-);
-CREATE TABLE IF NOT EXISTS tracked_student (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL UNIQUE,
-    backfilled BOOL NOT NULL DEFAULT 0,
-    present BOOL NOT NULL DEFAULT 1,
-    picked BOOL NOT NULL DEFAULT 0,
-    picked_at DATETIME,
-    created_at DATETIME NOT NULL
-);
-CREATE TABLE IF NOT EXISTS trigger_event (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL,
-    trigger_type VARCHAR(24) NOT NULL,
-    started_at DATETIME NOT NULL, last_seen_at DATETIME NOT NULL,
-    resolved_at DATETIME, acknowledged BOOL NOT NULL DEFAULT 0,
-    detail TEXT, created_at DATETIME NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_trig_student ON trigger_event(studentID, trigger_type);
-CREATE INDEX IF NOT EXISTS ix_trig_resolved ON trigger_event(resolved_at);
-CREATE TABLE IF NOT EXISTS meta (
-    key TEXT PRIMARY KEY,
-    value TEXT
-);
-CREATE TABLE IF NOT EXISTS note (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL,
-    ts DATETIME NOT NULL,
-    text TEXT NOT NULL,
-    trigger_id INTEGER,
-    trigger_type VARCHAR(24),
-    created_at DATETIME NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_note_student ON note(studentID, ts);
-CREATE TABLE IF NOT EXISTS pick_event (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL,
-    picked BOOL NOT NULL,
-    ts DATETIME NOT NULL,
-    source VARCHAR(32),          -- 'roster' | 'intervention' (NULL = pre-provenance)
-    trigger_id INTEGER,          -- the trigger_event picked from; NULL for roster picks
-    trigger_type VARCHAR(64)     -- its type, denormalized for readable exports
-);
-CREATE INDEX IF NOT EXISTS ix_pick_student ON pick_event(studentID, ts);
-CREATE TABLE IF NOT EXISTS switch_event (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    studentID VARCHAR(128) NOT NULL,   -- the handle, in the casing seen at switch time
-    kind VARCHAR(16) NOT NULL,         -- 'casing' | 'class'
-    from_value TEXT,                   -- previous casing or classCode
-    to_value TEXT,                     -- new casing or classCode
-    ts DATETIME NOT NULL,
-    acknowledged BOOL NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS ix_switch_ts ON switch_event(ts);
+_SCHEMA = [
+    """CREATE TABLE IF NOT EXISTS message (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        queue_name VARCHAR(255) NOT NULL,
+        routing_key VARCHAR(255) NOT NULL DEFAULT '',
+        exchange VARCHAR(255) NOT NULL DEFAULT '',
+        content TEXT NOT NULL,
+        received_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS vex_log (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        from_message_id BIGINT NOT NULL REFERENCES message(id),
+        classCode TEXT, eventType TEXT, studentID TEXT, project TEXT,
+        raw_message TEXT, event_time TEXT,
+        source_event_id BIGINT UNIQUE
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_vex_student ON vex_log(studentID, id)",
+    # The case-insensitive fold queries vex_log by lower(studentID) (student_tail,
+    # tracked_remove); a plain-column index can't serve an expression filter, so
+    # without this every rehydrate is a full scan that grows with the log.
+    "CREATE INDEX IF NOT EXISTS ix_vex_student_lower ON vex_log(lower(studentID))",
+    "CREATE INDEX IF NOT EXISTS ix_vex_event_time ON vex_log(event_time)",
+    """CREATE TABLE IF NOT EXISTS ingest_cursor (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        name VARCHAR(32) NOT NULL UNIQUE,
+        last_source_id BIGINT NOT NULL DEFAULT 0,
+        last_event_time TEXT,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS student_state (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        studentID VARCHAR(128) NOT NULL UNIQUE,   -- canonical (folded) key; see canon_id
+        display_id VARCHAR(128),                  -- most-recent raw casing, for the UI
+        classCode VARCHAR(64),
+        run_count INTEGER NOT NULL DEFAULT 0, event_count INTEGER NOT NULL DEFAULT 0,
+        runs TEXT, episodes TEXT,
+        playground_prompt TEXT, playground_time TEXT,
+        last_event_id BIGINT NOT NULL DEFAULT 0, last_event_time TEXT,
+        updated_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS tracked_student (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        studentID VARCHAR(128) NOT NULL UNIQUE,
+        backfilled SMALLINT NOT NULL DEFAULT 0,
+        present SMALLINT NOT NULL DEFAULT 1,
+        picked SMALLINT NOT NULL DEFAULT 0,
+        picked_at TEXT,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS trigger_event (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        studentID VARCHAR(128) NOT NULL,
+        trigger_type VARCHAR(24) NOT NULL,
+        started_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+        resolved_at TEXT, acknowledged SMALLINT NOT NULL DEFAULT 0,
+        detail TEXT, created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_trig_student ON trigger_event(studentID, trigger_type)",
+    "CREATE INDEX IF NOT EXISTS ix_trig_resolved ON trigger_event(resolved_at)",
+    """CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS note (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        studentID VARCHAR(128) NOT NULL,
+        ts TEXT NOT NULL,
+        text TEXT NOT NULL,
+        trigger_id INTEGER,
+        trigger_type VARCHAR(24),
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_note_student ON note(studentID, ts)",
+    """CREATE TABLE IF NOT EXISTS pick_event (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        studentID VARCHAR(128) NOT NULL,
+        picked SMALLINT NOT NULL,
+        ts TEXT NOT NULL,
+        source VARCHAR(32),          -- 'roster' | 'intervention' (NULL = pre-provenance)
+        trigger_id INTEGER,          -- the trigger_event picked from; NULL for roster picks
+        trigger_type VARCHAR(64)     -- its type, denormalized for readable exports
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_pick_student ON pick_event(studentID, ts)",
+    """CREATE TABLE IF NOT EXISTS switch_event (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        studentID VARCHAR(128) NOT NULL,   -- the handle, in the casing seen at switch time
+        kind VARCHAR(16) NOT NULL,         -- 'casing' | 'class'
+        from_value TEXT,                   -- previous casing or classCode
+        to_value TEXT,                     -- new casing or classCode
+        ts TEXT NOT NULL,
+        acknowledged SMALLINT NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_switch_ts ON switch_event(ts)",
+    # Failed researcher inputs, parked verbatim so they are never lost. The
+    # dashboard writes here (via /api/outbox/) only after a primary write has
+    # failed its retries; rows carry the raw payload so any input can be replayed
+    # by hand later. Deliberately NOT wiped by reset_all.
+    """CREATE TABLE IF NOT EXISTS outbox (
+        id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        op VARCHAR(64) NOT NULL,           -- which action failed ('presence cobra3', ...)
+        payload TEXT,                      -- the original request body, as JSON
+        error TEXT,                        -- what the failure looked like client-side
+        created_at TEXT NOT NULL
+    )""",
+    # Per-channel change counters for the SSE stream. Each row's rev is bumped by
+    # the bump_rev() trigger whenever its source table changes, so data_fingerprint()
+    # reads four fixed rows (O(1)) instead of scanning the tables (O(rows)).
+    """CREATE TABLE IF NOT EXISTS channel_rev (
+        channel TEXT PRIMARY KEY,
+        rev BIGINT NOT NULL DEFAULT 0
+    )""",
+    # The seed just gives a defined start; bump_rev() upserts, so a channel is
+    # self-healing even if the test harness truncates every table between tests.
+    """INSERT INTO channel_rev (channel, rev) VALUES
+        ('states', 0), ('triggers', 0), ('switches', 0), ('roster', 0)
+        ON CONFLICT (channel) DO NOTHING""",
+    # One trigger function, parameterized by channel name (TG_ARGV[0]); it bumps
+    # the counter AND emits a NOTIFY so the SSE stream can LISTEN for low-latency
+    # wakeups instead of polling (see app/main.py stream + data_version).
+    """CREATE OR REPLACE FUNCTION bump_rev() RETURNS trigger AS $fn$
+        BEGIN
+            INSERT INTO channel_rev (channel, rev) VALUES (TG_ARGV[0], 1)
+            ON CONFLICT (channel) DO UPDATE SET rev = channel_rev.rev + 1;
+            PERFORM pg_notify('lm_change', TG_ARGV[0]);
+            RETURN NULL;
+        END;
+    $fn$ LANGUAGE plpgsql""",
+]
 
--- Failed researcher inputs, parked verbatim so they are never lost. The
--- dashboard writes here (via /api/outbox/) only after a primary write has
--- failed its retries; rows carry the raw payload so any input can be replayed
--- by hand later. Deliberately NOT wiped by reset_all.
-CREATE TABLE IF NOT EXISTS outbox (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    op VARCHAR(64) NOT NULL,           -- which action failed ('presence cobra3', ...)
-    payload TEXT,                      -- the original request body, as JSON
-    error TEXT,                        -- what the failure looked like client-side
-    created_at DATETIME NOT NULL
-);
-
--- Per-channel change counters for the SSE stream. Each row's rev is bumped by
--- the triggers below whenever its source table changes, so data_fingerprint()
--- reads four fixed rows (O(1)) instead of scanning the tables (O(rows)). The
--- bump is one PK update inside the write's own transaction; a bulk delete
--- (reset) fires it per row, but reset is already O(rows) so the class is
--- unchanged. Triggers live in the schema, so the daemon's writes fire them too.
-CREATE TABLE IF NOT EXISTS channel_rev (
-    channel TEXT PRIMARY KEY,
-    rev INTEGER NOT NULL DEFAULT 0
-);
--- The triggers upsert (not plain UPDATE) so a bump works even if the row is
--- absent -- e.g. the test harness truncates every table between tests. This
--- makes channel_rev self-healing; the seed below just gives a defined start.
-INSERT OR IGNORE INTO channel_rev (channel, rev) VALUES
-    ('states', 0), ('triggers', 0), ('switches', 0), ('roster', 0);
-
-CREATE TRIGGER IF NOT EXISTS trg_rev_states_i AFTER INSERT ON student_state BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('states', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_states_u AFTER UPDATE ON student_state BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('states', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_states_d AFTER DELETE ON student_state BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('states', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-
-CREATE TRIGGER IF NOT EXISTS trg_rev_trig_i AFTER INSERT ON trigger_event BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('triggers', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_trig_u AFTER UPDATE ON trigger_event BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('triggers', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_trig_d AFTER DELETE ON trigger_event BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('triggers', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-
-CREATE TRIGGER IF NOT EXISTS trg_rev_switch_i AFTER INSERT ON switch_event BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('switches', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_switch_u AFTER UPDATE ON switch_event BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('switches', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_switch_d AFTER DELETE ON switch_event BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('switches', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-
-CREATE TRIGGER IF NOT EXISTS trg_rev_roster_i AFTER INSERT ON tracked_student BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('roster', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_roster_u AFTER UPDATE ON tracked_student BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('roster', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-CREATE TRIGGER IF NOT EXISTS trg_rev_roster_d AFTER DELETE ON tracked_student BEGIN
-    INSERT INTO channel_rev (channel, rev) VALUES ('roster', 1)
-    ON CONFLICT(channel) DO UPDATE SET rev = rev + 1; END;
-"""
+# (table, channel) pairs whose row-level INSERT/UPDATE/DELETE bump a counter.
+_REV_TRIGGERS = [
+    ("student_state", "states"),
+    ("trigger_event", "triggers"),
+    ("switch_event", "switches"),
+    ("tracked_student", "roster"),
+]
 
 
 def init_db():
-    with write_txn() as con:
-        con.executescript(_SCHEMA)
-        # Lightweight in-place migration: add the presence/picked columns if an
-        # older database predates them. Guarded by a column check so it's
-        # idempotent and needs no separate migration step.
-        cols = {r[1] for r in con.execute("PRAGMA table_info(tracked_student)")}
-        if "present" not in cols:
-            con.execute("ALTER TABLE tracked_student ADD COLUMN present BOOL NOT NULL DEFAULT 1")
-        if "picked" not in cols:
-            con.execute("ALTER TABLE tracked_student ADD COLUMN picked BOOL NOT NULL DEFAULT 0")
-        if "picked_at" not in cols:
-            con.execute("ALTER TABLE tracked_student ADD COLUMN picked_at DATETIME")
-        # Drop the old HMM strategy columns from databases that predate the trigger
-        # rewamp (SQLite 3.35+ supports DROP COLUMN).
-        sscols = {r[1] for r in con.execute("PRAGMA table_info(student_state)")}
-        for dead in ("current_state", "state_label", "stuck", "consecutive_stuck"):
-            if dead in sscols:
-                con.execute(f"ALTER TABLE student_state DROP COLUMN {dead}")
-        if "display_id" not in sscols:
-            con.execute("ALTER TABLE student_state ADD COLUMN display_id VARCHAR(128)")
-        # Pick provenance: where each toggle came from and, for intervention picks,
-        # which trigger. All nullable, so older rows read as pre-provenance NULLs.
-        pcols = {r[1] for r in con.execute("PRAGMA table_info(pick_event)")}
-        if "source" not in pcols:
-            con.execute("ALTER TABLE pick_event ADD COLUMN source VARCHAR(32)")
-        if "trigger_id" not in pcols:
-            con.execute("ALTER TABLE pick_event ADD COLUMN trigger_id INTEGER")
-        if "trigger_type" not in pcols:
-            con.execute("ALTER TABLE pick_event ADD COLUMN trigger_type VARCHAR(64)")
-        # One-time identity fold: collapse case-variant handles to the canonical
-        # (lower) key so cobra3 and Cobra3 stop reading as two students. Derived
-        # tables (student_state, trigger_event) are just cleared -- the daemon
-        # re-materializes them lowercased from the raw log. The roster keeps one
-        # row per handle (earliest id wins). Guarded so it runs once.
-        already = con.execute("SELECT 1 FROM meta WHERE key='idcanon_v1'").fetchone()
-        if not already:
-            con.execute("DELETE FROM student_state")
-            con.execute("DELETE FROM trigger_event")
+    """Create the schema and change-counter triggers. Idempotent, so it runs on
+    every startup. On a fresh Postgres database this is the whole story; the
+    SQLite era's in-place column migrations and one-time identity fold are gone
+    (a fresh DB already has every column, and studentIDs are written canonically
+    via canon_id, so there is nothing to fold)."""
+    with _get_pool().connection() as con:
+        for stmt in _SCHEMA:
+            con.execute(stmt)
+        for table, channel in _REV_TRIGGERS:
+            con.execute(f"DROP TRIGGER IF EXISTS trg_rev_{channel} ON {table}")
             con.execute(
-                "DELETE FROM tracked_student WHERE id NOT IN "
-                "(SELECT MIN(id) FROM tracked_student GROUP BY lower(studentID))")
-            con.execute("UPDATE tracked_student SET studentID = lower(studentID)")
-            con.execute("UPDATE note SET studentID = lower(studentID)")
-            con.execute("UPDATE pick_event SET studentID = lower(studentID)")
-            con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('idcanon_v1', '1')")
+                f"CREATE TRIGGER trg_rev_{channel} "
+                f"AFTER INSERT OR UPDATE OR DELETE ON {table} "
+                f"FOR EACH ROW EXECUTE FUNCTION bump_rev('{channel}')"
+            )
+        con.execute("INSERT INTO meta (key, value) VALUES ('idcanon_v1', '1') "
+                    "ON CONFLICT (key) DO NOTHING")
 
 
 # --------------------------------------------------------------------------
@@ -523,13 +515,12 @@ def reset_all():
 # CSV export. Two callers share this: scripts/export_csv.py for an end-of-day
 # dump, and the reset endpoint to snapshot everything before it wipes.
 # --------------------------------------------------------------------------
-# Tables excluded from the dump: SQLite's own internal tables, the cursor
+# Tables excluded from the dump: the change-counter (channel_rev), the cursor
 # bookkeeping (ingest_cursor), the control flags (meta), and the raw envelope
 # (message), whose only research-relevant field is content, already copied into
 # vex_log.raw_message.
 
-_EXPORT_SKIP = {"sqlite_sequence", "sqlite_stat1", "sqlite_stat4",
-                "ingest_cursor", "meta", "message"}
+_EXPORT_SKIP = {"channel_rev", "ingest_cursor", "meta", "message"}
 
 
 def _tree_to_brackets(text):
@@ -573,7 +564,9 @@ def _export_tables(con, tables):
     if tables is not None:
         return tables
     return [r[0] for r in con.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' "
+        "ORDER BY table_name"
     ).fetchall() if r[0] not in _EXPORT_SKIP]
 
 
@@ -596,7 +589,7 @@ def export_csv(out_dir, tables=None, db_path=None):
     """Write one CSV file per table into out_dir (created if missing). Purely a
     read of the database, nothing is modified. Returns (out_dir, {table: rows})."""
     os.makedirs(out_dir, exist_ok=True)
-    con = sqlite3.connect(db_path or DB_PATH)
+    con = psycopg.connect(db_path or DATABASE_URL)
     try:
         written = {}
         for t in _export_tables(con, tables):
@@ -613,7 +606,7 @@ def export_zip_bytes(tables=None, db_path=None):
     """Build an in-memory zip of one CSV per table and return its bytes. The same
     read-only snapshot as export_csv, but nothing touches the filesystem: the API
     streams these bytes straight to the browser as a download."""
-    con = sqlite3.connect(db_path or DB_PATH)
+    con = psycopg.connect(db_path or DATABASE_URL)
     try:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
@@ -778,10 +771,10 @@ def add_note(student_id, text, trigger_id=None, trigger_type=None):
     with write_txn() as con:
         cur = con.execute(
             "INSERT INTO note (studentID, ts, text, trigger_id, trigger_type, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
             (student_id, ts, text, trigger_id, trigger_type, ts),
         )
-        nid = cur.lastrowid
+        nid = cur.fetchone()["id"]
     return {
         "id": nid, "studentID": student_id, "ts": ts, "text": text,
         "trigger_id": trigger_id, "trigger_type": trigger_type, "created_at": ts,
@@ -795,7 +788,16 @@ def list_notes(student_id):
         "FROM note WHERE studentID = ? ORDER BY ts, id",
         (canon_id(student_id),),
     )
-    return [dict(r) for r in rows]
+    # Explicit keys, not dict(r): Postgres returns lower-cased column names, and
+    # this dict is serialized straight to API JSON where the UI expects studentID.
+    return [
+        {
+            "id": r["id"], "studentID": r["studentID"], "ts": r["ts"],
+            "text": r["text"], "trigger_id": r["trigger_id"],
+            "trigger_type": r["trigger_type"], "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -838,7 +840,15 @@ def list_switches(limit=100, unacked_only=False):
         f"FROM switch_event {where}ORDER BY ts DESC, id DESC LIMIT ?",
         (limit,),
     )
-    return [dict(r) for r in rows]
+    # Explicit keys (see list_notes): preserve the studentID casing the UI expects.
+    return [
+        {
+            "id": r["id"], "studentID": r["studentID"], "kind": r["kind"],
+            "from_value": r["from_value"], "to_value": r["to_value"],
+            "ts": r["ts"], "acknowledged": r["acknowledged"],
+        }
+        for r in rows
+    ]
 
 
 def ack_switch(switch_id):
@@ -850,8 +860,8 @@ def tracked_add(sid):
     """Add a student to the roster (no-op if already there). The daemon notices
     the new, not-yet-backfilled row on its next tick and pulls their history."""
     _execute(
-        "INSERT OR IGNORE INTO tracked_student (studentID, backfilled, created_at) "
-        "VALUES (?, 0, ?)",
+        "INSERT INTO tracked_student (studentID, backfilled, created_at) "
+        "VALUES (?, 0, ?) ON CONFLICT (studentID) DO NOTHING",
         (canon_id(sid), dt_to_db(now())),
     )
 
@@ -932,15 +942,16 @@ def insert_message_and_log(norm):
         with write_txn() as con:
             cur = con.execute(
                 "INSERT INTO message (queue_name, routing_key, exchange, content, received_at) "
-                "VALUES ('pipeline', '', '', ?, ?)",
+                "VALUES ('pipeline', '', '', ?, ?) RETURNING id",
                 (norm["raw_message"], dt_to_db(norm["event_time"] or now())),
             )
+            message_id = cur.fetchone()["id"]
             con.execute(
                 "INSERT INTO vex_log "
                 "(from_message_id, classCode, eventType, studentID, project, raw_message, "
                 " event_time, source_event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    cur.lastrowid,
+                    message_id,
                     norm["classCode"],
                     norm["eventType"],
                     norm["studentID"],
@@ -951,7 +962,7 @@ def insert_message_and_log(norm):
                 ),
             )
         return True
-    except sqlite3.IntegrityError:
+    except psycopg.errors.UniqueViolation:
         return False
 
 
@@ -1088,7 +1099,7 @@ def fired_indices(student_id, trigger_type):
     loads these once on cold start to seed its in-memory dedupe, so a restart never
     re-fires an old run and the trigger sweep needn't re-scan history."""
     rows = _query(
-        "SELECT json_extract(detail, '$.run_index') AS i FROM trigger_event "
+        "SELECT (detail::jsonb ->> 'run_index')::int AS i FROM trigger_event "
         "WHERE studentID = ? AND trigger_type = ?",
         (student_id, trigger_type),
     )

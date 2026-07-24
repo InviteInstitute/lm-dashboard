@@ -14,9 +14,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # talks to prod, so the extra variables just sit there unused on that side.
 load_dotenv(BASE_DIR / ".env.mirror")
 
-# The one SQLite file both processes share: the daemon is its sole writer, the
-# API reads it, and WAL mode lets those happen concurrently.
-DB_PATH = os.environ.get("DB_PATH", str(BASE_DIR / "db.sqlite3"))
+# Postgres connection string (libpq URL), shared by the API and the daemon. This
+# is the datastore; both processes open a pooled connection to it. Required in
+# every real run -- the systemd units and scripts/start.sh load it from
+# .env.mirror.
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # Cross-origin allowlist for the browser. Defaults cover the Vite dev server's
 # usual ports; comma-separated, blanks dropped.

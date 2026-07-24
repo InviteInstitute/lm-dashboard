@@ -50,6 +50,10 @@ def fresh_db():
     # The control-flag cache is a module global with a 200ms TTL; clear it so a
     # flag set in one test can't leak into the next (the daemon reads through it).
     db._meta_cache.clear()
+    # The Basic-auth cache is a module global too; clear it so a header cached in
+    # one test doesn't resolve to a truncated researcher's id in the next.
+    from app import auth
+    auth._auth_cache.clear()
     workers.reset()
     workers.set_session_cutoff(None)   # module global; don't leak a cutoff between tests
     yield
@@ -63,17 +67,16 @@ def anon_client():
 
 @pytest.fixture
 def client():
-    """A TestClient logged in as a throwaway researcher, so the data API (gated by
-    SessionAuthMiddleware) is reachable. The researcher is made a member of the
-    DEFAULT workspace, so their routes resolve to it -- the same workspace that
-    db.* helpers (tracked_add, add_note, ...) write to by default. Most tests want
-    this."""
+    """A TestClient authenticated (HTTP Basic) as a throwaway researcher who is a
+    member of the DEFAULT workspace, so its routes resolve to the same workspace
+    the db.* helpers (tracked_add, add_note, ...) write to. It sends no X-Board-Id,
+    so the workspace comes from that researcher fallback. Most tests want this."""
+    import base64
     from app import auth
     rid = db.upsert_researcher("tester", auth.hash_password("secret"))
     db.add_workspace_member(db.default_workspace_id(), rid)
     c = TestClient(fastapi_app)
-    resp = c.post("/api/login/", json={"username": "tester", "password": "secret"})
-    assert resp.status_code == 200, resp.text
+    c.headers["Authorization"] = "Basic " + base64.b64encode(b"tester:secret").decode()
     return c
 
 

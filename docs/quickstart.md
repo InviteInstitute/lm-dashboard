@@ -1,120 +1,109 @@
 ---
-description: Install dependencies, configure production credentials, and run the API, daemon, and dashboard.
+description: Bring up the whole stack (Postgres, API, daemon) with one docker compose command.
 ---
 
 # Quickstart
 
-This walks you through getting the dashboard running locally against a mirror of the
-Reflecks production backend.
+The whole stack — Postgres, the read API (which also serves the dashboard), and the
+ingestion daemon — runs from one `docker compose` file, the same on your laptop and
+in production.
 
 ## Before You Start
 
 !!! info
-    You'll need **Python 3.12+** and **Node 18+**. The daemon also needs network
-    access to the Reflecks production server and a real account on it.
+    You only need **Docker** (Docker Desktop on macOS/Windows, or Docker + the
+    Compose v2 plugin on Linux). The daemon also needs network access to the
+    Reflecks production server and a real account on it.
 
-## Install
+## Configure
 
-1.  **Create a virtual environment and install the Python dependencies**
+Two small files, both gitignored:
 
-    ```bash
-    python -m venv .venv && source .venv/bin/activate
-    pip install -r requirements.txt
-    ```
-
-    The API has no ML dependencies of its own; all the heavy lifting lives in the
-    daemon. Everything installs together here, so you don't have to think about which
-    process needs what.
-
-2.  **Add your production credentials**
+1.  **App secrets** — copy the example and fill it in:
 
     ```bash
-    cp .env.example .env.mirror
+    cp .env.example .env.mirror     # set PROD_USERNAME / PROD_PASSWORD
     ```
 
-    Then fill in `PROD_USERNAME` and `PROD_PASSWORD` in `.env.mirror`.
+    `PROD_USERNAME` / `PROD_PASSWORD` are the daemon's Reflecks login. They also
+    seed the interim shared dashboard login (see [Using the dashboard](guides/using-the-dashboard.md)).
 
-    !!! note
-        Only the daemon actually uses `.env.mirror`, and only to authenticate to
-        production. The API and dashboard never call prod.
+2.  **Database password** for compose:
 
-The SQLite database creates itself on first run, so there's nothing to migrate on a
-fresh clone.
+    ```bash
+    echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16))')" > .env
+    ```
+
+Compose builds `DATABASE_URL` for you (pointing at the `db` service), so you don't
+set it yourself. The schema is created automatically on API startup — there is no
+separate migration step.
 
 ## Run
 
-Three processes, one terminal each.
+```bash
+docker compose up -d
+```
 
-1.  **Start the read API**
+That's it. In **dev**, compose auto-loads `compose.override.yml`, which adds:
 
-    ```bash
-    uvicorn app.main:app --port 8000 --reload
-    ```
+- the dashboard under **Vite with hot-reload** at [http://localhost:3000](http://localhost:3000)
+  (it proxies `/api` to the API), and
+- the API and daemon running with `--reload`, so code changes restart instantly.
 
-    This serves the materialized state at `http://localhost:8000`.
+In **production**, run the base file only so the API serves the pre-built dashboard
+on `:8000` (put a reverse proxy / TLS in front of it):
 
-2.  **Start the ingestion and inference daemon**
+```bash
+docker compose -f compose.yml up -d
+```
 
-    ```bash
-    python -m app.pipeline
-    ```
+!!! warning
+    Exactly one daemon runs (compose starts one). The cursor and idempotency logic
+    assume a single writer.
 
-    !!! warning
-        Run exactly one daemon. The cursor and idempotency logic assume a single
-        writer, so a second daemon will fight the first.
+Handy commands:
 
-3.  **Start the dashboard**
+```bash
+docker compose ps                    # status
+docker compose logs -f daemon        # follow a service (api / daemon / db)
+docker compose down                  # stop everything
+```
 
-    ```bash
-    cd frontend && npm install && npm run dev
-    ```
+## Sign In and Track Your First Student
 
-    This opens the dashboard at `http://localhost:3000`.
+Open the dashboard. Your **browser prompts for a username and password** — sign in
+with `PROD_USERNAME` / `PROD_PASSWORD`. Then type a student ID into **Track a
+student**: the daemon backfills their recent history, materializes their state, and
+their card appears within a tick or two.
 
-!!! tip
-    Prefer one command? `./scripts/start.sh` brings up all four processes (API,
-    daemon started paused, dashboard, and these docs) in the background, and
-    `./scripts/stop.sh` tears them down.
-
-!!! note "Dev vs. production mode"
-    By default `./scripts/start.sh` runs the dashboard in **dev mode** (the Vite
-    dev server, with hot reload), which is what you want while editing the code.
-
-    For a real **data-collection session**, run `./scripts/start.sh --prod`. It
-    builds the dashboard and serves the static bundle instead. It's lighter, runs
-    React effects once, and (unlike dev mode) a stray file save can't hot-reload
-    the page and reset your open detail modal or a half-written note. Same API,
-    daemon, database, and ports either way; only the dashboard build differs. The
-    production build takes a few seconds, so the dashboard appears shortly after
-    the URLs are printed.
-
-## Track Your First Student
-
-Open [http://localhost:3000](http://localhost:3000), type a student ID into **Track a
-student**, and the daemon backfills their recent history, materializes their state,
-and their card appears within a tick or two.
+!!! note "Each browser is its own board"
+    Under the shared login, every browser gets its own isolated board (roster,
+    notes, picks). For stable per-person boards across devices, create named
+    accounts with `scripts/create_researcher.py` — see
+    [Configuration](guides/configuration.md).
 
 !!! success
-    The dashboard is read-only against your local mirror. Tracking, analyzing, and
-    resetting never reach back to production.
+    The dashboard is read-only against your Postgres mirror. Tracking, analyzing,
+    and resetting never reach back to production.
+
+## Running Without Docker (a local venv)
+
+You can still run the pieces from a Python venv (`uvicorn app.main:app` + `python -m
+app.pipeline`) against a Postgres you point `DATABASE_URL` at — that's how the test
+suite runs. `scripts/start.sh` / `stop.sh` wrap that path. For everyday use, prefer
+compose.
 
 ## Run These Docs Locally
 
-This site is built with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/),
-installed in the same virtual environment.
+This site is [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/):
 
 ```bash
-mkdocs serve
+pip install mkdocs-material && mkdocs serve
 ```
 
-It always serves on [http://localhost:4000](http://localhost:4000) (pinned via
-`dev_addr` in `mkdocs.yml`), so it won't collide with the API on port 8000. The
-preview live-reloads as you edit anything under `docs/`.
-
-!!! note
-    Cloned fresh and `mkdocs` isn't there? Install it into the venv with
-    `pip install mkdocs-material`. For a one-off static build instead of the live
-    preview, run `mkdocs build`; the output lands in `site/`, which is gitignored.
+It serves on [http://localhost:4000](http://localhost:4000) (pinned via `dev_addr`)
+and live-reloads as you edit anything under `docs/`. `mkdocs build` writes a static
+site to the gitignored `site/`.
 
 ## Next Steps
 
@@ -130,6 +119,6 @@ preview live-reloads as you edit anything under `docs/`.
 
     ---
 
-    Every environment variable and CLI flag.
+    Environment variables, accounts, and CLI flags.
 
 </div>

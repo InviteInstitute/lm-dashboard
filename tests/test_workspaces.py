@@ -70,30 +70,42 @@ def test_creating_a_researcher_provisions_a_workspace():
 
 
 def _login(username):
-    """A TestClient logged in as a fresh researcher (its own workspace)."""
+    """A TestClient authed (Basic) as a fresh researcher, with NO board id, so it
+    falls back to that researcher's own workspace (named-account isolation)."""
+    import base64
     from fastapi.testclient import TestClient
     from app.main import app
     db.upsert_researcher(username, auth.hash_password("pw"))
     c = TestClient(app)
-    assert c.post("/api/login/", json={"username": username, "password": "pw"}).status_code == 200
+    c.headers["Authorization"] = "Basic " + base64.b64encode(f"{username}:pw".encode()).decode()
     return c
 
 
 def test_workspace_for_client_key_is_stable():
+    before = db._query("SELECT COUNT(*) AS c FROM workspace")[0]["c"]
     a = db.workspace_for_client_key("k1")
     b = db.workspace_for_client_key("k1")   # same key -> same board
+    b2 = db.workspace_for_client_key("k1")  # ... and repeat calls create NO new rows
     c = db.workspace_for_client_key("k2")   # new key -> new board
-    assert a == b and a != c
+    assert a == b == b2 and a != c
+    after = db._query("SELECT COUNT(*) AS c FROM workspace")[0]["c"]
+    assert after - before == 2              # exactly k1 + k2, not one per call
+
+
+def _basic(username, password="pw"):
+    import base64
+    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
 
 
 def _browser(board_id, username="shared"):
-    """A TestClient logged in under a shared account, bound to a browser key."""
+    """A TestClient authed (Basic) under a shared account, bound to a browser key
+    via the X-Board-Id header."""
     from fastapi.testclient import TestClient
     from app.main import app
     db.upsert_researcher(username, auth.hash_password("pw"))
     c = TestClient(app)
-    assert c.post("/api/login/", json={
-        "username": username, "password": "pw", "board_id": board_id}).status_code == 200
+    c.headers["Authorization"] = _basic(username)
+    c.headers["X-Board-Id"] = board_id
     return c
 
 

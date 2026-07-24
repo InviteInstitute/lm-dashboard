@@ -9,12 +9,13 @@ onto a single machine, analyzes student activity locally, and serves a researche
 dashboard. It only ever reads from production: it pulls events over the prod REST API
 and never writes back.
 
-The whole thing is built around one goal, it should run on a researcher's laptop with
-almost no setup. No message broker, no containers to orchestrate, no managed database.
-One Python process, one SQLite file, one web app.
+The whole thing is built around simplicity: one `docker compose up` brings up the
+entire stack — Postgres, the API, and the daemon. No message broker, no managed cloud
+services. It's also multi-tenant: each researcher works on their own isolated board
+behind a login, while the daemon serves all of them from one shared mirror.
 
 Here's the shape of it. Read it top to bottom: production feeds the daemon, the daemon
-writes everything, and the API serves it back out to the dashboard.
+writes everything, and the API serves it back out to the dashboards.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 35, "rankSpacing": 50}}}%%
@@ -60,24 +61,24 @@ derived tables as a throwaway cache.
 
 ## Topology And Processes
 
-Two OS processes on one host, connected only through a single SQLite file.
+Three containers, one `docker compose` stack, connected through Postgres.
 
-| Process | Command | Role |
+| Service | Command | Role |
 |---|---|---|
-| **Daemon** | `python -m app.pipeline` | the single writer, one blocking tick loop |
-| **API** | `uvicorn app.main:app` | stateless reader, plus tiny writes for track, ack, reset |
-| **SQLite (WAL)** | (the file itself) | the seam; one writer and many readers at once, no blocking |
+| **daemon** | `python -m app.pipeline` | the single writer, one blocking tick loop, fans out over every board |
+| **api** | `uvicorn app.main:app` | stateless reader (also serves the SPA), plus tiny per-board writes for track, ack, notes |
+| **db** | `postgres` | the seam; one writer and many readers at once via MVCC |
 
 The split is on purpose. The daemon is a long-running compute loop that has to be
 exactly one instance (the cursor assumes a single writer), while the API stays light,
 dependency-free (no numpy, no ML), and safe to restart on its own.
 
-!!! note "Serving it beyond localhost"
-    Both processes are local-only by default. To share the dashboard with collaborators,
-    `scripts/start.sh --remote` puts an HTTP Basic Auth gate in front of the whole origin
-    (the prod credentials) and exposes it through an ngrok tunnel, while the data stays on
-    your machine. See [Configuration](../guides/configuration.md) for the gate and the
-    dead-man's switch that keeps prod polling in check while it's served.
+!!! note "Auth and serving"
+    The whole origin is behind **HTTP Basic Auth** — the browser's native login dialog,
+    verified against a researcher table (argon2). Each browser is isolated into its own
+    board. In production the API is served behind a reverse proxy (TLS); see
+    [Configuration](../guides/configuration.md) for accounts and the per-board dead-man's
+    switch that keeps prod polling in check.
 
 ## Consistency
 
@@ -92,29 +93,27 @@ You get eventual consistency, but it's bounded, and the bound is small:
 - So end to end you're looking at roughly one daemon tick plus a quarter second,
   which is nothing on human timescales.
 
-Most of the coordination between the two processes happens implicitly through SQLite.
-The one explicit signal is **Reset**: the API stamps `meta.reset_requested_at` and
-wipes the local data, the daemon notices the flag changed, and it drops its in-memory
-workers so they don't re-materialize stale state.
+Coordination between the processes happens implicitly through Postgres. Reset is a
+per-board action now — it clears that board's own researcher data (notes, picks, acks)
+and leaves the shared mirror alone — so it needs no daemon handshake.
 
 ## Scaling And Evolution
 
-This is comfortable at tens of students on one laptop. The first thing that actually
+**Postgres** and **per-researcher auth + workspace isolation** are already in place
+(they used to be on this list). This is comfortable from tens of students up through a
+program's worth of researchers, each on their own board. The first thing that actually
 gives at larger scale is the daemon's sequential per-student inference, plus the
 per-tick full-table trigger sweep. It's not memory; the worker buffers are bounded.
-Here's the rough order you'd reach for things as you grow:
+The rough order you'd reach for things as you grow:
 
 1.  **Push-based ingestion.** Have prod publish events (a webhook, Redis Streams,
     NATS) so the daemon subscribes instead of polling. This kills both polling
-    latency and idle load, and it's the right move before you reach for any local
-    message broker.
-2.  **Postgres.** Once you've got multiple cohorts or multiple machines. It's a
-    contained change, because all the SQL lives in `app/db.py`.
-3.  **Async inference workers.** Only if per-event compute gets heavy, like an LLM
+    latency and idle load.
+2.  **Async inference workers.** Only if per-event compute gets heavy, like an LLM
     call per run. A task queue (Celery or RQ plus Redis) lets you offload that work
     with retries.
-4.  **Auth and horizontal API workers.** Auth on the mutating endpoints, plus more
-    than one read worker.
+3.  **Per-room SSE + horizontal API workers.** Scope the change stream per board
+    (today it's a global signal each board filters), and run more than one read worker.
 
 None of these touch the projection logic, and that isolation is the whole payoff of
 keeping the write and read sides apart.

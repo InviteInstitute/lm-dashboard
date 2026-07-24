@@ -10,12 +10,13 @@ independently, so you can run whichever side you're working on.
 
 ## What's Covered
 
-The backend tests exercise the parts where the real logic lives: the SQLite data
-layer (including the datetime contract, the zip export, and the case-insensitive
-identity fold), the ingestion poller, the per-student workers, the APTED
-edit-distance computation, the five trigger rules and their history, identity-switch
-detection, the episode segmenter, the block humanizer, the live-stream change
-fingerprint, the failed-write outbox, and every API endpoint through a test client.
+The backend tests exercise the parts where the real logic lives: the Postgres data
+layer (the datetime contract and the zip export), the ingestion poller, the
+per-student workers, the APTED edit-distance computation, the five trigger rules and
+their history, identity-switch detection, the episode segmenter, the block humanizer,
+the live-stream change signal, the failed-write outbox, the auth gate, the
+workspace/per-browser isolation and the daemon's fan-out, and every API endpoint
+through a test client.
 
 The frontend tests cover the dashboard's formatting helpers and render the real
 component against a mocked API to check that students, alerts, the trigger-history
@@ -27,10 +28,17 @@ the daemon and dashboard depend on is intact.
 
 ## Backend (pytest)
 
-The test tools (`pytest`, `pytest-cov`, `httpx`) are in `requirements.txt`, so if
-you've installed the app you already have them. Run the suite from the repo root:
+The test tools (`pytest`, `pytest-cov`, `httpx`) are in `requirements.txt`. The suite
+needs a **Postgres it can reach** — it connects using `DATABASE_URL` with the database
+name swapped to **`lm_dashboard_test`** (override with `TEST_DATABASE_URL`), and it
+truncates that database between tests, so your real data is never touched.
+
+Point `DATABASE_URL` at a local Postgres (the prod compose DB is internal, so for
+running tests use a Postgres exposed on a host port — e.g. a small `postgres` container
+on `localhost:5432`), create the test database once, then run from the repo root:
 
 ```bash
+createdb -O lmdash lm_dashboard_test    # once
 pytest
 ```
 
@@ -41,10 +49,7 @@ pytest --cov=app --cov-report=term-missing
 ```
 
 The suite is quick: there's no ML model to load and no heavy scientific dependencies
-to import, just the standard library, FastAPI, and APTED.
-
-The tests use a throwaway SQLite database in a temp directory, so your local
-`db.sqlite3` is never touched.
+to import, just FastAPI, psycopg, and APTED.
 
 ## Frontend (vitest)
 

@@ -524,13 +524,21 @@ def workspace_for_client_key(client_key):
     """Get-or-create the workspace bound to a browser/device key. This is how
     per-browser isolation works under a shared login: the same key (persisted in
     the browser's localStorage) always resolves to the same board, and a new
-    browser gets a fresh one. Race-safe via the client_key unique constraint."""
-    row = _query(
+    browser gets a fresh one. This runs on every API request, so the common case
+    (an existing board) is a single cheap SELECT with no write; only a genuinely
+    new board inserts. Race-safe via the client_key unique constraint."""
+    rows = _query("SELECT id FROM workspace WHERE client_key = ?", (client_key,))
+    if rows:
+        return rows[0]["id"]
+    # New board. ON CONFLICT DO NOTHING absorbs a concurrent create; RETURNING
+    # gives the row on our own insert, and we re-read if a racing request won.
+    rows = _query(
         "INSERT INTO workspace (name, created_at, client_key) VALUES (?, ?, ?) "
-        "ON CONFLICT (client_key) DO UPDATE SET client_key = excluded.client_key "
-        "RETURNING id",
+        "ON CONFLICT (client_key) DO NOTHING RETURNING id",
         (f"browser {client_key[:8]}", dt_to_db(now()), client_key))
-    return row[0]["id"]
+    if rows:
+        return rows[0]["id"]
+    return _query("SELECT id FROM workspace WHERE client_key = ?", (client_key,))[0]["id"]
 
 
 def all_workspace_ids():

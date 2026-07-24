@@ -1,0 +1,55 @@
+# The whole stack in one file: Postgres + the API (serving the built SPA) + the
+# ingestion daemon. Same file on your laptop and in prod.
+#
+#   docker compose up -d                     # dev (auto-loads compose.override.yml: hot-reload + Vite)
+#   docker compose -f compose.yml up -d      # prod (base only: built SPA served by the API)
+#
+# Config: POSTGRES_PASSWORD comes from a `.env` file (compose reads it natively);
+# the app's own secrets (PROD_USERNAME/PROD_PASSWORD/SESSION_SECRET) come from
+# .env.mirror. DATABASE_URL is set here to reach the `db` service on the compose
+# network, so you don't set it yourself.
+name: lm-dashboard
+
+services:
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lmdash
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: lm_dashboard
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lmdash -d lm_dashboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file: .env.mirror
+    environment:
+      DATABASE_URL: postgresql://lmdash:${POSTGRES_PASSWORD}@db:5432/lm_dashboard
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"     # loopback only; nginx (TLS) reverse-proxies to it
+
+  daemon:
+    build: .
+    restart: unless-stopped
+    command: python -m app.pipeline
+    env_file: .env.mirror
+    environment:
+      DATABASE_URL: postgresql://lmdash:${POSTGRES_PASSWORD}@db:5432/lm_dashboard
+      PIPELINE_REQUIRE_VIEWER: "1"     # prod: only poll a board while its dashboard is open
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

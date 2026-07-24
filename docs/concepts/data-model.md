@@ -1,13 +1,15 @@
 ---
-description: The SQLite tables, the event-log-as-truth split, and the datetime and JSON contracts in db.py.
+description: The Postgres tables, the event-log-as-truth split, tenancy, and the datetime/JSON contracts in db.py.
 ---
 
 # Data Model
 
-Everything lives in one SQLite file in WAL mode, with a `busy_timeout` set so readers
-never error out underneath the writer. All the SQL is tucked away in `app/db.py`,
-which is what makes a future Postgres swap a contained job: you reimplement `db.py`
-and keep the same function signatures.
+Everything lives in **Postgres**. All the SQL is in `app/db.py` (psycopg 3, no ORM),
+which keeps the whole query surface in one place. Postgres MVCC lets the single writer
+(the daemon) and the many readers (the API) run at once without blocking. Query bodies
+still use `?` placeholders, translated to psycopg's `%s` in one place; timestamps are
+stored as `text` (the fixed-width contract below) and the old SQLite booleans are
+`smallint` 0/1.
 
 ## Tables
 
@@ -29,12 +31,14 @@ flowchart LR
 
 | Group | Tables | Role |
 |---|---|---|
-| Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` |
-| Cursor | `ingest_cursor` | how far we've consumed |
-| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable |
-| Roster | `tracked_student` | the allowlist, plus the presence/picked toggles |
-| Researcher input | `note`, `pick_event`, `outbox` | observations, the pick/unpick history, and failed inputs parked verbatim |
-| Control | `meta`, `channel_rev` | cross-process signals (reset, polling, disabled triggers, the viewer heartbeat) and the per-channel change counters |
+| Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` — **shared** |
+| Cursor | `ingest_cursor` | how far we've consumed — shared |
+| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable — **shared** (one per student) |
+| Tenancy | `workspace`, `workspace_member`, `researcher` | boards, who can access them, and login accounts (argon2 hashes) |
+| Roster (per board) | `tracked_student` | a board's allowlist + its presence/picked toggles, keyed `(workspace_id, studentID)` |
+| Researcher input (per board) | `note`, `pick_event`, `trigger_ack`, `outbox` | observations, pick/unpick history, per-board alert dismissals, and failed inputs parked verbatim |
+| Control (per board) | `workspace_setting` | each board's flags (polling on/off, the viewer heartbeat) |
+| Change counters | `channel_rev` | the per-channel "what changed?" counters for the live stream — shared |
 
 !!! tip
     The read-model tables are just a cache of the event log. Delete them, or hit
@@ -52,20 +56,30 @@ differently:
   crash, or a rare lock). It's the one store with no upstream source to re-pull from,
   so it is deliberately **spared by reset** and rides along in the CSV export. See
   [resilient writes](read-path.md#resilient-writes-and-the-outbox).
-- **`channel_rev`** is four counter rows, one per dashboard channel, bumped by SQLite
-  triggers on every write to a source table. The live stream reads them as an O(1)
-  "what changed?" check instead of scanning the tables (see the
-  [read path](read-path.md#the-dashboard)). It's derived state, so a wipe is harmless;
-  the triggers rebuild it on the next write.
+- **`channel_rev`** is four counter rows, one per dashboard channel, bumped by a
+  Postgres trigger function on every write to a source table (which also fires a
+  `NOTIFY`). The live stream reads them as an O(1) "what changed?" check instead of
+  scanning the tables (see the [read path](read-path.md#the-dashboard)). It's derived
+  state, so a wipe is harmless; the trigger rebuilds it on the next write.
+
+### Shared vs. Per-Board
+
+The raw mirror and the derived analysis are a property of the **student**, so they're
+**shared** across every board: a student watched by two researchers is pulled from prod
+and materialized once. What's **per-board** is the researcher-facing overlay — which
+students that board tracks, its notes and picks, its alert dismissals (`trigger_ack`,
+since the shared `trigger_event` can't hold one board's ack), and its control flags.
+Removing a student from one board only purges the shared mirror once **no** board
+tracks them any more.
 
 ### Case-Insensitive Identity
 
 A VEX handle is unique only within a class and sometimes arrives in different casing
-(`cobra3` vs `Cobra3`). `db.canon_id` folds every derived table onto a lowercase key
-so those spellings are one student, while `student_state.display_id` keeps the
-most-recent raw casing for the UI. `switch_event` records when a tracked student's
-handle casing flips or their handle turns up under a new class code, which is what
-drives the identity-switch toasts and feed.
+(`cobra3` vs `Cobra3`). `db.canon_id` folds every derived table onto a lowercase key at
+write time so those spellings are one student, while `student_state.display_id` keeps
+the most-recent raw casing for the UI. `switch_event` records when a tracked student's
+handle casing flips or their handle turns up under a new class code, which drives the
+identity-switch toasts and feed.
 
 ## Two Contracts That Have To Hold
 
@@ -81,8 +95,8 @@ drives the identity-switch toasts and feed.
 ??? note "JSON Contract"
     The `runs`, `episodes`, and `detail` columns are stored as JSON text and go
     through `json.loads` / `json.dumps` helpers. Where the daemon needs to query
-    inside a blob, it uses SQLite's `json_extract`, for example the momentary-trigger
-    per-run dedupe on `$.run_index`.
+    inside a blob, it casts to `jsonb`, for example the momentary-trigger per-run
+    dedupe on `detail->>'run_index'`.
 
 ## Event Log As Truth
 
@@ -93,13 +107,14 @@ and `trigger_event`, is just a projection built from that log. That's the proper
 that lets you treat the derived tables as a disposable cache, and it's why reset and
 recovery are so simple.
 
-## Why SQLite
+## Why Postgres
 
 | Reason | Detail |
 |---|---|
-| Single host, single writer | The daemon is the only writer, which is exactly what SQLite WAL is good at. |
-| Tiny data | A classroom's worth of events is megabytes, not gigabytes. |
-| Zero setup | No server to install, no connection string to manage. A laptop runs it as-is. |
+| Concurrent boards | Many researchers on their own boards, all writing (roster, notes, picks) at once — MVCC handles it where SQLite's single-writer lock would contend. |
+| Real tenancy | Foreign keys + composite uniques (`(workspace_id, studentID)`) enforce per-board isolation cleanly. |
+| LISTEN/NOTIFY | The change-counter trigger emits a notification the live stream can build on. |
+| One command | It's a container in the same compose stack, so there's still nothing to install by hand. |
 
-The catch is a ceiling on write concurrency, but the single-writer design never gets
-near it. And the door to Postgres stays open because all the SQL is behind `db.py`.
+All the SQL stays behind `app/db.py`, which is what kept the move off SQLite a
+self-contained rewrite of one file.

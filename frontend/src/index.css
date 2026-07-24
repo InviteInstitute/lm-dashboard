@@ -6,14 +6,14 @@
   --lmd-bg: #f4f6f8;         --lmd-panel: #ffffff;
   --lmd-border: #e3e8ec;     --lmd-ink: #1c3947;
   --lmd-sub: #5b6b78;        --lmd-faint: #8b98a3;
-  --lmd-track: #eef1f4;
+  --lmd-track: #eef1f4;      --lmd-code: #24292f;
   --lmd-hatch-red-bg: #fde3e3;   --lmd-hatch-amber-bg: #fdecd0;
 }
 :root[data-theme="dark"] {
   --lmd-bg: #0b0e13;         --lmd-panel: #0f131a;
   --lmd-border: #1f2530;     --lmd-ink: #e6e9ef;
   --lmd-sub: #7d8694;        --lmd-faint: #5a626e;
-  --lmd-track: #0d1117;
+  --lmd-track: #0d1117;      --lmd-code: #c9d1d9;
   --lmd-hatch-red-bg: #3a1416;   --lmd-hatch-amber-bg: #3a2a10;
 }
 

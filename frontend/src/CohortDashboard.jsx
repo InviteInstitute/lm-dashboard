@@ -280,7 +280,7 @@ const Detail = ({ s, sid, status, history = [] }) => {
     );
 };
 const lbl = { fontFamily: HEADFONT, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: T.sub, textTransform: 'uppercase', marginBottom: 10 };
-const pre = { margin: 0, padding: 14, background: T.track, border: `1px solid ${T.border}`, borderRadius: 10, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#c9d1d9', maxHeight: 280, overflow: 'auto', marginBottom: 4 };
+const pre = { margin: 0, padding: 14, background: T.track, border: `1px solid ${T.border}`, borderRadius: 10, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: T.code, maxHeight: 280, overflow: 'auto', marginBottom: 4 };
 
 // ---------------- layout ----------------
 // One big style object for the whole screen. Plain inline-style dicts (some are

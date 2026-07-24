@@ -24,36 +24,19 @@ flowchart LR
 All you need is **Docker** (Desktop on Mac/Windows, or Docker + the compose plugin
 on Linux). The whole stack — Postgres, the API (which serves the built dashboard),
 and the ingestion daemon — runs from one compose file, the same on your laptop and
-in prod.
+in prod:
 
 ```bash
-# 1. app secrets
-cp .env.example .env.mirror        # fill in SESSION_SECRET + PROD_USERNAME / PROD_PASSWORD
-
-# 2. database password for compose
+cp .env.example .env.mirror   # fill in PROD_USERNAME / PROD_PASSWORD
 echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16))')" > .env
-
-# 3. bring it all up
-docker compose up -d               # dev: Vite hot-reload on :3000, API on :8000
+docker compose up -d
 ```
 
-- **Dev** (`docker compose up`) auto-loads `compose.override.yml`: the frontend runs
-  under Vite with hot-reload on **http://localhost:3000** (it proxies `/api` to the
-  API), and the API/daemon reload on code changes.
-- **Prod** (`docker compose -f compose.yml up -d`) skips the override: the API serves
-  the pre-built SPA on **:8000** (put a tunnel/reverse-proxy in front of it).
+Open the dashboard, sign in with `PROD_USERNAME` / `PROD_PASSWORD`, add a student ID,
+and its data begins flowing while the board is open.
 
-The schema is created automatically on API startup (`db.init_db()`), so there's no
-separate migration step. Sign in with `PROD_USERNAME` / `PROD_PASSWORD` (the interim
-shared login), or create real accounts with `scripts/create_researcher.py`. Tear it
-down with `docker compose down`.
-
-> Each browser gets its own isolated board (per-device isolation) even under a
-> shared login. Prefer stable per-person boards? Make individual accounts with
-> `scripts/create_researcher.py`.
-
-Open the dashboard, add a student ID, and its data begins flowing while the board is
-open.
+Full setup (dev vs. prod, configuration, accounts) is in the
+[Quickstart](https://inviteinstitute.github.io/lm-dashboard/quickstart/) docs.
 
 ## What You Get
 
@@ -68,11 +51,12 @@ open.
 
 ## Serving It Remotely
 
-Run the prod stack (`docker compose -f compose.yml up -d`) and put a tunnel or reverse
-proxy in front of the API on :8000. Every `/api` route requires a researcher **login**
-(a signed session cookie), so the data is never exposed ungated; the static dashboard
-loads openly and shows the login screen. While served, a dead-man's switch pauses a
-board's production polling whenever its dashboard isn't open.
+Run the prod stack (`docker compose -f compose.yml up -d`) — the API binds to
+`127.0.0.1:8000` so nginx (or another reverse proxy) sits in front of it. The whole
+origin is gated by **HTTP Basic** (your browser's native login dialog), checked
+against the researcher table, so nothing is ever exposed ungated. While served, a
+dead-man's switch pauses a board's production polling whenever its dashboard isn't
+open.
 
 ## Under the Hood
 

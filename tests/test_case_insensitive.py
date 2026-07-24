@@ -50,6 +50,7 @@ def test_casing_and_class_switches_are_recorded():
 
 
 def test_switches_api(client):
+    db.tracked_add("bear2")   # the switches feed is scoped to the workspace roster
     w = workers.get_worker("bear2")
     w.ingest(_ev("bear2", "FPFVDH", 1))
     w.ingest(_ev("bear2", "AFURRR", 2))            # class switch
@@ -100,11 +101,13 @@ def test_tracked_remove_folds_casing():
     assert db.list_student_states(["cobra3"]) == []
 
 
-def test_reset_clears_switches():
+def test_switch_events_are_shared_and_survive_a_workspace_reset():
+    # switch_event is part of the shared per-student mirror, so a per-workspace
+    # reset (researcher data only) leaves it intact.
     db.record_switch("cobra3", "class", "FPFVDH", "AFURRR")
     assert db.list_switches()
-    db.reset_all()
-    assert db.list_switches() == []
+    db.reset_workspace()
+    assert db.list_switches()
 
 
 def test_rehydrate_reads_mixed_casing_and_lands_on_newest():

@@ -12,7 +12,7 @@ import asyncio
 import json
 from datetime import timedelta
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
@@ -106,6 +106,7 @@ def health():
 class LoginBody(BaseModel):
     username: str
     password: str
+    board_id: str | None = None      # per-browser board key (from the SPA's localStorage)
 
 
 @app.post("/api/login/")
@@ -115,6 +116,15 @@ async def login(body: LoginBody, request: Request):
         raise HTTPException(status_code=401, detail="invalid username or password")
     request.session["researcher_id"] = researcher["id"]
     request.session["username"] = researcher["username"]
+    # Per-browser isolation: bind this session to the workspace for the browser's
+    # persistent key (get-or-create), so everyone can share one login yet each
+    # browser gets its own board. Without a board_id (e.g. a named account), the
+    # workspace falls back to the researcher's own (see current_workspace_id).
+    if body.board_id:
+        request.session["workspace_id"] = await run_in_threadpool(
+            db.workspace_for_client_key, body.board_id)
+    else:
+        request.session.pop("workspace_id", None)
     return {"id": researcher["id"], "username": researcher["username"]}
 
 
@@ -132,24 +142,38 @@ async def me(request: Request):
             "username": request.session.get("username")}
 
 
+async def current_workspace_id(request: Request) -> int:
+    """The workspace this request acts in, so every data route scopes to the
+    caller's own board. Prefers the per-browser workspace bound to the session at
+    login (board_id); otherwise falls back to the logged-in researcher's own
+    workspace (named accounts). Resolved once and cached on request.state."""
+    cached = getattr(request.state, "workspace_id", None)
+    if cached is not None:
+        return cached
+    wsid = request.session.get("workspace_id")
+    if wsid is None:
+        rid = request.session.get("researcher_id")
+        ids = await run_in_threadpool(db.workspace_ids_for_researcher, rid)
+        wsid = ids[0] if ids else await run_in_threadpool(
+            db.ensure_workspace_for_researcher, rid, str(rid))
+    request.state.workspace_id = wsid
+    return wsid
+
+
 @app.get("/api/student_states/")
-def student_states(students: str | None = None, classCode: str | None = None):
-    """The dashboard's primary read: the materialized per-student state. Optional
-    `students` (comma-separated) and `classCode` narrow the result. Rows sort by
+def student_states(classCode: str | None = None,
+                   wsid: int = Depends(current_workspace_id)):
+    """The dashboard's primary read: the materialized state for the students on
+    this workspace's roster. Optional `classCode` narrows the result. Rows sort by
     most recent activity; the dashboard derives a student's status from the
     triggers feed it already fetches."""
-    # Presence heartbeat: this is the grid's per-tick poll, so a hit means a
-    # dashboard is open and visible (the frontend stops polling when its tab is
-    # hidden). The daemon reads this stamp to run its dead-man's switch -- it
-    # pauses prod polling once no dashboard has polled for VIEWER_PRESENT_SECONDS.
-    db.set_meta("viewer_last_seen", db.now().isoformat())
-    ids = [x.strip() for x in students.split(",") if x.strip()] if students else None
-    if ids and len(ids) > MAX_STUDENT_IDS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"too many studentIDs (max {MAX_STUDENT_IDS})",
-        )
-    rows = [_shape_state(s) for s in db.list_student_states(ids, classCode)]
+    # Presence heartbeat: this is the grid's per-tick poll, so a hit means this
+    # workspace's dashboard is open and visible (the frontend stops polling when
+    # its tab is hidden). The daemon reads this per-workspace stamp for its
+    # dead-man's switch -- it stops polling a board's students once no dashboard
+    # has polled for VIEWER_PRESENT_SECONDS.
+    db.set_workspace_setting(wsid, "viewer_last_seen", db.now().isoformat())
+    rows = [_shape_state(s) for s in db.list_student_states(class_code=classCode, workspace_id=wsid)]
     rows.sort(key=lambda s: s["last_seen"] or "", reverse=True)
     return {"students": rows, "student_count": len(rows)}
 
@@ -178,17 +202,23 @@ def _changed_channels(prev, cur):
 
 
 @app.get("/api/stream/")
-async def stream(request: Request, once: bool = False):
+async def stream(request: Request, once: bool = False,
+                 wsid: int = Depends(current_workspace_id)):
     """Server-Sent Events feed. Emits `hello` immediately (the client does one
     full fetch on connect), then `changed` events carrying the list of channels
     that moved. `once=true` returns just the hello and closes -- used by tests so
-    they never block on the live loop."""
+    they never block on the live loop.
+
+    The change signal is still global (any student's change wakes every open
+    board, which then refetches its own roster-scoped data); holding the stream is
+    this workspace's viewer-presence heartbeat for the daemon's dead-man switch."""
     async def gen():
         yield "event: hello\ndata: {}\n\n"
         if once:
             return
         prev = await run_in_threadpool(db.data_fingerprint)
-        await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
+        await run_in_threadpool(db.set_workspace_setting, wsid, "viewer_last_seen",
+                                db.now().isoformat())
         # O(1) change gate: PRAGMA data_version on a dedicated read-only
         # connection bumps when ANY other connection commits, so quiet ticks
         # cost one pragma read instead of the four fingerprint queries. This is
@@ -209,7 +239,8 @@ async def stream(request: Request, once: bool = False):
                         yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
                 ticks += 1
                 if ticks % STREAM_HEARTBEAT_TICKS == 0:
-                    await run_in_threadpool(db.set_meta, "viewer_last_seen", db.now().isoformat())
+                    await run_in_threadpool(db.set_workspace_setting, wsid,
+                                            "viewer_last_seen", db.now().isoformat())
                     yield ": keepalive\n\n"
         finally:
             probe.close()
@@ -226,11 +257,12 @@ async def stream(request: Request, once: bool = False):
 
 
 @app.get("/api/student_states/{student_id}/")
-def student_state_detail(student_id: str):
+def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_id)):
     """The heavy payload for a single student, the cohort fields plus the
     playground prompt the grid leaves out. The detail modal calls this on open.
-    Returns 404 when the student is tracked but has no materialized state yet."""
-    rows = db.list_student_states([student_id])
+    Returns 404 when the student isn't on this workspace's roster or has no
+    materialized state yet."""
+    rows = db.list_student_states([student_id], workspace_id=wsid)
     if not rows:
         raise HTTPException(status_code=404, detail="no state for that student")
     payload = _shape_state(rows[0], heavy=True)
@@ -244,16 +276,18 @@ def student_state_detail(student_id: str):
 
 
 @app.get("/api/triggers/")
-def triggers():
-    """The intervention feed: still-open triggers plus any resolved within the
-    last TRIGGER_RECENT_SECONDS, newest first, unacknowledged only."""
+def triggers(wsid: int = Depends(current_workspace_id)):
+    """The intervention feed for this workspace: still-open triggers on its roster
+    plus any resolved within the last TRIGGER_RECENT_SECONDS, newest first, that
+    this workspace hasn't dismissed."""
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
-    feed = db.triggers_feed(cutoff)
+    feed = db.triggers_feed(cutoff, workspace_id=wsid)
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
     # the card can say "last: Wheel-spinning · 10:24". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
-    history = {sid: db.trigger_history(sid) for sid in {t["studentID"] for t in feed}}
+    history = {sid: db.trigger_history(sid, workspace_id=wsid)
+               for sid in {t["studentID"] for t in feed}}
     items, counts = [], {}
     for t in feed:
         active = t["resolved_at"] is None
@@ -284,14 +318,14 @@ def triggers():
 
 
 @app.get("/api/triggers/history/")
-def trigger_history(studentID: str):
-    """One student's full trigger history (since the last reset), newest first --
-    open, resolved, and dismissed alike. The detail modal renders this as the
-    trigger-history grid."""
+def trigger_history(studentID: str, wsid: int = Depends(current_workspace_id)):
+    """One student's full trigger history, newest first -- open, resolved, and
+    dismissed alike -- with this workspace's dismiss state. The detail modal
+    renders this as the trigger-history grid."""
     if not studentID:
         raise HTTPException(status_code=400, detail="provide studentID")
     rows = []
-    for t in db.trigger_history(studentID):
+    for t in db.trigger_history(studentID, workspace_id=wsid):
         d = t["detail"] or {}
         rows.append({
             "id": t["id"], "trigger_type": t["trigger_type"],
@@ -310,28 +344,29 @@ class AckBody(BaseModel):
 
 
 @app.post("/api/triggers/ack/")
-def ack_trigger(body: AckBody):
-    """Dismiss a single trigger by id, or every open trigger for a student."""
+def ack_trigger(body: AckBody, wsid: int = Depends(current_workspace_id)):
+    """Dismiss (for this workspace) a single trigger by id, or every trigger for a
+    student."""
     if body.id is not None:
-        n = db.ack_by_id(body.id)
+        n = db.ack_by_id(body.id, workspace_id=wsid)
     elif body.studentID:
-        n = db.ack_by_student(body.studentID)
+        n = db.ack_by_student(body.studentID, workspace_id=wsid)
     else:
         raise HTTPException(status_code=400, detail="provide id or studentID")
     return {"acknowledged": n}
 
 
 @app.get("/api/switches/")
-def switches():
+def switches(wsid: int = Depends(current_workspace_id)):
     """Identity switches (a handle's casing flipped, or it showed up in a new
-    class) detected for tracked students, newest first. The dashboard polls this
-    for the live toast and the reviewable Switches feed."""
+    class) detected for the students on this workspace's roster, newest first. The
+    dashboard polls this for the live toast and the reviewable Switches feed."""
     items = [{
         "id": r["id"], "studentID": r["studentID"], "kind": r["kind"],
         "from": r["from_value"], "to": r["to_value"],
         "ts": _iso(db.db_to_dt(r["ts"])),
         "acknowledged": bool(r["acknowledged"]),
-    } for r in db.list_switches(limit=100)]
+    } for r in db.list_switches(limit=100, workspace_id=wsid)]
     return {"switches": items, "unacked": sum(1 for i in items if not i["acknowledged"])}
 
 
@@ -352,20 +387,20 @@ class OutboxBody(BaseModel):
 
 
 @app.post("/api/outbox/")
-def outbox_store(body: OutboxBody):
+def outbox_store(body: OutboxBody, wsid: int = Depends(current_workspace_id)):
     """Park a researcher input whose primary write failed its retries. The
     dashboard sends the original request body verbatim so nothing typed or
     clicked is ever lost -- the row can be replayed by hand later."""
     db.record_outbox(body.op,
                      json.dumps(body.payload) if body.payload is not None else None,
-                     body.error)
+                     body.error, workspace_id=wsid)
     return {"stored": True}
 
 
 @app.get("/api/outbox/")
-def outbox_list():
-    """The parked failed inputs, newest first (inspection/replay)."""
-    rows = db.list_outbox()
+def outbox_list(wsid: int = Depends(current_workspace_id)):
+    """This workspace's parked failed inputs, newest first (inspection/replay)."""
+    rows = db.list_outbox(workspace_id=wsid)
     return {"outbox": rows, "count": len(rows)}
 
 
@@ -375,65 +410,61 @@ class TrackBody(BaseModel):
 
 
 @app.get("/api/tracked/")
-def tracked_list():
-    rows = db.tracked_list()
+def tracked_list(wsid: int = Depends(current_workspace_id)):
+    rows = db.tracked_list(workspace_id=wsid)
     return {"tracked": rows, "count": len(rows)}
 
 
 @app.post("/api/tracked/")
-def tracked_mutate(body: TrackBody):
-    """Start or stop tracking a student. {studentID} adds them (the daemon then
-    backfills); {studentID, remove: true} stops tracking and deletes their data."""
+def tracked_mutate(body: TrackBody, wsid: int = Depends(current_workspace_id)):
+    """Start or stop tracking a student on this workspace's board. {studentID}
+    adds them (the daemon then backfills); {studentID, remove: true} untracks them
+    (their shared data is purged only if no other board still tracks them)."""
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
     if body.remove:
-        db.tracked_remove(sid)
+        db.tracked_remove(sid, workspace_id=wsid)
         return {"removed": sid}
-    db.tracked_add(sid)
+    db.tracked_add(sid, workspace_id=wsid)
     return {"added": sid}
 
 
 @app.post("/api/export/")
-def export():
-    """Stream a CSV snapshot of all current data as a zip the browser downloads.
-    A pure read built entirely in memory, the database and filesystem are never
-    touched."""
+def export(wsid: int = Depends(current_workspace_id)):
+    """Stream a CSV snapshot of THIS workspace's data as a zip the browser
+    downloads. A pure read built entirely in memory; nothing is modified."""
     stamp = db.now()
     name = f"lm-dashboard_export_{stamp.strftime('%Y-%m-%d_%H%M%S')}.zip"
     return Response(
-        content=db.export_zip_bytes(),
+        content=db.export_zip_bytes(workspace_id=wsid),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
 
 
 @app.post("/api/reset/")
-def reset():
-    """Clear all local student data (logs, episodes, run/trigger state, flags), the
-    researcher notes, and the interview-pick state (picked toggles + pick
-    history), and signal the daemon to drop its in-memory workers. Tracked
-    students stay tracked, presence is kept, and the board rebuilds from new
-    activity. A CSV snapshot, notes and picks included, is written to
-    exports/reset_<timestamp>/ first, so nothing is actually lost. Local only;
-    production is never touched.
-
-    The order matters: we stamp meta['reset_requested_at'] (which the daemon
-    watches, so it drops its workers and re-wipes any row a race leaves behind)
-    and also wipe right away here, so the dashboard clears immediately."""
+def reset(wsid: int = Depends(current_workspace_id)):
+    """Clear THIS workspace's researcher state for a fresh session: its notes, the
+    interview-pick state (picked toggles + pick history), and its trigger
+    dismissals. The roster and presence stay, and -- unlike the old single-board
+    reset -- the SHARED per-student mirror is left intact (other boards depend on
+    it; this board just re-derives its view). A CSV snapshot of this workspace,
+    notes and picks included, is written to exports/reset_<timestamp>/ first, so
+    nothing is lost. Production is never touched."""
     stamp = db.now()
     backup_dir, _ = db.export_csv(
-        str(config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}")
+        str(config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}"),
+        workspace_id=wsid,
     )
-    db.set_meta("reset_requested_at", stamp.isoformat())
-    db.reset_all()
+    db.reset_workspace(workspace_id=wsid)
     return {"reset": True, "at": stamp.isoformat(), "backup": backup_dir}
 
 
-def _polling_enabled() -> bool:
-    """Polling is on unless the flag is explicitly "0"; anything else (including
-    a missing flag) counts as enabled."""
-    return db.get_meta("polling_enabled") != "0"
+def _polling_enabled(wsid) -> bool:
+    """Polling is on for a workspace unless its flag is explicitly "0"; anything
+    else (including a missing flag) counts as enabled."""
+    return db.get_workspace_setting(wsid, "polling_enabled") != "0"
 
 
 class PollingBody(BaseModel):
@@ -441,10 +472,10 @@ class PollingBody(BaseModel):
 
 
 @app.get("/api/polling/")
-def polling_status():
-    """Report whether the daemon is currently polling production. The dashboard's
-    pause toggle reads this to stay in sync across open tabs."""
-    return {"enabled": _polling_enabled()}
+def polling_status(wsid: int = Depends(current_workspace_id)):
+    """Report whether the daemon is polling production for THIS workspace. The
+    dashboard's pause toggle reads this to stay in sync across the board's tabs."""
+    return {"enabled": _polling_enabled(wsid)}
 
 
 class PresenceBody(BaseModel):
@@ -461,25 +492,26 @@ class PickedBody(BaseModel):
 
 
 @app.post("/api/presence/")
-def set_presence(body: PresenceBody):
-    """Set whether a tracked student is present in the room. Persisted on
-    tracked_student, so it's included in the CSV export."""
+def set_presence(body: PresenceBody, wsid: int = Depends(current_workspace_id)):
+    """Set whether a tracked student is present in the room, on this board.
+    Persisted on tracked_student, so it's included in the CSV export."""
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
-    db.set_presence(sid, body.present)
+    db.set_presence(sid, body.present, workspace_id=wsid)
     return {"studentID": sid, "present": body.present}
 
 
 @app.post("/api/picked/")
-def set_picked(body: PickedBody):
-    """Set whether a tracked student has been picked/interviewed this session.
-    Persisted on tracked_student (with picked_at), so it's in the CSV export."""
+def set_picked(body: PickedBody, wsid: int = Depends(current_workspace_id)):
+    """Set whether a tracked student has been picked/interviewed this session, on
+    this board. Persisted on tracked_student (with picked_at), so it's exported."""
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
     db.set_picked(sid, body.picked, source=body.source,
-                  trigger_id=body.trigger_id, trigger_type=body.trigger_type)
+                  trigger_id=body.trigger_id, trigger_type=body.trigger_type,
+                  workspace_id=wsid)
     return {"studentID": sid, "picked": body.picked}
 
 
@@ -531,37 +563,36 @@ class NoteBody(BaseModel):
 
 
 @app.post("/api/notes/")
-def add_note(body: NoteBody):
-    """Record an observation for a learner. trigger_id/trigger_type tie it to the
-    alert it was written from; omit both for a free-standing note. Persisted on
-    the note table, so it's included in the CSV export."""
+def add_note(body: NoteBody, wsid: int = Depends(current_workspace_id)):
+    """Record an observation for a learner on this board. trigger_id/trigger_type
+    tie it to the alert it was written from; omit both for a free-standing note.
+    Persisted on the note table, so it's included in the CSV export."""
     sid = (body.studentID or "").strip()
     text = (body.text or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
     if not text:
         raise HTTPException(status_code=400, detail="text required")
-    return db.add_note(sid, text, body.trigger_id, body.trigger_type)
+    return db.add_note(sid, text, body.trigger_id, body.trigger_type, workspace_id=wsid)
 
 
 @app.get("/api/notes/")
-def list_notes(studentID: str | None = None):
-    """Every note for a learner, in chronological order."""
+def list_notes(studentID: str | None = None, wsid: int = Depends(current_workspace_id)):
+    """This board's notes for a learner, in chronological order."""
     sid = (studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
-    notes = db.list_notes(sid)
+    notes = db.list_notes(sid, workspace_id=wsid)
     return {"notes": notes, "count": len(notes)}
 
 
 @app.post("/api/polling/")
-def set_polling(body: PollingBody):
-    """Pause or resume the daemon's production polling. While paused the daemon
-    makes no requests to prod at all; it keeps running locally and picks back up
-    within about a second of being re-enabled. This is how you stop loading prod
-    between sessions without killing the process. Purely a local control flag,
-    prod is untouched either way."""
-    db.set_meta("polling_enabled", "1" if body.enabled else "0")
+def set_polling(body: PollingBody, wsid: int = Depends(current_workspace_id)):
+    """Pause or resume production polling for THIS workspace's students. While
+    paused the daemon makes no prod requests on this board's behalf; it keeps
+    running and picks back up within about a second of being re-enabled. Purely a
+    control flag, prod is untouched either way."""
+    db.set_workspace_setting(wsid, "polling_enabled", "1" if body.enabled else "0")
     return {"enabled": body.enabled}
 
 

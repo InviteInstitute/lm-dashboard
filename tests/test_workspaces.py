@@ -70,12 +70,14 @@ def test_creating_a_researcher_provisions_a_workspace():
 
 
 def _login(username):
-    """A TestClient logged in as a fresh researcher (its own workspace)."""
+    """A TestClient authed (Basic) as a fresh researcher, with NO board id, so it
+    falls back to that researcher's own workspace (named-account isolation)."""
+    import base64
     from fastapi.testclient import TestClient
     from app.main import app
     db.upsert_researcher(username, auth.hash_password("pw"))
     c = TestClient(app)
-    assert c.post("/api/login/", json={"username": username, "password": "pw"}).status_code == 200
+    c.headers["Authorization"] = "Basic " + base64.b64encode(f"{username}:pw".encode()).decode()
     return c
 
 
@@ -86,14 +88,20 @@ def test_workspace_for_client_key_is_stable():
     assert a == b and a != c
 
 
+def _basic(username, password="pw"):
+    import base64
+    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
+
+
 def _browser(board_id, username="shared"):
-    """A TestClient logged in under a shared account, bound to a browser key."""
+    """A TestClient authed (Basic) under a shared account, bound to a browser key
+    via the X-Board-Id header."""
     from fastapi.testclient import TestClient
     from app.main import app
     db.upsert_researcher(username, auth.hash_password("pw"))
     c = TestClient(app)
-    assert c.post("/api/login/", json={
-        "username": username, "password": "pw", "board_id": board_id}).status_code == 200
+    c.headers["Authorization"] = _basic(username)
+    c.headers["X-Board-Id"] = board_id
     return c
 
 

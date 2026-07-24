@@ -44,6 +44,9 @@ def fresh_db():
             "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")]
         if tables:
             con.execute("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE")
+    # TRUNCATE wiped the default workspace too; recreate it so writes that fall
+    # back to it (roster, presence, picks) have a workspace to land in.
+    db.ensure_default_workspace()
     # The control-flag cache is a module global with a 200ms TTL; clear it so a
     # flag set in one test can't leak into the next (the daemon reads through it).
     db._meta_cache.clear()

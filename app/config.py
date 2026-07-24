@@ -16,8 +16,7 @@ load_dotenv(BASE_DIR / ".env.mirror")
 
 # Postgres connection string (libpq URL), shared by the API and the daemon. This
 # is the datastore; both processes open a pooled connection to it. Required in
-# every real run -- the systemd units and scripts/start.sh load it from
-# .env.mirror.
+# every real run -- compose loads it from .env.mirror.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # Secret used to sign the session cookie that carries a logged-in researcher's

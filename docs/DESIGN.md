@@ -42,9 +42,10 @@ VEX) onto a single machine, analyzes student activity locally, and serves a
 researcher dashboard. It only ever reads from production: it pulls events over the
 prod REST API and never writes back.
 
-Every design choice bends toward one goal, it should run on a researcher's laptop
-with almost no setup. No broker, no container orchestration, no managed database. One
-Python process, one SQLite file, one web app.
+Every design choice bends toward simplicity of operation: one `docker compose up`
+brings up the whole stack — Postgres, the API, and the daemon. It's multi-tenant —
+each researcher works on their own isolated board behind a login — while the daemon
+serves all the boards from a single shared mirror.
 
 ## 2. Processing Model
 
@@ -65,17 +66,19 @@ and lets the derived tables be treated as a cache.
 
 ## 3. Topology And Processes
 
-Two OS processes on one host, connected only through a single SQLite file:
+Three services in one `docker compose` stack, connected through Postgres:
 
-- **Daemon** (`python -m app.pipeline`): the single writer, one blocking tick loop.
-- **API** (`uvicorn app.main:app`): a stateless reader, plus tiny writes for track,
-  ack, reset, notes, and the polling toggle.
-- **SQLite (WAL):** the seam. WAL lets one writer and many readers work at once
+- **daemon** (`python -m app.pipeline`): the single writer, one blocking tick loop,
+  fanning out over every board.
+- **api** (`uvicorn app.main:app`): a stateless reader (also serves the SPA), plus
+  tiny per-board writes for track, ack, reset, notes, and the polling toggle.
+- **db** (`postgres`): the seam. MVCC lets the one writer and many readers work at once
   without blocking.
 
 The split is deliberate. The daemon is a long-running compute loop that has to be
 exactly one instance (the cursor assumes a single writer), while the API stays light,
-ML-free, and safe to restart on its own.
+ML-free, and safe to restart on its own. The whole origin is behind HTTP Basic Auth,
+and each browser is isolated into its own board.
 
 ## 4. Write Path (The Daemon)
 
@@ -136,7 +139,7 @@ stored in `trigger_event`:
 
 - **Momentary** (wheel-spin, resilience, explorer, step-by-step): raised from the
   worker the instant a run lands, out of a single pure pass (`detect_run_triggers`),
-  each deduped per type via `json_extract(detail,'$.run_index')`.
+  each deduped per type via `detail::jsonb->>'run_index'`.
 - **Sustained** (inactive): the one time-based rule, opened and resolved by the
   per-tick `evaluate` sweep, with an ack re-alert after `RE_ALERT_SECONDS`.
 
@@ -148,9 +151,11 @@ one streak; `TRIGGER_PRIORITY` only decides the headline badge.
 
 ## 5. Data Model And Storage
 
-SQLite in WAL mode with a `busy_timeout` so readers never error out under the writer.
-All the SQL is isolated in `app/db.py`, which is what makes a future Postgres swap a
-contained change (reimplement `db.py`, keep the signatures).
+Postgres, all the SQL isolated in `app/db.py` (psycopg, no ORM). The raw mirror and the
+derived analysis are **shared** (one per student); the researcher-facing overlay — a
+board's roster, notes, picks, alert dismissals, and control flags — is **per-workspace**
+(keyed on `workspace_id`). Each browser maps to its own workspace under the shared
+login.
 
 | Group | Tables | Role |
 |---|---|---|
@@ -183,7 +188,7 @@ as JSON text).
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
 rows), so the edit-distance and episode work already happened on the write side. It
-still hits SQLite on every request; it's quick because *what* it reads is cheap, not
+still hits Postgres on every request; it's quick because *what* it reads is cheap, not
 because of the in-memory workers (those speed up the daemon, not the dashboard). The
 per-poll cost also doubles as the daemon's viewer heartbeat, and the frontend pauses
 polling whenever its browser tab is hidden.
@@ -194,11 +199,10 @@ polling whenever its browser tab is hidden.
   the event log, and the UI is at most one stream tick (0.25s) behind the read model,
   or one poll (~1.5s) under the fallback. End to end that's roughly a tick plus a
   quarter second of staleness, which is nothing on human timescales.
-- **Coordination is mostly implicit** through SQLite. The one explicit signal is
-  Reset: the API stamps `meta.reset_requested_at` and wipes the local data, and the
-  daemon notices the flag changed and drops its in-memory workers so they don't
-  re-materialize stale state. The cursor is left intact, so the board rebuilds only
-  from new activity.
+- **Coordination is implicit** through Postgres. Reset is a per-board API action that
+  clears only that board's own notes/picks/acks and leaves the shared mirror intact, so
+  it needs no daemon handshake. Prod-poll gating is per board too: the daemon polls a
+  board's students only while that board is un-paused and being watched.
 
 ## 8. Failure Modes And Recovery
 
@@ -211,22 +215,21 @@ polling whenever its browser tab is hidden.
 
 ## 9. Scaling And Evolution
 
-Comfortable at tens of students on one laptop. The first real wall at larger scale is
-the daemon's sequential per-student inference, plus the per-tick full-table trigger
-sweep. It's not memory; the worker buffers are bounded. The evolution path, in the
-order you'd actually need it:
+**Postgres, per-researcher auth, and workspace isolation are already in place** (they
+used to be on this list). Comfortable from tens of students up through a program's
+worth of researchers on their own boards. The first real wall at larger scale is the
+daemon's sequential per-student inference, plus the per-tick full-table trigger sweep.
+It's not memory; the worker buffers are bounded. The evolution path, in the order you'd
+actually need it:
 
 1. **Push-based ingestion.** Have prod publish events (a webhook, Redis Streams,
    NATS) so the daemon subscribes instead of polling. Kills polling latency and idle
    load, and it's the right move before any local message broker.
-2. **Postgres.** For multiple cohorts or multiple machines. A contained change,
-   because all the SQL lives in `app/db.py`.
-3. **Async inference workers.** Only if per-event compute gets heavy, like an LLM
+2. **Async inference workers.** Only if per-event compute gets heavy, like an LLM
    call per run. A task queue (Celery or RQ plus Redis) offloads that work with
    retries.
-4. **Horizontal API workers.** More than one read worker once a single one saturates.
-   (Origin-wide HTTP Basic Auth already exists, off by default and turned on for
-   remote serving; see [Configuration](guides/configuration.md).)
+3. **Per-room SSE + horizontal API workers.** Scope the change stream per board
+   (today it's a global signal each board filters), and run more than one read worker.
 
 None of these touch the projection logic, and that isolation is the whole payoff of
 keeping the write and read sides apart.

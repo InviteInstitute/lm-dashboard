@@ -1,71 +1,91 @@
 ---
-description: Every environment variable and CLI flag for the API and the ingestion daemon.
+description: Environment variables, accounts, and CLI flags for the API and the ingestion daemon.
 ---
 
 # Configuration
 
-Everything is configured through environment variables. Put the daemon's credentials
-in `.env.mirror`, and leave the rest alone unless you have a reason; the defaults are
-sane for local use.
+Configuration is split across two gitignored files:
+
+- **`.env`** — read by `docker compose` itself. Holds `POSTGRES_PASSWORD`; compose
+  uses it for the `db` service and to build `DATABASE_URL`.
+- **`.env.mirror`** — the app's own secrets (loaded by both the API and the daemon).
 
 ## Environment Variables
 
-| Variable | Used By | Default | What It Does |
+| Variable | Where | Default | What It Does |
 |---|---|---|---|
-| `PROD_USERNAME` / `PROD_PASSWORD` | daemon | (none) | auth to the prod server |
+| `POSTGRES_PASSWORD` | `.env` (compose) | (none) | password for the `db` service; compose folds it into `DATABASE_URL` |
+| `DATABASE_URL` | app | (compose sets it) | Postgres connection string. Under compose it points at the `db` service; set it yourself only for a non-compose venv run |
+| `PROD_USERNAME` / `PROD_PASSWORD` | daemon + login seed | (none) | auth to the prod server; also seed the interim shared dashboard login |
 | `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | prod server base URL |
-| `DB_PATH` | both | `db.sqlite3` | where the SQLite file lives |
-| `CORS_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | allowed dashboard origins |
+| `CORS_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | allowed dashboard origins (dev only; prod is same-origin) |
 | `PIPELINE_INTERVAL` | daemon | `0.5` | base seconds per tick while events are flowing |
-| `PIPELINE_IDLE_MAX` | daemon | `5.0` | the idle-backoff ceiling (how far the poll gap stretches when it's quiet) |
+| `PIPELINE_IDLE_MAX` | daemon | `5.0` | idle-backoff ceiling (how far the poll gap stretches when it's quiet) |
 | `PIPELINE_PAGE_LIMIT` | daemon | `500` | events fetched per page |
-| `PIPELINE_BACKFILL_HOURS` | daemon | `24` | on the first run only, how far back the initial drain goes (`<= 0` means replay all history) |
-| `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (off) | when set, arms the dead-man's switch: prod polling pauses whenever no dashboard is open |
+| `PIPELINE_BACKFILL_HOURS` | daemon | `24` | on the first run only, how far back the initial drain goes (`<= 0` = replay all history) |
+| `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (dev) / `1` (prod compose) | arms the per-board dead-man's switch (below) |
 
-!!! note
-    Both processes load `.env.mirror`, but only the daemon actually uses the prod
-    credentials. It's harmless for the API, which never calls prod.
+`SESSION_SECRET` may appear in older `.env.mirror` files; it's no longer used now
+that auth is HTTP Basic (no signed session cookie).
 
-## CLI Flags
+## Accounts and Login
 
-The daemon's settings are also available as flags, and a flag wins over the matching
-environment variable:
+The whole origin is behind **HTTP Basic Auth**, so the browser's native
+username/password dialog is the login. Credentials are checked against a `researcher`
+table (argon2-hashed).
+
+- **Interim shared login:** on startup the app seeds one account from
+  `PROD_USERNAME` / `PROD_PASSWORD`, so the dashboard is usable immediately —
+  everyone signs in with those.
+- **Named accounts:** create individual logins so people get stable, cross-device
+  boards:
+
+    ```bash
+    docker compose exec api python scripts/create_researcher.py alice
+    ```
+
+Each browser is isolated into its own **board** via a persistent id it stores in
+`localStorage` and sends as `X-Board-Id`; a named account without a board id falls
+back to that researcher's own workspace. There is no in-app logout (a Basic-Auth
+trait) — close the browser to clear the credentials.
+
+## CLI Flags (daemon)
+
+The daemon's settings are also flags, and a flag wins over the matching env var:
 
 ```bash
 python -m app.pipeline --interval 1 --idle-max 8 --backfill-hours 2
 ```
 
 The full set is `--interval`, `--idle-max`, `--limit` (events per page), `--overlap`
-(cursor overlap seconds), `--backfill-hours`, and `--require-viewer` (arm the dead-man's
-switch). Run `python -m app.pipeline --help` for the inline reference.
+(cursor overlap seconds), `--backfill-hours`, and `--require-viewer`. Run
+`python -m app.pipeline --help` for the inline reference.
 
 ## Polling And Idle Backoff
 
 While students are active, the daemon polls every `PIPELINE_INTERVAL` seconds. When
 nothing's happening, it backs off exponentially toward `PIPELINE_IDLE_MAX` (so
-0.5 → 1 → 2 → 4 → 5s) instead of hammering prod with empty requests, and it snaps
-right back to fast the moment activity returns.
+0.5 → 1 → 2 → 4 → 5s) instead of hammering prod, and snaps back to fast the moment
+activity returns.
 
 !!! tip
-    Poll load tracks event volume, not roster size. A quiet cohort barely touches
-    prod no matter how many students you're tracking.
+    Poll load tracks event volume, not roster size — and a student watched by
+    several boards is still polled only once (the daemon ingests the union of all
+    boards' rosters into one shared mirror).
 
 ## The Dead-Man's Switch
 
-Idle backoff slows prod polling when nothing's happening, but it never stops. The
-dead-man's switch does: with `--require-viewer` (or `PIPELINE_REQUIRE_VIEWER=1`) the
-daemon only polls prod while a dashboard is actually open.
+Per board: the dead-man's switch stops prod polling for a board while nobody is watching it.
+With `--require-viewer` (or `PIPELINE_REQUIRE_VIEWER=1`, the prod default) the daemon
+only polls a board's students while that board's dashboard is actually open.
 
-It works off a heartbeat. The read API stamps `viewer_last_seen` while a dashboard
-holds the live stream open (on connect and every 15 seconds), and on every grid fetch
-under the polling fallback. The frontend closes the stream the moment its tab is
-hidden, so a fresh stamp means someone is genuinely looking. Each tick the daemon
-checks that stamp: if it's gone stale, prod polling pauses, and it resumes on the next
-tick once a dashboard reconnects. The staleness window is the
-`VIEWER_PRESENT_SECONDS` constant in `app/constants.py` (90 seconds), which is the one
-knob here that lives in code rather than an environment variable, since it rarely
-needs touching.
+It works off a heartbeat. The read API stamps a per-board `viewer_last_seen` while a
+dashboard holds the live stream open (on connect and every ~10s) and on each grid
+fetch; the frontend closes the stream when its tab is hidden. Each tick the daemon
+polls prod only for the students on **live** boards (polling enabled and a fresh
+viewer). The staleness window is the `VIEWER_PRESENT_SECONDS` constant in
+`app/constants.py` (90 seconds).
 
-`scripts/start.sh --remote` arms this automatically, so a session served over ngrok stops
-hitting prod whenever the last viewer closes or backgrounds their tab. It's left off for
-local runs, where you want collection to continue whether or not someone is watching.
+In the prod compose file the daemon runs with `PIPELINE_REQUIRE_VIEWER=1`, so a
+served deployment stops hitting prod for any board whose dashboard is closed; dev
+leaves it off so a local run polls as soon as a board has students.

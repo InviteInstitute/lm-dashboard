@@ -4,7 +4,11 @@ description: Student cards, the who-needs-help column, drill-down detail, and th
 
 # Using The Dashboard
 
-The dashboard is a single screen at [http://localhost:3000](http://localhost:3000).
+The dashboard is a single screen. The first time you open it your **browser prompts
+for a username and password** — that's the login. Each browser then gets its **own
+isolated board**: your roster, notes, and picks are yours, separate from anyone else
+signed in with the same credentials.
+
 It holds one live stream to the API and refetches only what changed, so the whole
 view stays in sync with itself and updates land in about a quarter second. If the
 stream ever drops, it silently falls back to polling until it reconnects; you never
@@ -14,7 +18,8 @@ have to think about it.
 
 Type a student ID into **Track a student**. The daemon backfills their recent
 history, materializes their state, and their card shows up within a tick or two.
-Removing a student stops tracking them and deletes their local data.
+Removing a student takes them off *your* board; their shared mirror is only purged
+once no board is tracking them any more.
 
 ## Student Cards
 
@@ -109,11 +114,11 @@ clicking **▶ Resume polling**. While it's off, the status dot turns amber and 
 "Daemon Paused" label shows up next to the title.
 
 !!! tip
-    Use this between sessions. The daemon polls production the whole time it's running,
-    even during quiet stretches, which is a constant load on prod. Pausing when no
-    class is active gives prod room to recover, which really matters if it's on a
-    CPU-credit (burstable) instance. The toggle is shared, so every open dashboard
-    sees the same state.
+    Use this between sessions. While your board is being watched the daemon polls
+    production for its students, which is load on prod. Pausing when no class is active
+    gives prod room to recover, which really matters if it's on a CPU-credit
+    (burstable) instance. The toggle is **per board** — it affects your board's
+    students, not anyone else's.
 
 The daemon process keeps running while paused. Pausing only stops the polling, not the
 daemon itself.
@@ -138,20 +143,20 @@ while the modal is up, following the same live stream as the rest of the board.
 
 ## Export
 
-The **⬇ Export** button downloads a **zip of CSV snapshots** (raw events, materialized
-state, triggers, roster, notes) straight to your computer. It's built in memory and is
-read-only, so the database is never touched and nothing is written to the server, you
+The **⬇ Export** button downloads a **zip of CSV snapshots** of your board (its
+roster, notes, and picks, plus the shared events, materialized state, and triggers for
+the students it tracks) straight to your computer. It's built in memory and is
+read-only, so the database is never touched and nothing is written to the server — you
 can run it any time. The file is named `lm-dashboard_export_<timestamp>.zip`.
 
 ## Reset
 
-The **↺ Reset** button clears all the locally-stored events, episodes, run state,
-flags, and notes, and tells the daemon to drop its in-memory workers so the board
-starts fresh from new activity.
+The **↺ Reset** button clears **your board's** researcher data for a fresh session:
+its notes, the picked toggles and pick history, and its trigger dismissals. Your
+roster and presence stay, and the shared per-student mirror is left intact (other
+boards depend on it, and your board just re-derives its view from it).
 
 !!! info
-    Reset writes a CSV backup (notes included) to `exports/reset_<timestamp>/` on the
-    server before it wipes, so nothing is actually lost, and the failed-write outbox
-    is deliberately spared. It's local only, production is never touched. The raw
-    event cursor stays put, so the board rebuilds only from activity that arrives
-    after the reset, and tracked students stay tracked.
+    Reset writes a CSV backup of your board (notes and picks included) to
+    `exports/reset_<timestamp>/` on the server before it wipes, so nothing is lost, and
+    the failed-write outbox is deliberately spared. Production is never touched.

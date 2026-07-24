@@ -6,31 +6,37 @@ description: How the single-writer daemon ingests events, computes per-run edit 
 
 The daemon (`python -m app.pipeline`) is the only thing in the system that writes.
 It's one blocking loop, and every pass through it runs the whole pipeline start to
-finish.
+finish — serving **every board at once** from one shared mirror.
 
 ## Tick Order
 
 ```mermaid
 flowchart LR
-    a["1 · Reset check"] --> b["2 · Roster<br/>+ backfill"] --> c["3 · Drain<br/>ingest"]
+    a["1 · Live boards<br/>+ union roster"] --> b["2 · Backfill<br/>new students"] --> c["3 · Drain<br/>ingest"]
     c --> d["4 · Recompute<br/>dirty workers"] --> e["5 · Evaluate<br/>triggers"] --> f["6 · Adaptive<br/>sleep"]
     f -. "next tick" .-> a
 ```
 
 Each tick moves through these stages in order:
 
-1.  **Reset check.** Look at the `meta.reset_requested_at` flag, and if it changed,
-    drop the in-memory workers.
-2.  **Roster and backfill.** Reconcile the tracked allowlist and backfill any student
-    who was just added.
-3.  **Drain (ingest).** Pull everything new since the cursor and persist it
-    idempotently.
+1.  **Live boards and roster.** Work out which boards are *live* (polling enabled and,
+    with the dead-man's switch armed, a fresh viewer). If none are, pause. Otherwise
+    keep a worker for every student on the **union** of all boards' rosters, and take
+    the union of the **live** boards' rosters as the prod-poll allowlist.
+2.  **Backfill new students.** One-time history backfill for any newly-tracked student
+    on a live board (shared, so it runs once per student).
+3.  **Drain (ingest).** Pull everything new since the cursor for the poll allowlist and
+    persist it idempotently.
 4.  **Recompute dirty workers.** Re-run inference once per student who got events
     this tick.
 5.  **Evaluate triggers.** One sweep over all students to open and resolve
     intervention flags.
 6.  **Adaptive sleep.** Wait for the current poll interval, with idle backoff
     applied.
+
+There's no reset step any more: reset is a per-board API action that clears only that
+board's own notes/picks/acks and never touches the shared mirror, so the daemon has
+nothing to do on a reset.
 
 ## Client And Polling
 
@@ -66,11 +72,17 @@ Put it together and a crash mid-drain is a non-event: on restart it just re-fetc
 the overlap and de-dupes. At-least-once delivery plus dedup gives you effectively-once
 processing, with nothing lost.
 
-## Roster Allowlist And Backfill
+## Roster Allowlist And Fan-Out
 
-The daemon only ingests and computes students on the `tracked_student` allowlist.
-When you add a student, that kicks off a one-time backfill of their recent history
-(separate from the cursor) so their card fills in within a tick or two.
+The daemon only ingests and computes students that appear on some board's
+`tracked_student` roster — it takes the **union** across all boards, so a student
+watched by two researchers is polled and materialized exactly once. It polls prod only
+for students on a **live** board (polling on + a fresh viewer under the dead-man's
+switch), so a paused or unwatched board's exclusive students don't cost any prod calls,
+while a shared student stays live as long as *any* watching board is. Adding a student
+kicks off a one-time backfill of their recent history (separate from the cursor) so
+their card fills in within a tick or two; the backfill runs once per student and marks
+every board's roster row for them.
 
 ## Per-Student Workers
 
@@ -121,8 +133,9 @@ prompt describing the current blocks. The [Read path](read-path.md) page covers 
 all of this surfaces.
 
 !!! note "The playground snapshot is monotonic in event-time"
-    With the case-insensitive identity fold, two devices with disagreeing clocks can
-    feed one worker (the cobra3/Cobra3 pair had about four minutes of skew). So "last
+    Because handles are folded case-insensitively (`canon_id`), two devices with
+    disagreeing clocks can feed one worker (the cobra3/Cobra3 pair had about four
+    minutes of skew). So "last
     event to arrive" is not "last to happen," and a delayed upload used to be able to
     overwrite newer code with an older snapshot. The worker now accepts a `project`
     snapshot only when its `event_time` is not older than the one it holds; a missing
@@ -131,10 +144,11 @@ all of this surfaces.
 
 !!! note "Every write bumps a channel counter"
     Each write to `student_state`, `trigger_event`, `switch_event`, or
-    `tracked_student` also bumps that channel's row in `channel_rev`, via SQLite
-    triggers that live in the schema. The daemon doesn't know or care; the triggers
-    fire inside its own transaction. That counter is what lets the live stream answer
-    "what changed?" in O(1) (see the [read path](read-path.md#the-dashboard)).
+    `tracked_student` also bumps that channel's row in `channel_rev`, via a Postgres
+    trigger function in the schema (which also fires a `NOTIFY`). The daemon doesn't
+    know or care; the trigger fires inside its own transaction. That counter is what
+    lets the live stream answer "what changed?" in O(1) (see the
+    [read path](read-path.md#the-dashboard)).
 
 ## Triggers
 
@@ -144,8 +158,8 @@ lifecycle is stored in `trigger_event`, and there are two kinds:
 - **Momentary** (wheel-spin, resilience, explorer, iterative). These fire from the
   worker the instant a run lands, straight out of `detect_run_triggers`, a single pure
   pass over the edit-distance list. Each is deduped per type by `run_index` (via
-  `json_extract(detail,'$.run_index')`), and the dedupe set is seeded from the
-  database on rehydrate, so a backfill or restart can't drop or repeat a run's alert.
+  `detail::jsonb->>'run_index'`), and the dedupe set is seeded from the database on
+  rehydrate, so a backfill or restart can't drop or repeat a run's alert.
 - **Sustained** (inactive). The one time-based rule, evaluated by the per-tick
   `evaluate` sweep: it opens while a student is idle past
   `INACTIVE_TRIGGER_SECONDS`, stays fresh while idle, and resolves when a new event

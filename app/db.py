@@ -524,6 +524,44 @@ def all_workspace_ids():
     return [r["id"] for r in _query("SELECT id FROM workspace ORDER BY id")]
 
 
+def tracked_union():
+    """Distinct students tracked by ANY workspace, with whether any of their
+    roster rows still needs a one-time history backfill (MIN(backfilled)=0). The
+    daemon ingests this union -- one shared mirror per student regardless of how
+    many boards watch them."""
+    rows = _query(
+        "SELECT studentID, MIN(backfilled) AS backfilled "
+        "FROM tracked_student GROUP BY studentID ORDER BY studentID")
+    return [{"studentID": r["studentID"], "backfilled": bool(r["backfilled"])}
+            for r in rows]
+
+
+def students_in_workspaces(workspace_ids):
+    """The set of students tracked by any of the given workspaces (the prod-poll
+    allowlist: the union of the LIVE boards' rosters)."""
+    ids = list(workspace_ids)
+    if not ids:
+        return set()
+    placeholders = ",".join("?" * len(ids))
+    rows = _query(
+        f"SELECT DISTINCT studentID FROM tracked_student WHERE workspace_id IN ({placeholders})",
+        tuple(ids))
+    return {r["studentID"] for r in rows}
+
+
+def workspace_polling_states():
+    """Per-workspace polling control for the daemon: (id, polling_enabled,
+    viewer_last_seen) for every workspace, pivoted from workspace_setting."""
+    rows = _query(
+        "SELECT w.id, "
+        "  MAX(CASE WHEN s.key = 'polling_enabled' THEN s.value END) AS polling_enabled, "
+        "  MAX(CASE WHEN s.key = 'viewer_last_seen' THEN s.value END) AS viewer_last_seen "
+        "FROM workspace w LEFT JOIN workspace_setting s ON s.workspace_id = w.id "
+        "GROUP BY w.id ORDER BY w.id")
+    return [{"id": r["id"], "polling_enabled": r["polling_enabled"],
+             "viewer_last_seen": r["viewer_last_seen"]} for r in rows]
+
+
 # Per-workspace control flags (polling_enabled, viewer_last_seen, disabled_triggers,
 # ...), the tenant-scoped replacement for the old global `meta` singletons.
 def set_workspace_setting(workspace_id, key, value):
@@ -1085,11 +1123,10 @@ def tracked_add(sid, workspace_id=None):
     )
 
 
-def mark_backfilled(sid, workspace_id=None):
-    _execute(
-        "UPDATE tracked_student SET backfilled = 1 WHERE workspace_id = ? AND studentID = ?",
-        (_ws(workspace_id), canon_id(sid)),
-    )
+def mark_backfilled(sid):
+    # Backfill pulls a student's shared history once, so mark every workspace's
+    # roster row for that student (the daemon ingests the union, per student).
+    _execute("UPDATE tracked_student SET backfilled = 1 WHERE studentID = ?", (canon_id(sid),))
 
 
 def tracked_remove(sid, workspace_id=None):

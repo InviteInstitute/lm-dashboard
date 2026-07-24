@@ -3,11 +3,16 @@
 // Change the look/behavior here, not scattered through the component.
 
 // ----- theme / palette -----
+// Values are CSS custom properties (see index.css's :root / [data-theme="dark"])
+// rather than literal hex, so a theme switch is just flipping the data-theme
+// attribute on <html> -- no React state threading needed for any of this.
 export const T = {
-    bg: '#0b0e13', panel: '#0f131a', border: '#1f2530', borderSoft: '#171c24',
-    ink: '#e6e9ef', sub: '#7d8694', faint: '#5a626e', track: '#0d1117',
+    bg: 'var(--lmd-bg)', panel: 'var(--lmd-panel)', border: 'var(--lmd-border)',
+    ink: 'var(--lmd-ink)', sub: 'var(--lmd-sub)', faint: 'var(--lmd-faint)',
+    track: 'var(--lmd-track)',
 };
-export const FONT = "'Inter','SF Pro Display',system-ui,sans-serif";
+export const FONT = "'Source Sans Pro',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+export const HEADFONT = "'Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 export const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
 
 // ----- per-run edit_distance buckets (the run track colours) -----
@@ -27,8 +32,8 @@ export const EP = { CODE: '#3b82f6', RUN: '#22c55e', RESET: '#a855f7' };
 export const SOFT_COLOR = '#3a4150';   // greyed sub-tile for absorbed soft (UI) events
 
 // Hatched fills for the two pause kinds, plus the legend rows that render them.
-export const HATCH_RED = 'repeating-linear-gradient(45deg,#ef4444 0 4px,#3a1416 4px 8px)';
-export const HATCH_AMBER = 'repeating-linear-gradient(45deg,#f59e0b 0 4px,#3a2a10 4px 8px)';
+export const HATCH_RED = 'repeating-linear-gradient(45deg,#ef4444 0 4px,var(--lmd-hatch-red-bg) 4px 8px)';
+export const HATCH_AMBER = 'repeating-linear-gradient(45deg,#f59e0b 0 4px,var(--lmd-hatch-amber-bg) 4px 8px)';
 export const PAUSE_FILL = { INACTIVE_PAUSE: HATCH_RED, POST_RUN_PAUSE: HATCH_AMBER };
 export const PAUSE_LEGEND = [
     ['INACTIVE', HATCH_RED],

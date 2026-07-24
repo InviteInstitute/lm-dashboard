@@ -9,11 +9,13 @@
 import React from 'react';
 import api, { API_URL, boardId } from './api';
 import {
-    T, FONT, MONO, edColor, ED_ZERO, ED_SMALL, ED_BIG, EP,
+    T, FONT, HEADFONT, MONO, edColor, ED_ZERO, ED_SMALL, ED_BIG, EP,
     HATCH_AMBER, PAUSE_FILL, PAUSE_LEGEND,
     TRIGGERS, TRIGGER_FALLBACK, TRIGGER_ROWS, TRIGGER_PRIORITY, STATUS_OK,
     POLL_MS, COMPACT_TAIL,
 } from './constants';
+
+const THEME_KEY = 'lm_theme';
 
 // Re-exported so existing imports/tests that pull these from the component file
 // keep working; the source of truth is ./constants.
@@ -277,7 +279,7 @@ const Detail = ({ s, sid, status, history = [] }) => {
         </div>
     );
 };
-const lbl = { fontSize: 11, fontWeight: 700, letterSpacing: 1, color: T.sub, textTransform: 'uppercase', marginBottom: 10 };
+const lbl = { fontFamily: HEADFONT, fontSize: 11, fontWeight: 700, letterSpacing: 1, color: T.sub, textTransform: 'uppercase', marginBottom: 10 };
 const pre = { margin: 0, padding: 14, background: T.track, border: `1px solid ${T.border}`, borderRadius: 10, fontFamily: MONO, fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: '#c9d1d9', maxHeight: 280, overflow: 'auto', marginBottom: 4 };
 
 // ---------------- layout ----------------
@@ -286,7 +288,7 @@ const pre = { margin: 0, padding: 14, background: T.track, border: `1px solid ${
 const S = {
     page: { background: T.bg, height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: FONT, color: T.ink, overflow: 'hidden' },
     bar: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 28px', borderBottom: `1px solid ${T.border}`, flexWrap: 'wrap', flexShrink: 0 },
-    title: { fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 9 },
+    title: { fontFamily: HEADFONT, fontSize: 18, fontWeight: 700, letterSpacing: 0.4, display: 'flex', alignItems: 'center', gap: 9 },
     input: { marginLeft: 'auto', background: T.panel, border: `1px solid ${T.border}`, borderRadius: 999, color: T.ink, padding: '9px 16px', fontSize: 14, fontFamily: FONT, outline: 'none', width: 220 },
     export: { background: '#22c55e1a', color: '#22c55e', border: '1px solid #22c55e66', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
     reset: { background: '#ef44441a', color: '#ef4444', border: '1px solid #ef444466', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
@@ -299,6 +301,7 @@ const S = {
     tgUnpicked: { flex: 1, background: 'transparent', color: T.sub, border: `1px solid ${T.border}`, borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
     noteBtn: { flex: 1, background: '#4f46e51a', color: '#818cf8', border: '1px solid #4f46e566', borderRadius: 8, padding: '5px 6px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: FONT },
     triggersBtn: { background: T.panel, color: T.ink, border: `1px solid ${T.border}`, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' },
+    themeToggle: { background: T.panel, color: T.ink, border: `1px solid ${T.border}`, borderRadius: 999, width: 38, height: 38, fontSize: 15, cursor: 'pointer', fontFamily: FONT, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
     popOverlay: { position: 'fixed', inset: 0, background: 'transparent', zIndex: 40 },
     popPanel: { position: 'fixed', top: 64, right: 28, width: 240, background: T.panel, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, boxShadow: '0 10px 30px #0008', zIndex: 41 },
     popTitle: { fontSize: 12, fontWeight: 800, color: T.sub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
@@ -323,18 +326,18 @@ const S = {
     boxHead: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
     sid: { fontFamily: MONO, fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
     stateBadge: (c) => ({ marginLeft: 'auto', background: `${c}1f`, color: c, border: `1px solid ${c}55`, borderRadius: 999, padding: '2px 10px', fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap' }),
-    miniLbl: { fontSize: 9.5, fontWeight: 700, letterSpacing: 1, color: T.faint, textTransform: 'uppercase', margin: '11px 0 5px' },
+    miniLbl: { fontFamily: HEADFONT, fontSize: 9.5, fontWeight: 700, letterSpacing: 1, color: T.faint, textTransform: 'uppercase', margin: '11px 0 5px' },
     metaRow: { display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12, color: T.sub },
 
     col: { width: 320, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.panel, overflow: 'auto', padding: '20px 18px' },
-    colHead: { fontSize: 12.5, fontWeight: 800, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 },
+    colHead: { fontFamily: HEADFONT, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 },
     colCount: (c) => ({ marginLeft: 'auto', background: `${c}1f`, color: c, border: `1px solid ${c}55`, borderRadius: 999, padding: '1px 9px', fontSize: 12 }),
     colItem: (c) => ({ background: T.bg, border: `1px solid ${c}40`, borderLeft: `3px solid ${c}`, borderRadius: 10, padding: '11px 13px', marginBottom: 10, cursor: 'pointer', position: 'relative' }),
     colSid: { fontFamily: MONO, fontWeight: 700, fontSize: 14 },
     colSub: (c) => ({ fontSize: 12, color: c, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }),
     colEmpty: { color: T.sub, fontSize: 13, lineHeight: 1.5 },
     ackBtn: { marginLeft: 'auto', background: 'transparent', border: `1px solid ${T.border}`, color: T.sub, borderRadius: 999, padding: '2px 9px', fontSize: 11, cursor: 'pointer', fontFamily: FONT },
-    switchHead: { fontSize: 12.5, fontWeight: 800, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, margin: '24px 0 14px', paddingTop: 18, borderTop: `1px solid ${T.border}` },
+    switchHead: { fontFamily: HEADFONT, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.5, color: T.ink, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8, margin: '24px 0 14px', paddingTop: 18, borderTop: `1px solid ${T.border}` },
     toastWrap: { position: 'fixed', top: 72, right: 24, display: 'flex', flexDirection: 'column', gap: 10, zIndex: 60, alignItems: 'flex-end', pointerEvents: 'none' },
     toast: { display: 'flex', alignItems: 'center', gap: 11, minWidth: 250, maxWidth: '92vw', background: T.panel, border: `1px solid ${T.border}`, borderLeft: '3px solid #eab308', borderRadius: 12, padding: '10px 12px 10px 12px', boxShadow: '0 14px 38px rgba(0,0,0,0.5)', animation: 'toastIn .3s cubic-bezier(.2,.8,.25,1)', pointerEvents: 'auto' },
     toastIcon: { flexShrink: 0, width: 30, height: 30, borderRadius: 9, background: '#eab30820', color: '#eab308', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800 },
@@ -395,6 +398,18 @@ const CohortDashboard = () => {
     const [triggerCfg, setTriggerCfg] = React.useState(
         { wheel_spin: true, resilience: true, inactive: true, explorer: true, iterative: true });
     const [triggerPanel, setTriggerPanel] = React.useState(false);
+    // Light (INVITE brand) or dark (the dashboard's original look); persisted
+    // per-browser like boardId(). No stored preference -> follow the OS.
+    const [theme, setTheme] = React.useState(() => {
+        try {
+            return localStorage.getItem(THEME_KEY)
+                || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        } catch { return 'light'; }
+    });
+    React.useEffect(() => {
+        document.documentElement.dataset.theme = theme;
+        try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore */ }
+    }, [theme]);
     const visible = usePageVisible();   // gates every poll loop below; hidden tab -> no polling
 
     const fetchStates = React.useCallback(async () => {
@@ -752,6 +767,10 @@ const CohortDashboard = () => {
                 <button style={S.triggersBtn} onClick={() => setTriggerPanel(p => !p)}
                         title="Turn trigger types on or off">
                     ⚙ Triggers
+                </button>
+                <button style={S.themeToggle} onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+                        title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+                    {theme === 'dark' ? '☀' : '☾'}
                 </button>
             </div>
 

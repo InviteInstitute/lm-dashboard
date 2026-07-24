@@ -3,5 +3,8 @@ Armadillo1;Bear2;Cobra3;Dolphin4;Eagle5;Fox6;Gecko7;Horse8;Iguana9;Jackal10;Kang
 Maryville
 Bear2;Cobra3;Horse8;Jackal10;Lion12;Narwhal14;
 
-UNCC
+UNCC 
+- Day 1
 Armadillo1;Bear2;Cobra3;Dolphin4;Eagle5;Fox6;Gecko7;Horse8;Iguana9;Jackal10;Kangaroo11;
+- Day 2
+Bear2;Cobra3;Dolphin4;Eagle5;Fox6;Gecko7;Horse8;Iguana9;Jackal10;Kangaroo11;Lion12;Mouse13;Panda16;

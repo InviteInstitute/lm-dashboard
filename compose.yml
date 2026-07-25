@@ -5,9 +5,9 @@
 #   docker compose -f compose.yml up -d      # prod (base only: built SPA served by the API)
 #
 # Config: POSTGRES_PASSWORD comes from a `.env` file (compose reads it natively);
-# the app's own secrets (PROD_USERNAME/PROD_PASSWORD/SESSION_SECRET) come from
-# .env.mirror. DATABASE_URL is set here to reach the `db` service on the compose
-# network, so you don't set it yourself.
+# the app's own secrets (PROD_USERNAME/PROD_PASSWORD/SESSION_SECRET/TURNSTILE_SECRET)
+# come from .env.mirror. DATABASE_URL is set here to reach the `db` service on the
+# compose network, so you don't set it yourself.
 name: lm-dashboard
 
 services:

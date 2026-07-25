@@ -16,8 +16,10 @@ Configuration is split across two gitignored files:
 |---|---|---|---|
 | `POSTGRES_PASSWORD` | `.env` (compose) | (none) | password for the `db` service; compose folds it into `DATABASE_URL` |
 | `DATABASE_URL` | app | (compose sets it) | Postgres connection string. Under compose it points at the `db` service; set it yourself only for a non-compose venv run |
-| `PROD_USERNAME` / `PROD_PASSWORD` | daemon + login seed | (none) | auth to the prod server; also seed the interim shared dashboard login |
+| `PROD_USERNAME` / `PROD_PASSWORD` | daemon | (none) | auth to the prod server (unrelated to the dashboard's own bot gate) |
 | `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | prod server base URL |
+| `TURNSTILE_SECRET` | API | (none) | Cloudflare Turnstile secret key, verified against the public site key baked into the frontend build |
+| `SESSION_SECRET` | API | insecure dev default | signs the "this browser solved Turnstile" cookie; set a long random value in any real deployment |
 | `CORS_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | allowed dashboard origins (dev only; prod is same-origin) |
 | `PIPELINE_INTERVAL` | daemon | `0.5` | base seconds per tick while events are flowing |
 | `PIPELINE_IDLE_MAX` | daemon | `5.0` | idle-backoff ceiling (how far the poll gap stretches when it's quiet) |
@@ -25,29 +27,17 @@ Configuration is split across two gitignored files:
 | `PIPELINE_BACKFILL_HOURS` | daemon | `24` | on the first run only, how far back the initial drain goes (`<= 0` = replay all history) |
 | `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (dev) / `1` (prod compose) | arms the per-board dead-man's switch (below) |
 
-`SESSION_SECRET` may appear in older `.env.mirror` files; it's no longer used now
-that auth is HTTP Basic (no signed session cookie).
+## Access
 
-## Accounts and Login
-
-The whole origin is behind **HTTP Basic Auth**, so the browser's native
-username/password dialog is the login. Credentials are checked against a `researcher`
-table (argon2-hashed).
-
-- **Interim shared login:** on startup the app seeds one account from
-  `PROD_USERNAME` / `PROD_PASSWORD`, so the dashboard is usable immediately —
-  everyone signs in with those.
-- **Named accounts:** create individual logins so people get stable, cross-device
-  boards:
-
-    ```bash
-    docker compose exec api python scripts/create_researcher.py alice
-    ```
+The dashboard is public — reachable by anyone who knows a board's student IDs — so
+there's no login. The only gate is **Cloudflare Turnstile**, which keeps bots (not
+people) off the API: a browser solves the widget once, and success is remembered via
+a signed cookie for 12 hours (`app/turnstile.py`). Losing/clearing that cookie just
+means solving the widget again, not signing back in — there's nothing to log out of.
 
 Each browser is isolated into its own **board** via a persistent id it stores in
-`localStorage` and sends as `X-Board-Id`; a named account without a board id falls
-back to that researcher's own workspace. There is no in-app logout (a Basic-Auth
-trait) — close the browser to clear the credentials.
+`localStorage` and sends as `X-Board-Id`; a request with no board id falls back to
+one shared default workspace.
 
 ## CLI Flags (daemon)
 

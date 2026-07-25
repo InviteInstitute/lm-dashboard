@@ -50,10 +50,6 @@ def fresh_db():
     # The control-flag cache is a module global with a 200ms TTL; clear it so a
     # flag set in one test can't leak into the next (the daemon reads through it).
     db._meta_cache.clear()
-    # The Basic-auth cache is a module global too; clear it so a header cached in
-    # one test doesn't resolve to a truncated researcher's id in the next.
-    from app import auth
-    auth._auth_cache.clear()
     workers.reset()
     workers.set_session_cutoff(None)   # module global; don't leak a cutoff between tests
     yield
@@ -61,22 +57,22 @@ def fresh_db():
 
 @pytest.fixture
 def anon_client():
-    """An unauthenticated TestClient (no session) -- for exercising the auth gate."""
-    return TestClient(fastapi_app)
+    """A TestClient that hasn't solved Turnstile (no cookie) -- for exercising
+    the bot gate itself. base_url is https so the gate's Secure cookie (prod is
+    always behind TLS -- see compose.yml) round-trips like it would for a real
+    browser, rather than httpx silently dropping it over plain http."""
+    return TestClient(fastapi_app, base_url="https://testserver")
 
 
 @pytest.fixture
 def client():
-    """A TestClient authenticated (HTTP Basic) as a throwaway researcher who is a
-    member of the DEFAULT workspace, so its routes resolve to the same workspace
-    the db.* helpers (tracked_add, add_note, ...) write to. It sends no X-Board-Id,
-    so the workspace comes from that researcher fallback. Most tests want this."""
-    import base64
-    from app import auth
-    rid = db.upsert_researcher("tester", auth.hash_password("secret"))
-    db.add_workspace_member(db.default_workspace_id(), rid)
-    c = TestClient(fastapi_app)
-    c.headers["Authorization"] = "Basic " + base64.b64encode(b"tester:secret").decode()
+    """A TestClient that has already solved Turnstile (a validly-signed cookie,
+    minted the same way a real verify call would) and sends no X-Board-Id, so it
+    lands on the same DEFAULT workspace the db.* helpers (tracked_add, add_note,
+    ...) write to by default. Most tests want this."""
+    from app.turnstile import COOKIE_NAME, sign_cookie
+    c = TestClient(fastapi_app, base_url="https://testserver")
+    c.cookies.set(COOKIE_NAME, sign_cookie())
     return c
 
 

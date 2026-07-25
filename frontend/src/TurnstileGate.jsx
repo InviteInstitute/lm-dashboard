@@ -20,21 +20,45 @@ export default function TurnstileGate() {
   }, []);
 
   useEffect(() => {
-    if (!open || !window.turnstile || widgetId.current) return;
-    widgetId.current = window.turnstile.render(elRef.current, {
-      sitekey: TURNSTILE_SITE_KEY,
-      action: 'turnstile-spin-v2',
-      callback: async (token) => {
-        try {
-          await api.post('/api/turnstile/verify/', { token });
-          window.location.reload();
-        } catch {
-          setError(true);
-          window.turnstile.reset(widgetId.current);
-        }
-      },
-      'error-callback': () => setError(true),
-    });
+    if (!open || widgetId.current) return;
+
+    const doRender = () => {
+      if (widgetId.current || !window.turnstile || !elRef.current) return;
+      widgetId.current = window.turnstile.render(elRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        action: 'turnstile-spin-v2',
+        callback: async (token) => {
+          try {
+            await api.post('/api/turnstile/verify/', { token });
+            window.location.reload();
+          } catch {
+            setError(true);
+            window.turnstile.reset(widgetId.current);
+          }
+        },
+        'error-callback': () => setError(true),
+      });
+    };
+
+    // The Cloudflare api.js is loaded async+defer, so window.turnstile often
+    // isn't ready yet when the gate first opens on a fresh page load. Poll until
+    // it is, then render; give up after ~15s (script blocked/unreachable) and
+    // show the error rather than hanging on "Verifying...".
+    if (window.turnstile) {
+      doRender();
+      return;
+    }
+    let waited = 0;
+    const iv = setInterval(() => {
+      if (window.turnstile) {
+        clearInterval(iv);
+        doRender();
+      } else if ((waited += 150) >= 15000) {
+        clearInterval(iv);
+        setError(true);
+      }
+    }, 150);
+    return () => clearInterval(iv);
   }, [open]);
 
   if (!open) return null;

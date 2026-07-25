@@ -26,7 +26,8 @@ log = logging.getLogger("pipeline")
 # module (and its tests) already use. RE_ALERT_SECONDS rotates an acked-but-still-
 # holding sustained trigger so a student who never got unstuck resurfaces.
 from app.constants import (
-    INACTIVE_TRIGGER_SECONDS, RE_ALERT_SECONDS, TRIGGER_LABELS as LABELS,
+    INACTIVE_TRIGGER_SECONDS, RE_ALERT_SECONDS, TRIGGER_TOUCH_THROTTLE_S,
+    TRIGGER_LABELS as LABELS,
     WHEEL_SPIN_ZERO_RUNS, RESILIENCE_ZERO_RUNS, EXPLORER_EDIT_DISTANCE,
     ITERATIVE_EDIT_MIN, ITERATIVE_DEFAULT_THRESHOLD, ITERATIVE_THRESHOLDS,
 )
@@ -136,37 +137,39 @@ def evaluate(now=None, disabled=None):
     now = now or db.now()
     if disabled is None:
         disabled = _disabled_types()
+
+    # Batched sweep: two reads (all states + all open inactive rows) up front, one
+    # pass building create/resolve/touch batches, one atomic flush -- so the whole
+    # sweep is a handful of statements regardless of cohort size, instead of a
+    # SELECT (and often a write) per student every tick.
+    ttype = "inactive"
+    open_by_sid = db.open_triggers_by_student(ttype)
+    creates, resolves, touches = [], [], []
+
     for s in db.all_student_states():
         sid = s["studentID"]
-        idle = (now - s["last_event_time"]).total_seconds() if s["last_event_time"] else None
+        last = s["last_event_time"]
+        idle = (now - last).total_seconds() if last else None
         is_inactive = (idle is not None and idle >= INACTIVE_TRIGGER_SECONDS
-                       and "inactive" not in disabled)
-        _sustain(sid, "inactive",
-                 active=is_inactive, now=now,
-                 started=(s["last_event_time"] + timedelta(seconds=INACTIVE_TRIGGER_SECONDS)
-                          if s["last_event_time"] else now),
-                 detail={"label": LABELS["inactive"], "value": _fmt_idle(idle)})
+                       and ttype not in disabled)
+        ev = open_by_sid.get(sid)
+        detail = {"label": LABELS[ttype], "value": _fmt_idle(idle)}
 
+        if is_inactive and ev is None:
+            started = last + timedelta(seconds=INACTIVE_TRIGGER_SECONDS) if last else now
+            creates.append((sid, ttype, started, now, detail))
+        elif is_inactive and ev is not None:
+            # Acked but still holding past the re-alert window: resolve the acked
+            # row and open a fresh, unacked one so the student comes back to the
+            # feed. Otherwise just keep the row fresh -- but throttle that touch,
+            # since the idle-time display is minute-granular and doesn't need a
+            # write every half-second tick.
+            if ev["acknowledged"] and (now - ev["started_at"]).total_seconds() >= RE_ALERT_SECONDS:
+                resolves.append((ev["id"], now))
+                creates.append((sid, ttype, now, now, detail))
+            elif (now - ev["last_seen_at"]).total_seconds() >= TRIGGER_TOUCH_THROTTLE_S:
+                touches.append((ev["id"], now, detail))
+        elif not is_inactive and ev is not None:
+            resolves.append((ev["id"], now))
 
-def _sustain(student_id, ttype, active, now, started, detail):
-    """Reconcile one open trigger row against the current condition: open a new
-    one when the condition starts, keep an existing one fresh while it holds,
-    rotate an acked-but-still-holding one past the re-alert window, and resolve
-    it when the condition clears."""
-    ev = db.current_open_trigger(student_id, ttype)
-    if active and ev is None:
-        db.create_trigger(student_id, ttype, started_at=started, last_seen_at=now,
-                          resolved_at=None, detail=detail)
-    elif active and ev is not None:
-        # Acked but still holding past the re-alert window: resolve the acked row
-        # and open a fresh, unacked one so the student comes back to the feed.
-        # Without this a persistently idle student would never alert again until
-        # they left and re-entered the state.
-        if ev["acknowledged"] and (now - ev["started_at"]).total_seconds() >= RE_ALERT_SECONDS:
-            db.resolve_trigger(ev["id"], now)
-            db.create_trigger(student_id, ttype, started_at=now, last_seen_at=now,
-                              resolved_at=None, detail=detail)
-        else:
-            db.touch_trigger(ev["id"], now, detail)
-    elif not active and ev is not None:
-        db.resolve_trigger(ev["id"], now)
+    db.apply_sustained_sweep(creates, resolves, touches)

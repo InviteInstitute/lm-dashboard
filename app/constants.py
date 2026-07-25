@@ -16,6 +16,8 @@ TRIGGER_LABELS = {
 }
 RE_ALERT_SECONDS = 600                # re-open an acked sustained trigger still holding after 10 min
 TRIGGER_RECENT_SECONDS = 420          # a resolved (or momentary) trigger lingers in the feed this long (7 min)
+TRIGGER_TOUCH_THROTTLE_S = 30         # min seconds between last_seen_at refreshes on a held sustained trigger;
+                                      # the idle-time display is minute-granular, so refreshing every tick is waste
 
 # --- Edit-distance trigger thresholds (rules defined in app/pipeline/triggers.py) ---
 WHEEL_SPIN_ZERO_RUNS = 6        # >= this many consecutive zero-edit runs -> wheel_spin

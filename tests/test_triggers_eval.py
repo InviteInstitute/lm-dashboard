@@ -57,6 +57,26 @@ def test_sustained_trigger_is_not_duplicated_across_ticks():
     assert len(rows) == 1
 
 
+def test_held_trigger_touch_is_throttled():
+    """A held inactive row isn't rewritten every tick: last_seen_at only refreshes
+    once past TRIGGER_TOUCH_THROTTLE_S, so the sweep's per-tick write load doesn't
+    scale with the number of idle students."""
+    old = db.now() - timedelta(seconds=triggers.INACTIVE_TRIGGER_SECONDS + 30)
+    _state("s1", last_event_time=old)
+    triggers.evaluate()
+    seen1 = db.current_open_trigger("s1", "inactive")["last_seen_at"]
+
+    triggers.evaluate()   # immediate re-tick -> within the throttle window, no write
+    assert db.current_open_trigger("s1", "inactive")["last_seen_at"] == seen1
+
+    # Backdate last_seen_at beyond the throttle window; now a tick should refresh it.
+    backdated = seen1 - timedelta(seconds=triggers.TRIGGER_TOUCH_THROTTLE_S + 5)
+    ev_id = db.current_open_trigger("s1", "inactive")["id"]
+    db._execute("UPDATE trigger_event SET last_seen_at=? WHERE id=?", (db.dt_to_db(backdated), ev_id))
+    triggers.evaluate()
+    assert db.current_open_trigger("s1", "inactive")["last_seen_at"] > backdated
+
+
 def test_acked_but_still_idle_rotates_after_re_alert_window():
     old = db.now() - timedelta(seconds=triggers.INACTIVE_TRIGGER_SECONDS + 30)
     _state("s1", last_event_time=old)

@@ -7,10 +7,15 @@ uvicorn[standard]
 psycopg[binary]>=3.2
 psycopg_pool>=3.2
 
-# researcher auth (API): argon2 password hashing; itsdangerous signs the session
-# cookie behind starlette's SessionMiddleware.
-argon2-cffi>=23.1
+# Turnstile bot gate (API, see app/turnstile.py): itsdangerous signs the
+# "solved the widget" cookie; httpx makes the async siteverify call.
 itsdangerous>=2.1
+httpx
+
+# per-account password hashing (app/auth.py, scripts/create_researcher.py).
+# Not wired into the running app -- the dashboard itself has no login, see
+# app/turnstile.py -- kept for any future named-account feature.
+argon2-cffi>=23.1
 
 # ingestion daemon
 requests
@@ -20,11 +25,10 @@ python-dotenv
 # segmenter is vendored in app/episode_engine/ and needs no third-party packages.
 apted>=1.0
 
-# tests (pytest tests/). httpx backs the FastAPI TestClient; pytest-cov for
-# coverage (pytest --cov=app). Frontend tests live under frontend/ (npm test).
+# tests (pytest tests/); pytest-cov for coverage (pytest --cov=app). Frontend
+# tests live under frontend/ (npm test).
 pytest
 pytest-cov
-httpx
 
 # docs (mkdocs serve, also started by scripts/start.sh on :4000). Pulls in mkdocs
 # and pymdown-extensions, which cover every extension in mkdocs.yml.

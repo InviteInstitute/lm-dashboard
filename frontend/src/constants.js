@@ -61,3 +61,7 @@ export const STATUS_OK = { c: '#22c55e', label: 'OK' };
 // ----- misc -----
 export const POLL_MS = 1500;
 export const COMPACT_TAIL = 10;   // compact cards show only the most recent N runs/episodes; the modal shows all (scrollable)
+
+// Turnstile site key is public by design (paired server-side with the secret
+// key, which never leaves the backend) -- see TurnstileGate.jsx.
+export const TURNSTILE_SITE_KEY = '0x4AAAAAAD9y1rcwgwx5PODV';

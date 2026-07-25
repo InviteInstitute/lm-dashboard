@@ -19,11 +19,16 @@ load_dotenv(BASE_DIR / ".env.mirror")
 # every real run -- compose loads it from .env.mirror.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# Secret used to sign the session cookie that carries a logged-in researcher's
-# id (see app/auth.py). Required in any real deployment -- set a long random
-# value in .env.mirror. The dev fallback keeps local runs and tests working but
-# must never be used in production (sessions would be forgeable).
+# Secret used to sign the "this browser solved Turnstile" cookie (see
+# app/turnstile.py). Required in any real deployment -- set a long random value
+# in .env.mirror. The dev fallback keeps local runs and tests working but must
+# never be used in production (the cookie would be forgeable).
 SESSION_SECRET = os.environ.get("SESSION_SECRET") or "dev-insecure-session-secret-change-me"
+
+# Cloudflare Turnstile secret key, used server-side to verify widget response
+# tokens against Cloudflare's siteverify endpoint. Set in .env.mirror; unset
+# means the gate can't verify anyone (see app/turnstile.py).
+TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET")
 
 # Cross-origin allowlist for the browser. Defaults cover the Vite dev server's
 # usual ports; comma-separated, blanks dropped.

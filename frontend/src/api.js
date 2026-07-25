@@ -11,8 +11,8 @@ export const API_URL = import.meta.env.VITE_API_URL ?? '';
 // A stable per-browser id, persisted in localStorage. It decides which isolated
 // board this browser lands on: it's sent on every request (X-Board-Id header, and
 // as ?board_id= on the SSE stream, which can't carry headers), and the server maps
-// it to a workspace. A fresh browser gets a fresh board. Auth itself is the
-// browser's native HTTP Basic dialog, handled by the browser, not this code.
+// it to a workspace. A fresh browser gets a fresh board. The API itself is gated
+// by Cloudflare Turnstile rather than a login -- see TurnstileGate.jsx.
 export function boardId() {
   let id = localStorage.getItem('lm_board_id');
   if (!id) {
@@ -25,8 +25,8 @@ export function boardId() {
 
 const api = axios.create({
   baseURL: API_URL,
-  // withCredentials keeps the browser's cached Basic-Auth header on same-origin
-  // XHR (and cross-origin in dev via the proxy).
+  // withCredentials sends the ts_verified cookie the Turnstile gate sets, on
+  // same-origin XHR (and cross-origin in dev via the proxy).
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -34,5 +34,20 @@ const api = axios.create({
     'X-Board-Id': boardId(),          // per-browser board isolation
   },
 });
+
+// The server's TurnstileGateMiddleware 403s any /api/* call from a browser
+// that hasn't solved the widget yet. Surface that as a DOM event so
+// TurnstileGate.jsx (mounted once, above everything else) can show the
+// challenge -- every caller of `api` gets this for free instead of each
+// needing its own 403 handling.
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response?.status === 403 && err.response?.data?.error === 'turnstile_required') {
+      window.dispatchEvent(new CustomEvent('turnstile:required'));
+    }
+    return Promise.reject(err);
+  }
+);
 
 export default api;

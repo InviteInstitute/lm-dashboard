@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from app import config, db
-from app.auth import BasicAuthMiddleware, ensure_bootstrap_researcher
+from app.turnstile import TurnstileGateMiddleware, sign_cookie, verify_turnstile, COOKIE_NAME
 from app.runs.ast_builder import extract_workspace_xml
 from app.runs.humanize import humanize_text
 from app.constants import (
@@ -29,14 +29,13 @@ from app.constants import (
 
 app = FastAPI(title="LM Dashboard")
 # Middleware runs outermost-first in reverse add order, so these are added
-# inner -> outer: GZip inside BasicAuthMiddleware (the browser-native login gate
-# over the whole origin) inside CORS (handles preflight). Result order:
-# CORS -> BasicAuth -> GZip -> routes.
+# inner -> outer: GZip inside TurnstileGate (bot gate over /api/*) inside CORS
+# (handles preflight). Result order: CORS -> TurnstileGate -> GZip -> routes.
 #
 # The SSE stream opts out of gzip via an explicit Content-Encoding so events are
 # never buffered by a gzip window.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-app.add_middleware(BasicAuthMiddleware)
+app.add_middleware(TurnstileGateMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
@@ -47,9 +46,6 @@ app.add_middleware(
 # Create the schema if it isn't there yet (a no-op otherwise), so a fresh clone
 # works no matter whether the API or the daemon happens to start first.
 db.init_db()
-# Interim: seed the shared researcher login from the env-file prod creds until
-# per-researcher accounts + the login UI land (see app/auth.py).
-ensure_bootstrap_researcher()
 
 
 # --------------------------------------------------------------------------
@@ -94,22 +90,33 @@ def health():
 
 
 # --------------------------------------------------------------------------
-# auth: the whole origin is behind HTTP Basic (see app/auth.BasicAuthMiddleware),
-# so there's no login/logout route -- the browser's native dialog handles it.
-# /api/me just reports who the browser is authenticated as (handy for the UI).
+# bot gate: /api/* is behind Cloudflare Turnstile (see app/turnstile.py). This
+# is the one route TurnstileGateMiddleware leaves open so a browser can solve
+# the widget and get the cookie the middleware then checks on every other call.
 # --------------------------------------------------------------------------
-@app.get("/api/me/")
-async def me(request: Request):
-    return {"id": getattr(request.state, "researcher_id", None),
-            "username": getattr(request.state, "username", None)}
+class TurnstileVerifyRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/turnstile/verify/")
+async def turnstile_verify(body: TurnstileVerifyRequest, request: Request, response: Response):
+    remote_ip = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "")
+    if not await verify_turnstile(body.token, remote_ip):
+        raise HTTPException(status_code=403, detail="turnstile verification failed")
+    response.set_cookie(
+        COOKIE_NAME, sign_cookie(),
+        max_age=12 * 3600, httponly=True, secure=True, samesite="lax",
+    )
+    return {"ok": True}
 
 
 async def current_workspace_id(request: Request) -> int:
     """The workspace this request acts in, so every data route scopes to the
     caller's own board. Prefers the per-browser board the SPA names via the
     X-Board-Id header (or a ?board_id= query param on the SSE stream, which can't
-    send headers); otherwise falls back to the authenticated researcher's own
-    workspace (named accounts / non-browser clients). Cached on request.state."""
+    send headers); otherwise falls back to a single shared workspace for
+    headerless (non-browser) clients. Cached on request.state."""
     cached = getattr(request.state, "workspace_id", None)
     if cached is not None:
         return cached
@@ -117,10 +124,7 @@ async def current_workspace_id(request: Request) -> int:
     if board:
         wsid = await run_in_threadpool(db.workspace_for_client_key, board)
     else:
-        rid = getattr(request.state, "researcher_id", None)
-        ids = await run_in_threadpool(db.workspace_ids_for_researcher, rid) if rid else []
-        wsid = ids[0] if ids else await run_in_threadpool(
-            db.ensure_workspace_for_researcher, rid, str(rid))
+        wsid = await run_in_threadpool(db.default_workspace_id)
     request.state.workspace_id = wsid
     return wsid
 

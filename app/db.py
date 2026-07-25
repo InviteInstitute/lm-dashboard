@@ -1354,6 +1354,52 @@ def current_open_trigger(student_id, ttype):
     return _trigger_row(rows[0]) if rows else None
 
 
+def open_triggers_by_student(ttype):
+    """Every currently-open (unresolved) trigger of one type, keyed by studentID.
+    One query for the whole cohort -- the sustained-trigger sweep uses this
+    instead of a per-student current_open_trigger() lookup. A student can only
+    have one open row per type (the sweep maintains that), so last-wins on the
+    off chance of a duplicate is harmless."""
+    rows = _query(
+        "SELECT * FROM trigger_event WHERE trigger_type = ? AND resolved_at IS NULL",
+        (ttype,),
+    )
+    return {r["studentID"]: _trigger_row(r) for r in rows}
+
+
+def apply_sustained_sweep(creates, resolve_ids, touches):
+    """Flush one sustained-trigger sweep atomically: a batch of new rows, a batch
+    of resolves (by id), and a batch of last_seen_at touches (by id) -- each an
+    executemany, so the whole sweep is ~3 statements regardless of cohort size
+    instead of a query per student. Args:
+      creates:    [(student_id, trigger_type, started_at, last_seen_at, detail)]
+      resolve_ids:[(trigger_id, resolved_at)]
+      touches:    [(trigger_id, last_seen_at, detail)]
+    All datetimes are python datetimes / detail is a dict; this does the db
+    encoding so callers stay in app types."""
+    if not (creates or resolve_ids or touches):
+        return
+    with write_txn() as con:
+        if creates:
+            con.executemany(
+                "INSERT INTO trigger_event "
+                "(studentID, trigger_type, started_at, last_seen_at, resolved_at, "
+                " acknowledged, detail, created_at) VALUES (?, ?, ?, ?, NULL, 0, ?, ?)",
+                [(sid, tt, dt_to_db(st), dt_to_db(ls), _jdump(d), dt_to_db(now()))
+                 for (sid, tt, st, ls, d) in creates],
+            )
+        if resolve_ids:
+            con.executemany(
+                "UPDATE trigger_event SET resolved_at = ? WHERE id = ?",
+                [(dt_to_db(ra), tid) for (tid, ra) in resolve_ids],
+            )
+        if touches:
+            con.executemany(
+                "UPDATE trigger_event SET last_seen_at = ?, detail = ? WHERE id = ?",
+                [(dt_to_db(ls), _jdump(d), tid) for (tid, ls, d) in touches],
+            )
+
+
 def create_trigger(student_id, trigger_type, started_at, last_seen_at, resolved_at, detail):
     _execute(
         "INSERT INTO trigger_event "

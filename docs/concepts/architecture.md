@@ -11,8 +11,9 @@ and never writes back.
 
 The whole thing is built around simplicity: one `docker compose up` brings up the
 entire stack — Postgres, the API, and the daemon. No message broker, no managed cloud
-services. It's also multi-tenant: each researcher works on their own isolated board
-behind a login, while the daemon serves all of them from one shared mirror.
+services. It's also multi-tenant: each browser works on its own isolated board (no
+login — the dashboard is public), while the daemon serves all of them from one shared
+mirror.
 
 Here's the shape of it. Read it top to bottom: production feeds the daemon, the daemon
 writes everything, and the API serves it back out to the dashboards.
@@ -73,12 +74,12 @@ The split is on purpose. The daemon is a long-running compute loop that has to b
 exactly one instance (the cursor assumes a single writer), while the API stays light,
 dependency-free (no numpy, no ML), and safe to restart on its own.
 
-!!! note "Auth and serving"
-    The whole origin is behind **HTTP Basic Auth** — the browser's native login dialog,
-    verified against a researcher table (argon2). Each browser is isolated into its own
-    board. In production the API is served behind a reverse proxy (TLS); see
-    [Configuration](../guides/configuration.md) for accounts and the per-board dead-man's
-    switch that keeps prod polling in check.
+!!! note "Access and serving"
+    The dashboard is public — no login — with **Cloudflare Turnstile** gating the API
+    against bots rather than authenticating people. Each browser is isolated into its
+    own board. In production the API is served behind a reverse proxy (TLS); see
+    [Configuration](../guides/configuration.md) for the bot gate and the per-board
+    dead-man's switch that keeps prod polling in check.
 
 ## Consistency
 
@@ -99,9 +100,9 @@ and leaves the shared mirror alone — so it needs no daemon handshake.
 
 ## Scaling And Evolution
 
-**Postgres** and **per-researcher auth + workspace isolation** are already in place
-(they used to be on this list). This is comfortable from tens of students up through a
-program's worth of researchers, each on their own board. The first thing that actually
+**Postgres** and **per-board workspace isolation** are already in place (they used to
+be on this list). This is comfortable from tens of students up through a program's
+worth of boards, each isolated. The first thing that actually
 gives at larger scale is the daemon's sequential per-student inference, plus the
 per-tick full-table trigger sweep. It's not memory; the worker buffers are bounded.
 The rough order you'd reach for things as you grow:

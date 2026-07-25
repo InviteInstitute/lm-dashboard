@@ -69,18 +69,6 @@ def test_creating_a_researcher_provisions_a_workspace():
     assert db.workspace_ids_for_researcher(rid) == ws
 
 
-def _login(username):
-    """A TestClient authed (Basic) as a fresh researcher, with NO board id, so it
-    falls back to that researcher's own workspace (named-account isolation)."""
-    import base64
-    from fastapi.testclient import TestClient
-    from app.main import app
-    db.upsert_researcher(username, auth.hash_password("pw"))
-    c = TestClient(app)
-    c.headers["Authorization"] = "Basic " + base64.b64encode(f"{username}:pw".encode()).decode()
-    return c
-
-
 def test_workspace_for_client_key_is_stable():
     before = db._query("SELECT COUNT(*) AS c FROM workspace")[0]["c"]
     a = db.workspace_for_client_key("k1")
@@ -92,41 +80,36 @@ def test_workspace_for_client_key_is_stable():
     assert after - before == 2              # exactly k1 + k2, not one per call
 
 
-def _basic(username, password="pw"):
-    import base64
-    return "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
-
-
-def _browser(board_id, username="shared"):
-    """A TestClient authed (Basic) under a shared account, bound to a browser key
-    via the X-Board-Id header."""
+def _browser(board_id):
+    """A TestClient that has solved Turnstile, bound to a browser key via the
+    X-Board-Id header."""
     from fastapi.testclient import TestClient
     from app.main import app
-    db.upsert_researcher(username, auth.hash_password("pw"))
-    c = TestClient(app)
-    c.headers["Authorization"] = _basic(username)
+    from app.turnstile import COOKIE_NAME, sign_cookie
+    c = TestClient(app, base_url="https://testserver")
     c.headers["X-Board-Id"] = board_id
+    c.cookies.set(COOKIE_NAME, sign_cookie())
     return c
 
 
-def test_per_browser_boards_isolated_under_one_shared_login():
-    """The device-isolation model: everyone uses one login, but each browser
-    (distinct localStorage board_id) gets its own isolated board."""
+def test_per_browser_boards_isolated():
+    """The device-isolation model: each browser (distinct localStorage board_id)
+    gets its own isolated board -- the dashboard is public, with no login step."""
     b1 = _browser("browser-aaaa")
     b2 = _browser("browser-bbbb")
     b1.post("/api/tracked/", json={"studentID": "cobra3"})
     assert b1.get("/api/tracked/").json()["count"] == 1
     assert b2.get("/api/tracked/").json()["count"] == 0     # other browser, own board
 
-    # The same browser key returns to the same board on a later login.
+    # The same browser key returns to the same board on a later visit.
     b1_again = _browser("browser-aaaa")
     assert b1_again.get("/api/tracked/").json()["count"] == 1
 
 
-def test_api_isolation_between_two_researchers():
-    """End-to-end: two logged-in researchers watching the SAME student see the
-    same underlying state but fully isolated rosters, notes, and presence."""
-    ca, cb = _login("ra"), _login("rb")
+def test_api_isolation_between_two_boards():
+    """End-to-end: two boards watching the SAME student see the same underlying
+    state but fully isolated rosters, notes, and presence."""
+    ca, cb = _browser("board-a"), _browser("board-b")
     for c in (ca, cb):
         c.post("/api/tracked/", json={"studentID": "cobra3"})
     db.upsert_student_state("cobra3", {"run_count": 3})   # shared per-student state

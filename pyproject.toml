@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lm-dashboard"
+version = "0.1.0"
+description = "Live who-needs-help dashboard for a cohort of students coding in VEXcode VR."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.139.2",
+    "uvicorn[standard]==0.51.0",
+    "psycopg[binary]==3.3.4",      # data layer (API + daemon), pooled via psycopg-pool
+    "psycopg-pool==3.3.1",
+    "itsdangerous==2.2.0",         # signs the Turnstile "solved the widget" cookie (app/turnstile)
+    "httpx==0.28.1",               # Turnstile siteverify (async)
+    "argon2-cffi==25.1.0",         # per-account password hashing (app/auth, scripts/create_researcher)
+    "requests==2.34.2",            # ingestion daemon
+    "python-dotenv==1.2.2",
+    "apted==1.0.3",                # per-run code-diff signal: APTED tree-edit distance (daemon)
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "pytest-cov==7.1.0"]
+docs = ["mkdocs-material==9.7.7"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]

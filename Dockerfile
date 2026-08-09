@@ -16,10 +16,11 @@ RUN npm run build          # -> /web/dist
 FROM python:3.12-slim AS app
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-COPY requirements.txt ./
-RUN pip install -r requirements.txt
+COPY pyproject.toml requirements.txt ./
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+# editable install; pyproject.toml is the single source of truth for deps.
+RUN pip install -e .
 COPY --from=web /web/dist ./frontend/dist
 EXPOSE 8000
 # Default is the API; the daemon service overrides this command in compose.

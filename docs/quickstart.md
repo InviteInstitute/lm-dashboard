@@ -41,10 +41,11 @@ separate migration step.
 ## Run
 
 ```bash
-docker compose up -d
+docker compose up -d      # or: make dev
 ```
 
-That's it. In **dev**, compose auto-loads `compose.override.yml`, which adds:
+`make dev` is the shortcut; see [Development](guides/development.md) for the full make
+vocabulary. In **dev**, compose auto-loads `compose.override.yml`, which adds:
 
 - the dashboard under **Vite with hot-reload** at [http://localhost:3000](http://localhost:3000)
   (it proxies `/api` to the API), and
@@ -113,5 +114,11 @@ site to the gitignored `site/`.
     ---
 
     Environment variables, accounts, and CLI flags.
+
+-   :material-wrench:{ .lg .middle } **[Development](guides/development.md)**
+
+    ---
+
+    The make targets, the ruff and prettier style, and CI.
 
 </div>

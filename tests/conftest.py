@@ -8,6 +8,7 @@ The test DB defaults to the dev DATABASE_URL with the database name swapped to
 Each test gets a clean schema + empty tables (identity counters reset so ids
 start at 1) + a fresh in-memory worker registry, so tests can't leak state.
 """
+
 import os
 
 from dotenv import load_dotenv
@@ -21,12 +22,12 @@ if not _test_url:
     _test_url = _base.rsplit("/", 1)[0] + "/lm_dashboard_test"
 os.environ["DATABASE_URL"] = _test_url
 
-import pytest                                    # noqa: E402
-from fastapi.testclient import TestClient        # noqa: E402
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db                                # noqa: E402
-from app.main import app as fastapi_app           # noqa: E402
-from app.pipeline import workers                  # noqa: E402
+from app import db  # noqa: E402
+from app.main import app as fastapi_app  # noqa: E402
+from app.pipeline import workers  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +40,13 @@ def fresh_db():
     # sequences so ids start at 1 each test (matching the old fresh-file behavior
     # tests rely on); CASCADE handles the vex_log -> message foreign key.
     with db.write_txn() as con:
-        tables = [r[0] for r in con.execute(
-            "SELECT table_name FROM information_schema.tables "
-            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")]
+        tables = [
+            r[0]
+            for r in con.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+            )
+        ]
         if tables:
             con.execute("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE")
     # TRUNCATE wiped the default workspace too; recreate it so writes that fall
@@ -51,7 +56,7 @@ def fresh_db():
     # flag set in one test can't leak into the next (the daemon reads through it).
     db._meta_cache.clear()
     workers.reset()
-    workers.set_session_cutoff(None)   # module global; don't leak a cutoff between tests
+    workers.set_session_cutoff(None)  # module global; don't leak a cutoff between tests
     yield
 
 
@@ -71,6 +76,7 @@ def client():
     lands on the same DEFAULT workspace the db.* helpers (tracked_add, add_note,
     ...) write to by default. Most tests want this."""
     from app.turnstile import COOKIE_NAME, sign_cookie
+
     c = TestClient(fastapi_app, base_url="https://testserver")
     c.cookies.set(COOKIE_NAME, sign_cookie())
     return c
@@ -80,15 +86,19 @@ def client():
 def seed_state():
     """Helper: upsert a materialized student_state row AND track the student on the
     default workspace (reads are roster-scoped now), then return the studentID."""
+
     def _seed(sid="stu1", **overrides):
         payload = {
             "classCode": "C1",
             "run_count": 2,
             "event_count": 7,
-            "runs": {"runs": [{"index": 0, "edit_distance": None, "ts": None}],
-                     "run_count": 2},
-            "episodes": {"events": [{"eventType": "runProject"}], "episodes": [],
-                         "pauses": [], "event_count": 7},
+            "runs": {"runs": [{"index": 0, "edit_distance": None, "ts": None}], "run_count": 2},
+            "episodes": {
+                "events": [{"eventType": "runProject"}],
+                "episodes": [],
+                "pauses": [],
+                "event_count": 7,
+            },
             "playground_prompt": "[Active] events_whenStarted { motor_on }",
             "playground_time": db.now(),
             "last_event_id": 7,
@@ -98,4 +108,5 @@ def seed_state():
         db.upsert_student_state(sid, payload)
         db.tracked_add(sid)
         return sid
+
     return _seed

@@ -12,17 +12,18 @@ event), so it is only rebuilt when a new run lands; episodes and the playground
 prompt refresh on any new event. The whole recompute is cheap, on the order of
 tens of milliseconds per student.
 """
+
 import logging
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app import db
-from app.runs.run_sequence import compute_run_edit_distances
-from app.runs.apted_similarity import clear_cache as clear_score_cache
-from app.smart_delta_engine import generate_llm_prompt_from_project
 from app.episode_engine import segment_session
-from app.pipeline.triggers import detect_run_triggers_by_playground, _disabled_types
 from app.pipeline.switches import detect_switches
+from app.pipeline.triggers import _disabled_types, detect_run_triggers_by_playground
+from app.runs.apted_similarity import clear_cache as clear_score_cache
+from app.runs.run_sequence import compute_run_edit_distances
+from app.smart_delta_engine import generate_llm_prompt_from_project
 
 logger = logging.getLogger("pipeline")
 
@@ -34,18 +35,18 @@ RUN_TRIGGER_TYPES = ("wheel_spin", "resilience", "explorer", "iterative")
 
 class StudentWorker:
     def __init__(self, student_id):
-        self.student_id = db.canon_id(student_id)   # canonical (folded) key for all writes
+        self.student_id = db.canon_id(student_id)  # canonical (folded) key for all writes
         self.class_code = None
-        self.display_id = None                   # most-recent studentID casing seen live
-        self.events = deque(maxlen=BUFFER_MAX)   # in-memory rolling history
+        self.display_id = None  # most-recent studentID casing seen live
+        self.events = deque(maxlen=BUFFER_MAX)  # in-memory rolling history
         self.latest_project = None
         self.latest_project_ts = None
         self.last_event_id = 0
         self.last_event_time = None
         self.had_new_run = False
         self.dirty = False
-        self._runs_cache = None                  # last run edit-distance sequence
-        self.fired = {t: set() for t in RUN_TRIGGER_TYPES}   # run indices already alerted, per type
+        self._runs_cache = None  # last run edit-distance sequence
+        self.fired = {t: set() for t in RUN_TRIGGER_TYPES}  # run indices already alerted, per type
 
     # -- ingest ----------------------------------------------------------
     def ingest(self, ev):
@@ -62,7 +63,8 @@ class StudentWorker:
         # worker, so this is roster-only for free. Non-critical telemetry, so a
         # failure here must never break ingest.
         for kind, frm, to in detect_switches(
-                self.display_id, self.class_code, ev.get("studentID"), ev.get("classCode")):
+            self.display_id, self.class_code, ev.get("studentID"), ev.get("classCode")
+        ):
             try:
                 db.record_switch(self.student_id, kind, frm, to)
             except Exception:
@@ -78,8 +80,7 @@ class StudentWorker:
             # snapshot must not roll the playground view backwards. A missing
             # timestamp on either side can't be compared, so it still accepts.
             ts_new = ev.get("event_time")
-            if (self.latest_project_ts is None or ts_new is None
-                    or ts_new >= self.latest_project_ts):
+            if self.latest_project_ts is None or ts_new is None or ts_new >= self.latest_project_ts:
                 self.latest_project = ev["project"]
                 self.latest_project_ts = ts_new
         if ev.get("source_event_id") is not None:
@@ -122,11 +123,15 @@ class StudentWorker:
             if ttype in disabled or idx in self.fired[ttype]:
                 continue
             run_ts = runs[idx].get("ts")
-            at = datetime.fromtimestamp(run_ts, tz=timezone.utc) if run_ts else db.now()
+            at = datetime.fromtimestamp(run_ts, tz=UTC) if run_ts else db.now()
             db.create_trigger(
-                self.student_id, ttype,
-                started_at=at, last_seen_at=at, resolved_at=at,
-                detail={**detail, "run_index": idx})
+                self.student_id,
+                ttype,
+                started_at=at,
+                last_seen_at=at,
+                resolved_at=at,
+                detail={**detail, "run_index": idx},
+            )
             self.fired[ttype].add(idx)
 
         # Episodes (timeline)
@@ -254,7 +259,9 @@ def _rehydrate(worker):
             ts = row["received_at"].timestamp()
         worker.events.append({"event_type": et, "content": row["raw_message"] or "{}", "ts": ts})
         if row.get("studentID"):
-            worker.display_id = row["studentID"]   # rows are oldest-first, so this ends on the newest casing
+            worker.display_id = row[
+                "studentID"
+            ]  # rows are oldest-first, so this ends on the newest casing
         if row["classCode"]:
             worker.class_code = row["classCode"]
         if row["project"] is not None:

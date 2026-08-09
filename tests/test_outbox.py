@@ -1,4 +1,5 @@
 """Failed-write outbox: parked researcher inputs must survive everything."""
+
 import json
 
 from app import db
@@ -14,9 +15,11 @@ def test_record_and_list_roundtrip():
 
 
 def test_outbox_api_stores_and_lists(client):
-    body = {"op": "present: cobra3",
-            "payload": {"studentID": "cobra3", "present": True},
-            "error": "Network Error"}
+    body = {
+        "op": "present: cobra3",
+        "payload": {"studentID": "cobra3", "present": True},
+        "error": "Network Error",
+    }
     assert client.post("/api/outbox/", json=body).json() == {"stored": True}
     got = client.get("/api/outbox/").json()
     assert got["count"] == 1
@@ -27,7 +30,7 @@ def test_outbox_api_stores_and_lists(client):
 def test_reset_spares_the_outbox():
     db.record_outbox("pick: bear2", None, "locked")
     db.reset_workspace()
-    assert len(db.list_outbox()) == 1   # parked inputs survive a board reset
+    assert len(db.list_outbox()) == 1  # parked inputs survive a board reset
 
 
 def test_newest_first_ordering():

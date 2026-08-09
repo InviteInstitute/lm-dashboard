@@ -3,36 +3,57 @@
    a theme switch has to do -- every style in CohortDashboard.jsx reads these
    through T (see constants.js), so nothing else needs to react. */
 :root {
-  --lmd-bg: #f4f6f8;         --lmd-panel: #ffffff;
-  --lmd-border: #e3e8ec;     --lmd-ink: #1c3947;
-  --lmd-sub: #5b6b78;        --lmd-faint: #8b98a3;
-  --lmd-track: #eef1f4;      --lmd-code: #24292f;
-  --lmd-hatch-red-bg: #fde3e3;   --lmd-hatch-amber-bg: #fdecd0;
+  --lmd-bg: #f4f6f8;
+  --lmd-panel: #ffffff;
+  --lmd-border: #e3e8ec;
+  --lmd-ink: #1c3947;
+  --lmd-sub: #5b6b78;
+  --lmd-faint: #8b98a3;
+  --lmd-track: #eef1f4;
+  --lmd-code: #24292f;
+  --lmd-hatch-red-bg: #fde3e3;
+  --lmd-hatch-amber-bg: #fdecd0;
 }
 :root[data-theme="dark"] {
-  --lmd-bg: #0b0e13;         --lmd-panel: #0f131a;
-  --lmd-border: #1f2530;     --lmd-ink: #e6e9ef;
-  --lmd-sub: #7d8694;        --lmd-faint: #5a626e;
-  --lmd-track: #0d1117;      --lmd-code: #c9d1d9;
-  --lmd-hatch-red-bg: #3a1416;   --lmd-hatch-amber-bg: #3a2a10;
+  --lmd-bg: #0b0e13;
+  --lmd-panel: #0f131a;
+  --lmd-border: #1f2530;
+  --lmd-ink: #e6e9ef;
+  --lmd-sub: #7d8694;
+  --lmd-faint: #5a626e;
+  --lmd-track: #0d1117;
+  --lmd-code: #c9d1d9;
+  --lmd-hatch-red-bg: #3a1416;
+  --lmd-hatch-amber-bg: #3a2a10;
 }
 
 body {
   margin: 0;
-  font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    Helvetica, Arial, sans-serif;
+  font-family:
+    "Source Sans Pro",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Helvetica,
+    Arial,
+    sans-serif;
   background: var(--lmd-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
 
 /* Switch-notification toast: slide down + fade in on arrival. */
 @keyframes toastIn {
-  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

@@ -1,6 +1,7 @@
 """End-to-end API tests through the FastAPI TestClient -- the contract the
 frontend depends on."""
-from app import db, config
+
+from app import config, db
 
 
 # --- health / basics -------------------------------------------------------
@@ -29,9 +30,9 @@ def test_student_states_list_is_light(client, seed_state):
     body = r.json()
     assert body["student_count"] == 1
     student = body["students"][0]
-    assert "runs" in student and "episodes" in student     # grid needs the tracks
-    assert "current_state" not in student                  # strategy state is gone
-    assert "block" not in student                          # but NOT the heavy prompt
+    assert "runs" in student and "episodes" in student  # grid needs the tracks
+    assert "current_state" not in student  # strategy state is gone
+    assert "block" not in student  # but NOT the heavy prompt
 
 
 def test_student_state_detail_is_heavy(client, seed_state):
@@ -47,10 +48,11 @@ def test_student_state_detail_404_for_unknown(client):
 
 def test_student_states_sort_by_recency(client, seed_state):
     from datetime import timedelta
+
     seed_state("older", last_event_time=db.now() - timedelta(minutes=10))
     seed_state("newer", last_event_time=db.now())
     rows = client.get("/api/student_states/").json()["students"]
-    assert rows[0]["studentID"] == "newer"      # most recent activity first
+    assert rows[0]["studentID"] == "newer"  # most recent activity first
 
 
 # The grid now fetches this workspace's whole roster (no per-request `students`
@@ -61,7 +63,9 @@ def test_student_states_sort_by_recency(client, seed_state):
 def test_track_and_untrack_roundtrip(client):
     assert client.post("/api/tracked/", json={"studentID": "s1"}).json() == {"added": "s1"}
     assert client.get("/api/tracked/").json()["count"] == 1
-    assert client.post("/api/tracked/", json={"studentID": "s1", "remove": True}).json() == {"removed": "s1"}
+    assert client.post("/api/tracked/", json={"studentID": "s1", "remove": True}).json() == {
+        "removed": "s1"
+    }
     assert client.get("/api/tracked/").json()["count"] == 0
 
 
@@ -72,8 +76,14 @@ def test_track_requires_student_id(client):
 # --- presence / picked -----------------------------------------------------
 def test_presence_and_picked_endpoints(client):
     client.post("/api/tracked/", json={"studentID": "s1"})
-    assert client.post("/api/presence/", json={"studentID": "s1", "present": False}).json()["present"] is False
-    assert client.post("/api/picked/", json={"studentID": "s1", "picked": True}).json()["picked"] is True
+    assert (
+        client.post("/api/presence/", json={"studentID": "s1", "present": False}).json()["present"]
+        is False
+    )
+    assert (
+        client.post("/api/picked/", json={"studentID": "s1", "picked": True}).json()["picked"]
+        is True
+    )
     row = client.get("/api/tracked/").json()["tracked"][0]
     assert row["present"] is False and row["picked"] is True
 
@@ -89,12 +99,20 @@ def test_picked_records_provenance_via_api(client):
     # The endpoint must forward source + trigger from the request body into the
     # log, and default source to 'roster' when the body omits provenance.
     client.post("/api/tracked/", json={"studentID": "s1"})
-    client.post("/api/picked/", json={"studentID": "s1", "picked": True,
-                                      "source": "intervention", "trigger_id": 9,
-                                      "trigger_type": "wheel_spin"})
-    client.post("/api/picked/", json={"studentID": "s1", "picked": False})   # roster default
-    rows = db._query("SELECT source, trigger_id, trigger_type FROM pick_event "
-                     "WHERE studentID='s1' ORDER BY id")
+    client.post(
+        "/api/picked/",
+        json={
+            "studentID": "s1",
+            "picked": True,
+            "source": "intervention",
+            "trigger_id": 9,
+            "trigger_type": "wheel_spin",
+        },
+    )
+    client.post("/api/picked/", json={"studentID": "s1", "picked": False})  # roster default
+    rows = db._query(
+        "SELECT source, trigger_id, trigger_type FROM pick_event WHERE studentID='s1' ORDER BY id"
+    )
     assert [dict(r) for r in rows] == [
         {"source": "intervention", "trigger_id": 9, "trigger_type": "wheel_spin"},
         {"source": "roster", "trigger_id": None, "trigger_type": None},
@@ -108,13 +126,23 @@ def test_notes_post_get_and_validation(client):
     assert got["count"] == 1 and got["notes"][0]["text"] == "watched them"
     assert client.post("/api/notes/", json={"studentID": "s1", "text": "  "}).status_code == 400
     assert client.post("/api/notes/", json={"studentID": "", "text": "x"}).status_code == 400
-    assert client.get("/api/notes/").status_code == 400      # missing studentID
+    assert client.get("/api/notes/").status_code == 400  # missing studentID
 
 
 def test_note_can_link_to_trigger(client):
-    client.post("/api/notes/", json={"studentID": "s1", "text": "during alert",
-                                     "trigger_id": 9, "trigger_type": "wheel_spin"})
-    assert client.get("/api/notes/", params={"studentID": "s1"}).json()["notes"][0]["trigger_type"] == "wheel_spin"
+    client.post(
+        "/api/notes/",
+        json={
+            "studentID": "s1",
+            "text": "during alert",
+            "trigger_id": 9,
+            "trigger_type": "wheel_spin",
+        },
+    )
+    assert (
+        client.get("/api/notes/", params={"studentID": "s1"}).json()["notes"][0]["trigger_type"]
+        == "wheel_spin"
+    )
 
 
 # --- polling toggle --------------------------------------------------------
@@ -128,12 +156,21 @@ def test_polling_defaults_on_and_toggles(client):
 # --- trigger config --------------------------------------------------------
 def test_trigger_config_toggle_and_unknown_type(client):
     cfg = client.get("/api/triggers/config/").json()
-    assert cfg["enabled"] == {"wheel_spin": True, "resilience": True, "inactive": True,
-                              "explorer": True, "iterative": True}
+    assert cfg["enabled"] == {
+        "wheel_spin": True,
+        "resilience": True,
+        "inactive": True,
+        "explorer": True,
+        "iterative": True,
+    }
     client.post("/api/triggers/config/", json={"trigger_type": "inactive", "enabled": False})
     assert client.get("/api/triggers/config/").json()["enabled"]["inactive"] is False
-    assert client.post("/api/triggers/config/",
-                       json={"trigger_type": "nope", "enabled": False}).status_code == 400
+    assert (
+        client.post(
+            "/api/triggers/config/", json={"trigger_type": "nope", "enabled": False}
+        ).status_code
+        == 400
+    )
     # re-enable it again (the discard path)
     client.post("/api/triggers/config/", json={"trigger_type": "inactive", "enabled": True})
     assert client.get("/api/triggers/config/").json()["enabled"]["inactive"] is True
@@ -141,9 +178,15 @@ def test_trigger_config_toggle_and_unknown_type(client):
 
 # --- triggers feed + ack ---------------------------------------------------
 def test_triggers_feed_and_ack(client):
-    db.tracked_add("s1")   # the feed is scoped to the workspace roster
-    db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None,
-                      {"label": "Wheel-spinning", "value": "3 re-runs"})
+    db.tracked_add("s1")  # the feed is scoped to the workspace roster
+    db.create_trigger(
+        "s1",
+        "wheel_spin",
+        db.now(),
+        db.now(),
+        None,
+        {"label": "Wheel-spinning", "value": "3 re-runs"},
+    )
     feed = client.get("/api/triggers/").json()
     assert feed["active_count"] == 1
     tid = feed["triggers"][0]["id"]
@@ -177,6 +220,7 @@ def test_presence_and_picked_require_student_id(client):
 def test_export_streams_zip_download(client, seed_state):
     import io
     import zipfile
+
     seed_state("s1")
     r = client.post("/api/export/")
     assert r.status_code == 200
@@ -202,6 +246,7 @@ def test_reset_backs_up_then_wipes(client, seed_state, tmp_path, monkeypatch):
     assert client.get("/api/notes/?studentID=s1").json()["count"] == 0
     # the note survived into the backup CSV
     import os
+
     note_csv = os.path.join(r.json()["backup"], "note.csv")
     with open(note_csv) as f:
         assert "keep me in the backup" in f.read()

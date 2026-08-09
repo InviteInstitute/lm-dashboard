@@ -11,6 +11,7 @@ idempotency logic both assume a single writer; together they make a
 crash-and-restart lossless. Needs prod credentials (from .env.mirror or the
 environment).
 """
+
 import argparse
 import logging
 import os
@@ -19,40 +20,58 @@ import time
 from datetime import datetime, timedelta
 
 from app import db
-from app.pipeline import poller, workers, triggers
+from app.constants import PAUSED_POLL_S, VIEWER_PRESENT_SECONDS  # pause cadence + dead-man's window
+from app.pipeline import poller, triggers, workers
 from app.pipeline.client import ProdClient, ProdClientError
-
-from app.constants import PAUSED_POLL_S, VIEWER_PRESENT_SECONDS   # pause cadence + dead-man's window
 
 log = logging.getLogger("pipeline")
 
 
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(description="VEX ingestion + inference pipeline (single writer).")
-    p.add_argument("--interval", type=float,
-                   default=float(os.environ.get("PIPELINE_INTERVAL", 0.5)),
-                   help="Base seconds per tick while events are flowing (default 0.5).")
-    p.add_argument("--idle-max", type=float,
-                   default=float(os.environ.get("PIPELINE_IDLE_MAX", 5.0)),
-                   help="Ceiling for the idle backoff: when nothing is happening, "
-                        "poll intervals grow toward this (default 5s) to stop "
-                        "hammering prod with empty polls.")
-    p.add_argument("--limit", type=int,
-                   default=int(os.environ.get("PIPELINE_PAGE_LIMIT", 500)),
-                   help="Events per page when draining (default 500).")
-    p.add_argument("--overlap", type=float, default=2.0,
-                   help="Cursor overlap seconds to absorb same-ts straddles.")
-    p.add_argument("--require-viewer", action="store_true",
-                   default=os.environ.get("PIPELINE_REQUIRE_VIEWER", "") not in ("", "0"),
-                   help="Dead-man's switch: only poll prod while a dashboard is "
-                        "open. The read API stamps viewer_last_seen on each grid "
-                        "poll; prod polling auto-pauses after VIEWER_PRESENT_SECONDS "
-                        "with no dashboard activity and resumes when one returns. "
-                        "Off by default; meant for served/remote sessions.")
-    p.add_argument("--backfill-hours", type=float,
-                   default=float(os.environ.get("PIPELINE_BACKFILL_HOURS", 24)),
-                   help="On first run (empty cursor) only backfill the last N hours "
-                        "(default 24, <=0 = replay all history). Bounds the initial drain.")
+    p.add_argument(
+        "--interval",
+        type=float,
+        default=float(os.environ.get("PIPELINE_INTERVAL", 0.5)),
+        help="Base seconds per tick while events are flowing (default 0.5).",
+    )
+    p.add_argument(
+        "--idle-max",
+        type=float,
+        default=float(os.environ.get("PIPELINE_IDLE_MAX", 5.0)),
+        help="Ceiling for the idle backoff: when nothing is happening, "
+        "poll intervals grow toward this (default 5s) to stop "
+        "hammering prod with empty polls.",
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=int(os.environ.get("PIPELINE_PAGE_LIMIT", 500)),
+        help="Events per page when draining (default 500).",
+    )
+    p.add_argument(
+        "--overlap",
+        type=float,
+        default=2.0,
+        help="Cursor overlap seconds to absorb same-ts straddles.",
+    )
+    p.add_argument(
+        "--require-viewer",
+        action="store_true",
+        default=os.environ.get("PIPELINE_REQUIRE_VIEWER", "") not in ("", "0"),
+        help="Dead-man's switch: only poll prod while a dashboard is "
+        "open. The read API stamps viewer_last_seen on each grid "
+        "poll; prod polling auto-pauses after VIEWER_PRESENT_SECONDS "
+        "with no dashboard activity and resumes when one returns. "
+        "Off by default; meant for served/remote sessions.",
+    )
+    p.add_argument(
+        "--backfill-hours",
+        type=float,
+        default=float(os.environ.get("PIPELINE_BACKFILL_HOURS", 24)),
+        help="On first run (empty cursor) only backfill the last N hours "
+        "(default 24, <=0 = replay all history). Bounds the initial drain.",
+    )
     return p.parse_args(argv)
 
 
@@ -66,8 +85,10 @@ def _live_workspace_ids(states, require_viewer, now):
             continue
         if require_viewer:
             seen = ws["viewer_last_seen"]
-            fresh = bool(seen) and (
-                now - datetime.fromisoformat(seen)).total_seconds() <= VIEWER_PRESENT_SECONDS
+            fresh = (
+                bool(seen)
+                and (now - datetime.fromisoformat(seen)).total_seconds() <= VIEWER_PRESENT_SECONDS
+            )
             if not fresh:
                 continue
         live.append(ws["id"])
@@ -94,8 +115,12 @@ def main(argv=None):
         cursor.save()
         log.info("seeded cursor: backfilling last %sh", opts.backfill_hours)
 
-    log.info("Pipeline up. interval=%ss limit=%s cursor.last_event_time=%s",
-             interval, limit, cursor.last_event_time)
+    log.info(
+        "Pipeline up. interval=%ss limit=%s cursor.last_event_time=%s",
+        interval,
+        limit,
+        cursor.last_event_time,
+    )
 
     # Fan-out model: the daemon is still the single writer, but it now serves
     # every workspace at once. It ingests the UNION of all boards' rosters (one
@@ -103,7 +128,7 @@ def main(argv=None):
     # (polling enabled and, with --require-viewer, a fresh viewer). Reset is now a
     # per-workspace API action that never touches the shared mirror, so there is
     # no reset handshake here any more.
-    last_live = None   # tracks live/paused transitions for logging
+    last_live = None  # tracks live/paused transitions for logging
 
     # Session cutoff: only ingest events at/after the moment this daemon started,
     # for both the per-student backfill and the live drain. That's what keeps a
@@ -136,10 +161,14 @@ def main(argv=None):
 
         live = bool(live_ids)
         if live != last_live:
-            log.info("prod polling %s (%d live workspace(s), %d student(s))",
-                     "RESUMED" if live else "PAUSED", len(live_ids), len(active_tracked))
+            log.info(
+                "prod polling %s (%d live workspace(s), %d student(s))",
+                "RESUMED" if live else "PAUSED",
+                len(live_ids),
+                len(active_tracked),
+            )
             last_live = live
-        if not live_ids:                    # no board wants polling right now
+        if not live_ids:  # no board wants polling right now
             idle = 0  # resume responsive
             time.sleep(PAUSED_POLL_S)
             continue
@@ -166,10 +195,16 @@ def main(argv=None):
                 except Exception as e:
                     log.warning("backfill failed for %s: %s", r["studentID"], e)
 
-            new = poller.drain(client, cursor, limit=limit, overlap_seconds=overlap,
-                               tracked=active_tracked, since=session_start)
+            new = poller.drain(
+                client,
+                cursor,
+                limit=limit,
+                overlap_seconds=overlap,
+                tracked=active_tracked,
+                since=session_start,
+            )
             fails = 0
-        except ProdClientError as e:   # transient: 504/timeout/auth/etc.
+        except ProdClientError as e:  # transient: 504/timeout/auth/etc.
             fails += 1
             delay = min(30.0, 0.5 * (2 ** min(fails, 6))) + random.uniform(0, 0.5)
             log.warning("drain failed (%d): %s -- backoff %.1fs", fails, e, delay)
@@ -210,8 +245,12 @@ def main(argv=None):
         target = interval if busy else min(idle_max, interval * (2 ** min(idle, 6)))
 
         if busy:
-            log.info("tick: +%d new, %d students updated, lag=%s",
-                     new, len(changed), poller.get_cursor_lag(cursor))
+            log.info(
+                "tick: +%d new, %d students updated, lag=%s",
+                new,
+                len(changed),
+                poller.get_cursor_lag(cursor),
+            )
 
         elapsed = time.monotonic() - t0
         time.sleep(max(0.0, target - elapsed))

@@ -8,6 +8,7 @@ toggles, and the reset and polling control flags.
 
     uvicorn app.main:app --port 8000 --reload
 """
+
 import asyncio
 import json
 from datetime import timedelta
@@ -16,16 +17,17 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
-from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app import config, db
-from app.turnstile import TurnstileGateMiddleware, sign_cookie, verify_turnstile, COOKIE_NAME
+from app.constants import (
+    TRIGGER_LABELS,
+    TRIGGER_RECENT_SECONDS,
+)
 from app.runs.ast_builder import extract_workspace_xml
 from app.runs.humanize import humanize_text
-from app.constants import (
-    TRIGGER_RECENT_SECONDS, MAX_STUDENT_IDS, TRIGGER_LABELS,
-)
+from app.turnstile import COOKIE_NAME, TurnstileGateMiddleware, sign_cookie, verify_turnstile
 
 app = FastAPI(title="LM Dashboard")
 # Middleware runs outermost-first in reverse add order, so these are added
@@ -65,18 +67,20 @@ def _shape_state(s, heavy=False):
     of for the whole cohort on every poll."""
     out = {
         "studentID": s["studentID"],
-        "display": s.get("display_id") or s["studentID"],   # most-recent casing for the UI
+        "display": s.get("display_id") or s["studentID"],  # most-recent casing for the UI
         "classCode": s["classCode"],
         "run_count": s["run_count"],
         "event_count": s["event_count"],
         "last_seen": _iso(s["last_event_time"]),
-        "runs": s["runs"] or {},                            # {runs:[{index,edit_distance,ts}], run_count}
-        "episodes": s["episodes"],                          # {events, episodes, pauses,...}
+        "runs": s["runs"] or {},  # {runs:[{index,edit_distance,ts}], run_count}
+        "episodes": s["episodes"],  # {events, episodes, pauses,...}
         "updated_at": _iso(s["updated_at"]),
     }
     if heavy:
-        out["block"] = {"llm_prompt": s["playground_prompt"],
-                        "timestamp": _iso(s["playground_time"])}
+        out["block"] = {
+            "llm_prompt": s["playground_prompt"],
+            "timestamp": _iso(s["playground_time"]),
+        }
     return out
 
 
@@ -100,13 +104,18 @@ class TurnstileVerifyRequest(BaseModel):
 
 @app.post("/api/turnstile/verify/")
 async def turnstile_verify(body: TurnstileVerifyRequest, request: Request, response: Response):
-    remote_ip = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() \
-        or (request.client.host if request.client else "")
+    remote_ip = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or (
+        request.client.host if request.client else ""
+    )
     if not await verify_turnstile(body.token, remote_ip):
         raise HTTPException(status_code=403, detail="turnstile verification failed")
     response.set_cookie(
-        COOKIE_NAME, sign_cookie(),
-        max_age=12 * 3600, httponly=True, secure=True, samesite="lax",
+        COOKIE_NAME,
+        sign_cookie(),
+        max_age=12 * 3600,
+        httponly=True,
+        secure=True,
+        samesite="lax",
     )
     return {"ok": True}
 
@@ -130,8 +139,7 @@ async def current_workspace_id(request: Request) -> int:
 
 
 @app.get("/api/student_states/")
-def student_states(classCode: str | None = None,
-                   wsid: int = Depends(current_workspace_id)):
+def student_states(classCode: str | None = None, wsid: int = Depends(current_workspace_id)):
     """The dashboard's primary read: the materialized state for the students on
     this workspace's roster. Optional `classCode` narrows the result. Rows sort by
     most recent activity; the dashboard derives a student's status from the
@@ -142,7 +150,9 @@ def student_states(classCode: str | None = None,
     # dead-man's switch -- it stops polling a board's students once no dashboard
     # has polled for VIEWER_PRESENT_SECONDS.
     db.set_workspace_setting(wsid, "viewer_last_seen", db.now().isoformat())
-    rows = [_shape_state(s) for s in db.list_student_states(class_code=classCode, workspace_id=wsid)]
+    rows = [
+        _shape_state(s) for s in db.list_student_states(class_code=classCode, workspace_id=wsid)
+    ]
     rows.sort(key=lambda s: s["last_seen"] or "", reverse=True)
     return {"students": rows, "student_count": len(rows)}
 
@@ -157,8 +167,8 @@ def student_states(classCode: str | None = None,
 # also is the viewer-presence signal: while a dashboard holds the stream we
 # stamp viewer_last_seen, so the daemon's dead-man's switch keeps prod polling
 # alive; when the tab closes, the stream ends and the switch pauses.
-STREAM_TICK_SECONDS = 0.25     # how often to check for changes (data_version gate keeps this cheap)
-STREAM_HEARTBEAT_TICKS = 40    # stamp presence + send a keepalive comment every N ticks (~10s)
+STREAM_TICK_SECONDS = 0.25  # how often to check for changes (data_version gate keeps this cheap)
+STREAM_HEARTBEAT_TICKS = 40  # stamp presence + send a keepalive comment every N ticks (~10s)
 
 
 def _changed_channels(prev, cur):
@@ -171,8 +181,7 @@ def _changed_channels(prev, cur):
 
 
 @app.get("/api/stream/")
-async def stream(request: Request, once: bool = False,
-                 wsid: int = Depends(current_workspace_id)):
+async def stream(request: Request, once: bool = False, wsid: int = Depends(current_workspace_id)):
     """Server-Sent Events feed. Emits `hello` immediately (the client does one
     full fetch on connect), then `changed` events carrying the list of channels
     that moved. `once=true` returns just the hello and closes -- used by tests so
@@ -181,13 +190,15 @@ async def stream(request: Request, once: bool = False,
     The change signal is still global (any student's change wakes every open
     board, which then refetches its own roster-scoped data); holding the stream is
     this workspace's viewer-presence heartbeat for the daemon's dead-man switch."""
+
     async def gen():
         yield "event: hello\ndata: {}\n\n"
         if once:
             return
         prev = await run_in_threadpool(db.data_fingerprint)
-        await run_in_threadpool(db.set_workspace_setting, wsid, "viewer_last_seen",
-                                db.now().isoformat())
+        await run_in_threadpool(
+            db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
+        )
         # O(1) change gate: PRAGMA data_version on a dedicated read-only
         # connection bumps when ANY other connection commits, so quiet ticks
         # cost one pragma read instead of the four fingerprint queries. This is
@@ -208,8 +219,9 @@ async def stream(request: Request, once: bool = False,
                         yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
                 ticks += 1
                 if ticks % STREAM_HEARTBEAT_TICKS == 0:
-                    await run_in_threadpool(db.set_workspace_setting, wsid,
-                                            "viewer_last_seen", db.now().isoformat())
+                    await run_in_threadpool(
+                        db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
+                    )
                     yield ": keepalive\n\n"
         finally:
             probe.close()
@@ -217,11 +229,14 @@ async def stream(request: Request, once: bool = False,
     return StreamingResponse(
         gen(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
-                 "X-Accel-Buffering": "no",
-                 # Pre-set encoding: GZipMiddleware skips responses that already
-                 # carry one, so events are never buffered inside a gzip window.
-                 "Content-Encoding": "identity"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            # Pre-set encoding: GZipMiddleware skips responses that already
+            # carry one, so events are never buffered inside a gzip window.
+            "Content-Encoding": "identity",
+        },
     )
 
 
@@ -240,7 +255,8 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
     # Best-effort and isolated -- a parse miss just yields "".
     proj = db.latest_project(student_id)
     payload["block"]["readable"] = (
-        humanize_text(extract_workspace_xml({"project": proj})) if proj else "")
+        humanize_text(extract_workspace_xml({"project": proj})) if proj else ""
+    )
     return payload
 
 
@@ -255,35 +271,50 @@ def triggers(wsid: int = Depends(current_workspace_id)):
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
     # the card can say "last: Wheel-spinning · 10:24". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
-    history = {sid: db.trigger_history(sid, workspace_id=wsid)
-               for sid in {t["studentID"] for t in feed}}
+    history = {
+        sid: db.trigger_history(sid, workspace_id=wsid) for sid in {t["studentID"] for t in feed}
+    }
     items, counts = [], {}
     for t in feed:
         active = t["resolved_at"] is None
         d = t["detail"] or {}
         started = t["started_at"]
-        prev = next((h for h in history[t["studentID"]]
-                     if h["id"] != t["id"] and h["started_at"] and started
-                     and h["started_at"] <= started), None)
+        prev = next(
+            (
+                h
+                for h in history[t["studentID"]]
+                if h["id"] != t["id"] and h["started_at"] and started and h["started_at"] <= started
+            ),
+            None,
+        )
         pd = (prev or {}).get("detail") or {}
-        items.append({
-            "id": t["id"], "studentID": t["studentID"], "trigger_type": t["trigger_type"],
-            "label": d.get("label", t["trigger_type"]), "value": d.get("value"),
-            "started_at": _iso(started),
-            "resolved_at": _iso(t["resolved_at"]),
-            "active": active,
-            "age_seconds": (now - started).total_seconds() if started else None,
-            "prev": {
-                "trigger_type": prev["trigger_type"],
-                "label": pd.get("label", prev["trigger_type"]),
-                "at": _iso(prev["started_at"]),
-            } if prev else None,
-        })
+        items.append(
+            {
+                "id": t["id"],
+                "studentID": t["studentID"],
+                "trigger_type": t["trigger_type"],
+                "label": d.get("label", t["trigger_type"]),
+                "value": d.get("value"),
+                "started_at": _iso(started),
+                "resolved_at": _iso(t["resolved_at"]),
+                "active": active,
+                "age_seconds": (now - started).total_seconds() if started else None,
+                "prev": {
+                    "trigger_type": prev["trigger_type"],
+                    "label": pd.get("label", prev["trigger_type"]),
+                    "at": _iso(prev["started_at"]),
+                }
+                if prev
+                else None,
+            }
+        )
         if active:
             counts[t["trigger_type"]] = counts.get(t["trigger_type"], 0) + 1
-    return {"triggers": items,
-            "active_count": sum(1 for i in items if i["active"]),
-            "counts": counts}
+    return {
+        "triggers": items,
+        "active_count": sum(1 for i in items if i["active"]),
+        "counts": counts,
+    }
 
 
 @app.get("/api/triggers/history/")
@@ -296,14 +327,23 @@ def trigger_history(studentID: str, wsid: int = Depends(current_workspace_id)):
     rows = []
     for t in db.trigger_history(studentID, workspace_id=wsid):
         d = t["detail"] or {}
-        rows.append({
-            "id": t["id"], "trigger_type": t["trigger_type"],
-            "label": d.get("label", t["trigger_type"]), "value": d.get("value"),
-            "started_at": _iso(t["started_at"]),
-            "resolved_at": _iso(t["resolved_at"]),
-            "status": ("dismissed" if t["acknowledged"]
-                       else "active" if t["resolved_at"] is None else "resolved"),
-        })
+        rows.append(
+            {
+                "id": t["id"],
+                "trigger_type": t["trigger_type"],
+                "label": d.get("label", t["trigger_type"]),
+                "value": d.get("value"),
+                "started_at": _iso(t["started_at"]),
+                "resolved_at": _iso(t["resolved_at"]),
+                "status": (
+                    "dismissed"
+                    if t["acknowledged"]
+                    else "active"
+                    if t["resolved_at"] is None
+                    else "resolved"
+                ),
+            }
+        )
     return {"history": rows, "count": len(rows)}
 
 
@@ -330,12 +370,18 @@ def switches(wsid: int = Depends(current_workspace_id)):
     """Identity switches (a handle's casing flipped, or it showed up in a new
     class) detected for the students on this workspace's roster, newest first. The
     dashboard polls this for the live toast and the reviewable Switches feed."""
-    items = [{
-        "id": r["id"], "studentID": r["studentID"], "kind": r["kind"],
-        "from": r["from_value"], "to": r["to_value"],
-        "ts": _iso(db.db_to_dt(r["ts"])),
-        "acknowledged": bool(r["acknowledged"]),
-    } for r in db.list_switches(limit=100, workspace_id=wsid)]
+    items = [
+        {
+            "id": r["id"],
+            "studentID": r["studentID"],
+            "kind": r["kind"],
+            "from": r["from_value"],
+            "to": r["to_value"],
+            "ts": _iso(db.db_to_dt(r["ts"])),
+            "acknowledged": bool(r["acknowledged"]),
+        }
+        for r in db.list_switches(limit=100, workspace_id=wsid)
+    ]
     return {"switches": items, "unacked": sum(1 for i in items if not i["acknowledged"])}
 
 
@@ -360,9 +406,12 @@ def outbox_store(body: OutboxBody, wsid: int = Depends(current_workspace_id)):
     """Park a researcher input whose primary write failed its retries. The
     dashboard sends the original request body verbatim so nothing typed or
     clicked is ever lost -- the row can be replayed by hand later."""
-    db.record_outbox(body.op,
-                     json.dumps(body.payload) if body.payload is not None else None,
-                     body.error, workspace_id=wsid)
+    db.record_outbox(
+        body.op,
+        json.dumps(body.payload) if body.payload is not None else None,
+        body.error,
+        workspace_id=wsid,
+    )
     return {"stored": True}
 
 
@@ -455,8 +504,8 @@ class PresenceBody(BaseModel):
 class PickedBody(BaseModel):
     studentID: str
     picked: bool
-    source: str = "roster"            # 'roster' | 'intervention'
-    trigger_id: int | None = None     # set only for intervention picks
+    source: str = "roster"  # 'roster' | 'intervention'
+    trigger_id: int | None = None  # set only for intervention picks
     trigger_type: str | None = None
 
 
@@ -478,9 +527,14 @@ def set_picked(body: PickedBody, wsid: int = Depends(current_workspace_id)):
     sid = (body.studentID or "").strip()
     if not sid:
         raise HTTPException(status_code=400, detail="studentID required")
-    db.set_picked(sid, body.picked, source=body.source,
-                  trigger_id=body.trigger_id, trigger_type=body.trigger_type,
-                  workspace_id=wsid)
+    db.set_picked(
+        sid,
+        body.picked,
+        source=body.source,
+        trigger_id=body.trigger_id,
+        trigger_type=body.trigger_type,
+        workspace_id=wsid,
+    )
     return {"studentID": sid, "picked": body.picked}
 
 
@@ -573,6 +627,7 @@ def set_polling(body: PollingBody, wsid: int = Depends(current_workspace_id)):
 # Mounted last (after every /api route, so it never shadows them) and only when a
 # build exists, so the API-only local-dev flow (Vite on :3000) is unaffected.
 import os
+
 from fastapi.staticfiles import StaticFiles
 
 _DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")

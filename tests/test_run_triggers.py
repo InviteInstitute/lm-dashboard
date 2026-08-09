@@ -1,5 +1,6 @@
 """The single-pass run-trigger scanner: wheel_spin / resilience / explorer / iterative
 from an integer edit_distance sequence. The first element is None (first run)."""
+
 from app.pipeline.triggers import detect_run_triggers
 
 
@@ -21,7 +22,7 @@ def test_wheel_spin_rearms_after_edit():
 
 
 def test_resilience_fires_on_breakout_after_four_zeros():
-    seq = [None, 0, 0, 0, 0, 2]      # four zeros then an edit
+    seq = [None, 0, 0, 0, 0, 2]  # four zeros then an edit
     assert ("resilience", 5) in _types(seq)
 
 
@@ -50,6 +51,6 @@ def test_iterative_counts_distance_one():
 
 
 def test_wheel_spin_and_resilience_both_fire_on_long_then_edit():
-    seq = [None, 0, 0, 0, 0, 0, 0, 0, 1]   # 7 zeros then an edit
+    seq = [None, 0, 0, 0, 0, 0, 0, 0, 1]  # 7 zeros then an edit
     kinds = _types(seq)
     assert ("wheel_spin", 6) in kinds and ("resilience", 8) in kinds

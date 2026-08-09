@@ -8,8 +8,9 @@ advances the cursor once a full drain is safely written, persist first, then
 advance. That ordering is what makes a crash mid-drain harmless: on restart it
 re-fetches the overlap window and idempotency throws away the duplicates.
 """
+
 import logging
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 
 from app import db
 from app.constants import CURSOR_NAME
@@ -53,7 +54,7 @@ def _parse_ts(s):
     except (ValueError, AttributeError):
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=dt_timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -118,7 +119,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
             if tracked is not None and db.canon_id(ev.get("studentID")) not in tracked:
                 continue
             if since is not None and et is not None and et < since:
-                continue   # before the session cutoff -- skip, but the cursor still advanced above
+                continue  # before the session cutoff -- skip, but the cursor still advanced above
             inserted, norm = persist(ev)
             if inserted:
                 try:
@@ -130,6 +131,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
                     # tick rebuilds it from the DB (which now has this event),
                     # rather than keep serving a buffer that's silently missing it.
                     from app.pipeline import workers
+
                     workers._workers.pop(db.canon_id(norm["studentID"]), None)
                     logger.exception(
                         "route failed for %s after persist; dropped worker for rehydrate",
@@ -165,7 +167,7 @@ def backfill_student(client, student_id, since=None, max_events=600, page_size=2
         for ev in results:
             if since is not None:
                 et = _parse_ts(_event_ts_raw(ev))
-                if et is not None and et < since:   # newest-first: the rest are older too
+                if et is not None and et < since:  # newest-first: the rest are older too
                     stop = True
                     break
             was_in, norm = persist(ev)

@@ -22,7 +22,6 @@ exports/
 # Frontend
 node_modules/
 frontend/dist/
-frontend/package-lock.json
 
 # Docs build output (MkDocs)
 site/

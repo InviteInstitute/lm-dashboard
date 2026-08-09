@@ -1,5 +1,6 @@
 """CSV export (skip-list, single-line bracketing, newline flattening) and the
 reset wipe (what it clears vs keeps)."""
+
 import csv
 import os
 
@@ -16,8 +17,14 @@ def test_export_skips_internal_and_bookkeeping_tables(tmp_path, seed_state):
     assert "meta.csv" not in files
     assert "message.csv" not in files
     # kept: the research data
-    for keep in ("student_state.csv", "tracked_student.csv", "note.csv",
-                 "pick_event.csv", "trigger_event.csv", "vex_log.csv"):
+    for keep in (
+        "student_state.csv",
+        "tracked_student.csv",
+        "note.csv",
+        "pick_event.csv",
+        "trigger_event.csv",
+        "vex_log.csv",
+    ):
         assert keep in files
 
 
@@ -33,7 +40,7 @@ def test_tree_to_brackets_nests_children():
 
 def test_csv_value_flattens_newlines_in_non_prompt_columns():
     assert db._csv_value("raw_message", "a\nb\r\nc") == "a b c"
-    assert db._csv_value("anything", 123) == 123          # non-str passes through
+    assert db._csv_value("anything", 123) == 123  # non-str passes through
 
 
 def test_exported_rows_are_single_line(tmp_path, seed_state):
@@ -52,8 +59,8 @@ def test_reset_workspace_clears_researcher_data_keeps_shared_mirror(seed_state):
     db.tracked_add("s1")
     seed_state("s1")
     db.add_note("s1", "note")
-    db.set_picked("s1", True)                       # picked + a pick_event row
-    db.set_presence("s1", False)                    # presence should survive reset
+    db.set_picked("s1", True)  # picked + a pick_event row
+    db.set_presence("s1", False)  # presence should survive reset
     db.get_or_create_cursor("vex_poll")
     db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {"label": "x"})
 
@@ -69,5 +76,5 @@ def test_reset_workspace_clears_researcher_data_keeps_shared_mirror(seed_state):
     assert db._query("SELECT 1 FROM trigger_event")
     # ... and this board's roster, presence, and the ingest cursor.
     assert [r["studentID"] for r in db.tracked_list()] == ["s1"]
-    assert row["present"] is False                  # presence is NOT reset
+    assert row["present"] is False  # presence is NOT reset
     assert db.get_or_create_cursor("vex_poll")["name"] == "vex_poll"

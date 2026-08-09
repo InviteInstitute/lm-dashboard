@@ -6,15 +6,21 @@ cost configuration (Hyeongjo's colab costs, see constants.py) whose result is th
 raw integer tree-edit distance. 0 means identical; larger means more rewritten.
 The five triggers are defined directly on this number.
 """
+
 import hashlib
 from collections import defaultdict
+
 from apted import APTED, Config
 
 from app.constants import (
-    BLOCK_DELETE_COST, BLOCK_INSERT_COST, EDGE_DELETE_COST, EDGE_INSERT_COST,
-    FIELD_CHANGE_COST, TYPE_CHANGE_COST, EDGE_CHANGE_COST,
+    BLOCK_DELETE_COST,
+    BLOCK_INSERT_COST,
+    EDGE_CHANGE_COST,
+    EDGE_DELETE_COST,
+    EDGE_INSERT_COST,
+    FIELD_CHANGE_COST,
+    TYPE_CHANGE_COST,
 )
-
 
 # Distance cache, append-only and never invalidated: edit_distance is a pure
 # function of its two XML inputs, so a result is good forever. Keyed by the SHA1
@@ -102,8 +108,7 @@ def ast_to_apted_tree(ast_dict, include_fields=True, field_keys=None, include_ed
             child_tree = build_subtree(e["target"])
             if include_edge_nodes:
                 edge_label = (
-                    e["edge_type"] if e.get("slot") is None
-                    else f"{e['edge_type']}:{e['slot']}"
+                    e["edge_type"] if e.get("slot") is None else f"{e['edge_type']}:{e['slot']}"
                 )
                 edge_node = AptedNode(name=edge_label, node_type="__edge__", fields={})
                 edge_node.add_child(child_tree)

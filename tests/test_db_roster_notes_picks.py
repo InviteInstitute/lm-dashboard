@@ -1,4 +1,5 @@
 """Roster, presence/picked toggles, pick-event history, and notes."""
+
 from app import db
 
 
@@ -52,7 +53,7 @@ def test_pick_event_records_provenance():
     # (the default source) never do, even for the same student.
     db.tracked_add("s1")
     db.set_picked("s1", True, source="intervention", trigger_id=7, trigger_type="wheel_spin")
-    db.set_picked("s1", False)   # roster is the default
+    db.set_picked("s1", False)  # roster is the default
     rows = db._query("SELECT source, trigger_id, trigger_type FROM pick_event ORDER BY id")
     assert [dict(r) for r in rows] == [
         {"source": "intervention", "trigger_id": 7, "trigger_type": "wheel_spin"},
@@ -63,9 +64,12 @@ def test_pick_event_records_provenance():
 def test_pick_event_has_provenance_columns_and_they_record():
     # Provenance (source/trigger_id/trigger_type) ships in the base schema now;
     # confirm the columns exist and that set_picked records them.
-    cols = {r["column_name"] for r in db._query(
-        "SELECT column_name FROM information_schema.columns "
-        "WHERE table_name = 'pick_event'")}
+    cols = {
+        r["column_name"]
+        for r in db._query(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'pick_event'"
+        )
+    }
     assert {"source", "trigger_id", "trigger_type"} <= cols
     db.tracked_add("s1")
     db.set_picked("s1", True, source="intervention", trigger_id=3, trigger_type="explorer")
@@ -77,11 +81,17 @@ def test_remove_tracked_cascades_all_student_data(seed_state):
     db.tracked_add("s1")
     seed_state("s1")
     db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {"label": "x"})
-    db.insert_message_and_log({
-        "raw_message": "{}", "event_time": db.now(), "classCode": "C",
-        "eventType": "runProject", "studentID": "s1", "project": "{}",
-        "source_event_id": 99,
-    })
+    db.insert_message_and_log(
+        {
+            "raw_message": "{}",
+            "event_time": db.now(),
+            "classCode": "C",
+            "eventType": "runProject",
+            "studentID": "s1",
+            "project": "{}",
+            "source_event_id": 99,
+        }
+    )
     db.tracked_remove("s1")
     assert db.tracked_list() == []
     assert db.list_student_states(["s1"]) == []
@@ -110,5 +120,5 @@ def test_meta_set_get_upsert():
     assert db.get_meta("k") is None
     db.set_meta("k", "v1")
     assert db.get_meta("k") == "v1"
-    db.set_meta("k", "v2")          # ON CONFLICT update, not duplicate
+    db.set_meta("k", "v2")  # ON CONFLICT update, not duplicate
     assert db.get_meta("k") == "v2"

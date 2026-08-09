@@ -1,10 +1,12 @@
 """The smart-delta engine's live path: workspace XML -> token-efficient
 [Active]/[Orphaned] prompt for the playground panel."""
+
 from app.smart_delta_engine import generate_llm_prompt_from_project
 
 
 def _project(workspace_xml):
     import json
+
     return json.dumps({"workspace": workspace_xml})
 
 
@@ -30,8 +32,10 @@ def test_non_hat_top_level_block_is_orphaned():
 
 
 def test_nested_child_renders_indented_under_parent():
-    xml = ('<xml><block type="events_whenStarted" id="a">'
-           '<next><block type="motor_spin" id="b"></block></next></block></xml>')
+    xml = (
+        '<xml><block type="events_whenStarted" id="a">'
+        '<next><block type="motor_spin" id="b"></block></next></block></xml>'
+    )
     out = generate_llm_prompt_from_project(_project(xml))
     # child appears at a deeper indent than its parent
     lines = [ln for ln in out.split("\n") if ln.strip()]
@@ -51,16 +55,20 @@ def test_malformed_workspace_xml_returns_none():
 
 def test_fields_and_type_prefix_render_in_prompt():
     # a hat block carrying a field child, with a strippable VEX type prefix
-    xml = ('<xml><block type="pg_events_whenStarted" id="a">'
-           '<field name="OP">forward</field></block></xml>')
+    xml = (
+        '<xml><block type="pg_events_whenStarted" id="a">'
+        '<field name="OP">forward</field></block></xml>'
+    )
     out = generate_llm_prompt_from_project(_project(xml))
-    assert "events_whenStarted" in out          # pg_ prefix stripped (clean_type)
-    assert "OP=forward" in out                   # field rendered as (k=v)
+    assert "events_whenStarted" in out  # pg_ prefix stripped (clean_type)
+    assert "OP=forward" in out  # field rendered as (k=v)
 
 
 def test_shadow_blocks_are_skipped():
-    xml = ('<xml><block type="events_whenStarted" id="a">'
-           '<value name="X"><shadow type="math_number" id="s"></shadow></value>'
-           '</block></xml>')
+    xml = (
+        '<xml><block type="events_whenStarted" id="a">'
+        '<value name="X"><shadow type="math_number" id="s"></shadow></value>'
+        "</block></xml>"
+    )
     out = generate_llm_prompt_from_project(_project(xml))
-    assert "math_number" not in out             # shadows aren't real blocks
+    assert "math_number" not in out  # shadows aren't real blocks

@@ -15,6 +15,7 @@ workers.recompute_and_write), deduped per type by run index. Only inactive is
 sustained and evaluated by the per-tick sweep here. Acknowledged rows drop out
 of the feed.
 """
+
 import logging
 from datetime import timedelta
 
@@ -26,10 +27,18 @@ log = logging.getLogger("pipeline")
 # module (and its tests) already use. RE_ALERT_SECONDS rotates an acked-but-still-
 # holding sustained trigger so a student who never got unstuck resurfaces.
 from app.constants import (
-    INACTIVE_TRIGGER_SECONDS, RE_ALERT_SECONDS, TRIGGER_TOUCH_THROTTLE_S,
+    EXPLORER_EDIT_DISTANCE,
+    INACTIVE_TRIGGER_SECONDS,
+    ITERATIVE_DEFAULT_THRESHOLD,
+    ITERATIVE_EDIT_MIN,
+    ITERATIVE_THRESHOLDS,
+    RE_ALERT_SECONDS,
+    RESILIENCE_ZERO_RUNS,
+    TRIGGER_TOUCH_THROTTLE_S,
+    WHEEL_SPIN_ZERO_RUNS,
+)
+from app.constants import (
     TRIGGER_LABELS as LABELS,
-    WHEEL_SPIN_ZERO_RUNS, RESILIENCE_ZERO_RUNS, EXPLORER_EDIT_DISTANCE,
-    ITERATIVE_EDIT_MIN, ITERATIVE_DEFAULT_THRESHOLD, ITERATIVE_THRESHOLDS,
 )
 
 
@@ -54,13 +63,26 @@ def detect_run_triggers(edit_distances, iterative_threshold=ITERATIVE_DEFAULT_TH
         if ed is None:
             continue
         if ed > 0 and zero_streak >= RESILIENCE_ZERO_RUNS:
-            out.append(("resilience", i, {"label": LABELS["resilience"],
-                                          "value": f"recovered after {zero_streak} reruns"}))
+            out.append(
+                (
+                    "resilience",
+                    i,
+                    {
+                        "label": LABELS["resilience"],
+                        "value": f"recovered after {zero_streak} reruns",
+                    },
+                )
+            )
         if ed == 0:
             zero_streak += 1
             if zero_streak >= WHEEL_SPIN_ZERO_RUNS and wheel_armed:
-                out.append(("wheel_spin", i, {"label": LABELS["wheel_spin"],
-                                              "value": f"{zero_streak} identical reruns"}))
+                out.append(
+                    (
+                        "wheel_spin",
+                        i,
+                        {"label": LABELS["wheel_spin"], "value": f"{zero_streak} identical reruns"},
+                    )
+                )
                 wheel_armed = False
         else:
             zero_streak = 0
@@ -70,8 +92,13 @@ def detect_run_triggers(edit_distances, iterative_threshold=ITERATIVE_DEFAULT_TH
         if ed > ITERATIVE_EDIT_MIN:
             iter_count += 1
             if iter_count >= iterative_threshold and iter_armed:
-                out.append(("iterative", i, {"label": LABELS["iterative"],
-                                             "value": f"{iter_count} steady edits"}))
+                out.append(
+                    (
+                        "iterative",
+                        i,
+                        {"label": LABELS["iterative"], "value": f"{iter_count} steady edits"},
+                    )
+                )
                 iter_armed = False
         if ed == 0:
             iter_count = 0
@@ -150,8 +177,9 @@ def evaluate(now=None, disabled=None):
         sid = s["studentID"]
         last = s["last_event_time"]
         idle = (now - last).total_seconds() if last else None
-        is_inactive = (idle is not None and idle >= INACTIVE_TRIGGER_SECONDS
-                       and ttype not in disabled)
+        is_inactive = (
+            idle is not None and idle >= INACTIVE_TRIGGER_SECONDS and ttype not in disabled
+        )
         ev = open_by_sid.get(sid)
         detail = {"label": LABELS[ttype], "value": _fmt_idle(idle)}
 

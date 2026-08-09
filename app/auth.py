@@ -12,6 +12,7 @@ Per-browser board isolation is orthogonal: the SPA sends a persistent localStora
 board id (X-Board-Id header, and a ?board_id= query param on the SSE stream), which
 the routes map to a workspace -- see app/main.current_workspace_id.
 """
+
 import base64
 import os
 import time
@@ -65,7 +66,7 @@ def ensure_bootstrap_researcher():
 # Cache verified Authorization headers so the argon2 verify runs about once per
 # credential rather than on every request. Keyed on the exact header value, so a
 # changed password is a different key; entries expire after _AUTH_TTL seconds.
-_auth_cache = {}   # authorization header -> (researcher_id, username, expires_at)
+_auth_cache = {}  # authorization header -> (researcher_id, username, expires_at)
 _AUTH_TTL = 300
 
 
@@ -98,10 +99,10 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if request.url.path == "/healthz":
             return await call_next(request)
-        resolved = await run_in_threadpool(
-            _resolve_basic, request.headers.get("Authorization", ""))
+        resolved = await run_in_threadpool(_resolve_basic, request.headers.get("Authorization", ""))
         if not resolved:
-            return Response(status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="LM Dashboard"'})
+            return Response(
+                status_code=401, headers={"WWW-Authenticate": 'Basic realm="LM Dashboard"'}
+            )
         request.state.researcher_id, request.state.username = resolved
         return await call_next(request)

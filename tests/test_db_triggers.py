@@ -1,4 +1,5 @@
 """Trigger-event DB helpers: open/touch/resolve/ack and the big_change seed."""
+
 from app import db
 
 
@@ -28,17 +29,18 @@ def test_ack_by_id_and_by_student():
 
     db.create_trigger("s2", "wheel_spin", db.now(), db.now(), None, {})
     db.create_trigger("s2", "inactive", db.now(), db.now(), None, {})
-    assert db.ack_by_student("s2") == 2          # both open rows for s2
-    assert db.ack_by_student("s2") == 0          # idempotent: nothing left open
+    assert db.ack_by_student("s2") == 2  # both open rows for s2
+    assert db.ack_by_student("s2") == 0  # idempotent: nothing left open
 
 
 def test_triggers_feed_filters_acked_and_old_resolved():
     from datetime import timedelta
+
     now = db.now()
-    db.create_trigger("active", "wheel_spin", now, now, None, {})            # active
-    db.create_trigger("recent", "inactive", now, now, now, {})              # just resolved
+    db.create_trigger("active", "wheel_spin", now, now, None, {})  # active
+    db.create_trigger("recent", "inactive", now, now, now, {})  # just resolved
     old = now - timedelta(hours=1)
-    db.create_trigger("stale", "inactive", old, old, old, {})              # resolved long ago
+    db.create_trigger("stale", "inactive", old, old, old, {})  # resolved long ago
     acked = "acked"
     db.create_trigger(acked, "wheel_spin", now, now, None, {})
     db.ack_by_student(acked)
@@ -50,11 +52,14 @@ def test_triggers_feed_filters_acked_and_old_resolved():
 
 
 def test_fired_indices_seeds_from_db():
-    db.create_trigger("s1", "explorer", db.now(), db.now(), db.now(),
-                      {"label": "Explorer", "run_index": 3})
-    db.create_trigger("s1", "explorer", db.now(), db.now(), db.now(),
-                      {"label": "Explorer", "run_index": 7})
-    db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None,
-                      {"run_index": 5})                                  # different type
+    db.create_trigger(
+        "s1", "explorer", db.now(), db.now(), db.now(), {"label": "Explorer", "run_index": 3}
+    )
+    db.create_trigger(
+        "s1", "explorer", db.now(), db.now(), db.now(), {"label": "Explorer", "run_index": 7}
+    )
+    db.create_trigger(
+        "s1", "wheel_spin", db.now(), db.now(), None, {"run_index": 5}
+    )  # different type
     assert db.fired_indices("s1", "explorer") == {3, 7}
     assert db.fired_indices("nobody", "explorer") == set()

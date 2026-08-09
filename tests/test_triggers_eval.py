@@ -1,6 +1,7 @@
 """The trigger evaluator: the one sustained trigger (inactive) sustain/resolve,
 the disable flag, and the re-alert rotation. The four momentary edit-distance
 triggers fire from the worker; see test_workers.py and test_run_triggers.py."""
+
 from datetime import timedelta
 
 from app import db
@@ -17,7 +18,7 @@ def test_inactive_opens_when_idle_and_resolves_on_activity():
     triggers.evaluate()
     assert db.current_open_trigger("s1", "inactive") is not None
 
-    _state("s1", last_event_time=db.now())          # just acted -> no longer idle
+    _state("s1", last_event_time=db.now())  # just acted -> no longer idle
     triggers.evaluate()
     assert db.current_open_trigger("s1", "inactive") is None
 
@@ -52,8 +53,10 @@ def test_sustained_trigger_is_not_duplicated_across_ticks():
     triggers.evaluate()
     triggers.evaluate()
     triggers.evaluate()
-    rows = db._query("SELECT 1 FROM trigger_event WHERE studentID='s1' "
-                     "AND trigger_type='inactive' AND resolved_at IS NULL")
+    rows = db._query(
+        "SELECT 1 FROM trigger_event WHERE studentID='s1' "
+        "AND trigger_type='inactive' AND resolved_at IS NULL"
+    )
     assert len(rows) == 1
 
 
@@ -66,13 +69,15 @@ def test_held_trigger_touch_is_throttled():
     triggers.evaluate()
     seen1 = db.current_open_trigger("s1", "inactive")["last_seen_at"]
 
-    triggers.evaluate()   # immediate re-tick -> within the throttle window, no write
+    triggers.evaluate()  # immediate re-tick -> within the throttle window, no write
     assert db.current_open_trigger("s1", "inactive")["last_seen_at"] == seen1
 
     # Backdate last_seen_at beyond the throttle window; now a tick should refresh it.
     backdated = seen1 - timedelta(seconds=triggers.TRIGGER_TOUCH_THROTTLE_S + 5)
     ev_id = db.current_open_trigger("s1", "inactive")["id"]
-    db._execute("UPDATE trigger_event SET last_seen_at=? WHERE id=?", (db.dt_to_db(backdated), ev_id))
+    db._execute(
+        "UPDATE trigger_event SET last_seen_at=? WHERE id=?", (db.dt_to_db(backdated), ev_id)
+    )
     triggers.evaluate()
     assert db.current_open_trigger("s1", "inactive")["last_seen_at"] > backdated
 
@@ -90,5 +95,5 @@ def test_acked_but_still_idle_rotates_after_re_alert_window():
     triggers.evaluate()
 
     fresh = db.current_open_trigger("s1", "inactive")
-    assert fresh is not None and fresh["id"] != ev["id"]   # a new, unacked row surfaced
+    assert fresh is not None and fresh["id"] != ev["id"]  # a new, unacked row surfaced
     assert fresh["acknowledged"] is False

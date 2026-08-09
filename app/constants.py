@@ -11,21 +11,32 @@ serialization field lists), and env-derived configuration lives in config.py.
 # Triggers
 # ==========================================================================
 TRIGGER_LABELS = {
-    "wheel_spin": "Wheel-spinning", "resilience": "Resilience", "inactive": "Inactive",
-    "explorer": "Explorer", "iterative": "Step-by-Step",
+    "wheel_spin": "Wheel-spinning",
+    "resilience": "Resilience",
+    "inactive": "Inactive",
+    "explorer": "Explorer",
+    "iterative": "Step-by-Step",
 }
-RE_ALERT_SECONDS = 600                # re-open an acked sustained trigger still holding after 10 min
-TRIGGER_RECENT_SECONDS = 420          # a resolved (or momentary) trigger lingers in the feed this long (7 min)
-TRIGGER_TOUCH_THROTTLE_S = 30         # min seconds between last_seen_at refreshes on a held sustained trigger;
-                                      # the idle-time display is minute-granular, so refreshing every tick is waste
+RE_ALERT_SECONDS = 600  # re-open an acked sustained trigger still holding after 10 min
+TRIGGER_RECENT_SECONDS = (
+    420  # a resolved (or momentary) trigger lingers in the feed this long (7 min)
+)
+TRIGGER_TOUCH_THROTTLE_S = (
+    30  # min seconds between last_seen_at refreshes on a held sustained trigger;
+)
+# the idle-time display is minute-granular, so refreshing every tick is waste
 
 # --- Edit-distance trigger thresholds (rules defined in app/pipeline/triggers.py) ---
-WHEEL_SPIN_ZERO_RUNS = 6        # >= this many consecutive zero-edit runs -> wheel_spin
-RESILIENCE_ZERO_RUNS = 4        # an edit after >= this many zeros -> resilience
-INACTIVE_TRIGGER_SECONDS = 240  # idle > this many seconds -> inactive (separate from the segmenter's 300s)
-EXPLORER_EDIT_DISTANCE = 13     # a single run with edit_distance >= this -> explorer
-ITERATIVE_EDIT_MIN = 0          # runs with edit_distance > this count toward iterative (so any real edit, >= 1, counts)
-ITERATIVE_DEFAULT_THRESHOLD = 6 # count of such runs that fires iterative
+WHEEL_SPIN_ZERO_RUNS = 6  # >= this many consecutive zero-edit runs -> wheel_spin
+RESILIENCE_ZERO_RUNS = 4  # an edit after >= this many zeros -> resilience
+INACTIVE_TRIGGER_SECONDS = (
+    240  # idle > this many seconds -> inactive (separate from the segmenter's 300s)
+)
+EXPLORER_EDIT_DISTANCE = 13  # a single run with edit_distance >= this -> explorer
+ITERATIVE_EDIT_MIN = (
+    0  # runs with edit_distance > this count toward iterative (so any real edit, >= 1, counts)
+)
+ITERATIVE_DEFAULT_THRESHOLD = 6  # count of such runs that fires iterative
 
 # Per-playground Step-by-Step thresholds, keyed by the exact `playground` string
 # in the runProject telemetry. An unlisted playground uses ITERATIVE_DEFAULT_THRESHOLD.
@@ -37,15 +48,17 @@ TRIGGER_PRIORITY = ("wheel_spin", "inactive", "resilience", "explorer", "iterati
 # ==========================================================================
 # Limits / timing
 # ==========================================================================
-MAX_STUDENT_IDS = 500                 # cap on ?students= ids per request (under SQLite's variable limit)
-BUFFER_MAX = 5000                     # per-student in-memory rolling event history
-PAUSED_POLL_S = 1.0                   # how often the paused daemon re-checks the resume flag
-VIEWER_PRESENT_SECONDS = 90           # dead-man's switch: prod polling pauses if no dashboard poll within this window
+MAX_STUDENT_IDS = 500  # cap on ?students= ids per request (under SQLite's variable limit)
+BUFFER_MAX = 5000  # per-student in-memory rolling event history
+PAUSED_POLL_S = 1.0  # how often the paused daemon re-checks the resume flag
+VIEWER_PRESENT_SECONDS = (
+    90  # dead-man's switch: prod polling pauses if no dashboard poll within this window
+)
 
 # ==========================================================================
 # Pipeline
 # ==========================================================================
-CURSOR_NAME = "vex_poll"              # the ingest cursor's row name in the DB
+CURSOR_NAME = "vex_poll"  # the ingest cursor's row name in the DB
 
 # ==========================================================================
 # Episode segmentation
@@ -54,11 +67,11 @@ CURSOR_NAME = "vex_poll"              # the ingest cursor's row name in the DB
 # gap; soft events never form an episode of their own and fold into whatever
 # episode surrounds them.
 # ==========================================================================
-PAUSE_THRESHOLD_S = 300.0             # gap >= this becomes INACTIVE_PAUSE
-SHORT_PAUSE_MIN_S = 5.0               # smallest gap that counts as a contextual pause
-PAUSE_MAX_S = 86400.0                 # ignore gaps > 24h (likely a session boundary)
-CODE_MERGE_GAP_S = None               # None -> use PAUSE_THRESHOLD_S (currently unused)
-RESET_MERGE_GAP_S = None              # None -> use PAUSE_THRESHOLD_S (currently unused)
+PAUSE_THRESHOLD_S = 300.0  # gap >= this becomes INACTIVE_PAUSE
+SHORT_PAUSE_MIN_S = 5.0  # smallest gap that counts as a contextual pause
+PAUSE_MAX_S = 86400.0  # ignore gaps > 24h (likely a session boundary)
+CODE_MERGE_GAP_S = None  # None -> use PAUSE_THRESHOLD_S (currently unused)
+RESET_MERGE_GAP_S = None  # None -> use PAUSE_THRESHOLD_S (currently unused)
 
 # Event types that open an episode, by kind.
 CODE_EVENTS = frozenset({"blockMoved", "blockChanged", "blockCreated", "blockDeleted"})
@@ -67,26 +80,40 @@ RUN_END_EVENTS = frozenset({"projectEnd"})
 RESET_EVENTS = frozenset({"loadProject", "newProject"})
 
 # Episode types that act as merge barriers regardless of the merge gaps.
-HARD_BOUNDARY_EPISODE_TYPES = frozenset({"RUN", "CODE", "RESET", "INACTIVE_PAUSE", "POST_RUN_PAUSE"})
+HARD_BOUNDARY_EPISODE_TYPES = frozenset(
+    {"RUN", "CODE", "RESET", "INACTIVE_PAUSE", "POST_RUN_PAUSE"}
+)
 # Pause categories tagged as "hard" boundaries downstream.
 HARD_PAUSE_TYPES = frozenset({"INACTIVE_PAUSE", "POST_RUN_PAUSE"})
 
 # Event types absorbed into surrounding episodes (no episode of their own).
-SOFT_EVENT_TYPES = frozenset({
-    "menuOpen", "menuSelect", "menuClose",                                    # nav_ui
-    "playgroundOpen", "playgroundClosed", "playgroundHidden",                 # playground_ui
-    "playgroundShow", "playgroundReset",
-    "playgroundData",                                                         # performance_data
-})
+SOFT_EVENT_TYPES = frozenset(
+    {
+        "menuOpen",
+        "menuSelect",
+        "menuClose",  # nav_ui
+        "playgroundOpen",
+        "playgroundClosed",
+        "playgroundHidden",  # playground_ui
+        "playgroundShow",
+        "playgroundReset",
+        "playgroundData",  # performance_data
+    }
+)
 
 # Subset of SOFT_EVENT_TYPES skipped when scanning for the "next actionful event
 # after a RUN" during POST_RUN_PAUSE detection. Caitlin's rule (episodes.py:
 # 763-766) excludes nav_ui -- menu events count as actionful there.
-POST_RUN_PAUSE_TRANSPARENT_TYPES = frozenset({
-    "playgroundOpen", "playgroundClosed", "playgroundHidden",                 # playground_ui
-    "playgroundShow", "playgroundReset",
-    "playgroundData",                                                         # performance_data
-})
+POST_RUN_PAUSE_TRANSPARENT_TYPES = frozenset(
+    {
+        "playgroundOpen",
+        "playgroundClosed",
+        "playgroundHidden",  # playground_ui
+        "playgroundShow",
+        "playgroundReset",
+        "playgroundData",  # performance_data
+    }
+)
 
 
 def boundary_kind(episode_type):
@@ -101,6 +128,7 @@ def effective_code_merge_gap_s():
 
 def effective_reset_merge_gap_s():
     return RESET_MERGE_GAP_S if RESET_MERGE_GAP_S is not None else PAUSE_THRESHOLD_S
+
 
 # ==========================================================================
 # APTED edit costs (Hyeongjo's colab). Edge nodes (the synthetic connectors our

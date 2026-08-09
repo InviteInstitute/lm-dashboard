@@ -26,3 +26,22 @@ docs = ["mkdocs-material==9.7.7"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+# Ruff owns linting and formatting. This block is kept identical to
+# vex-agent-integration so both repos lint and format the same way.
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["*.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = [
+    "E501",   # line length is the formatter's call; this code favors dense lines
+    "E402",   # deliberate late imports (load_dotenv before importing the data layer)
+    "E741",   # a few short-lived loop vars read fine in context
+    "E731",   # the odd lambda binding is clearer left inline
+    "B905",   # our zip() pairs are equal-length by construction
+    "UP042",  # str-enum migration is a semantic change, out of scope here
+    "UP035",  # the flagged deprecated-import paths are intentional compat
+]

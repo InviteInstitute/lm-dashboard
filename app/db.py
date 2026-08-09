@@ -23,6 +23,7 @@ Postgres `text` columns. Because the width is fixed, comparing the strings
 lexically is the same as comparing the instants, which is what lets the cursor
 and cutoff SQL (ORDER BY started_at, resolved_at >= cutoff) work on the text.
 """
+
 import csv
 import io
 import json
@@ -30,14 +31,14 @@ import os
 import threading
 import time
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg
 from psycopg_pool import ConnectionPool
 
 from app.config import DATABASE_URL
 
-UTC = timezone.utc
+UTC = UTC
 _FMT = "%Y-%m-%d %H:%M:%S.%f"
 _FMT_NOFRAC = "%Y-%m-%d %H:%M:%S"
 
@@ -148,8 +149,9 @@ def _get_pool():
         if _pool is None:
             if not DATABASE_URL:
                 raise RuntimeError("DATABASE_URL is not set (see .env.mirror)")
-            _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10,
-                                   configure=_configure, open=True)
+            _pool = ConnectionPool(
+                DATABASE_URL, min_size=1, max_size=10, configure=_configure, open=True
+            )
     return _pool
 
 
@@ -232,7 +234,8 @@ def latest_project(sid):
         "SELECT project FROM vex_log WHERE lower(studentID) = ? "
         "AND project IS NOT NULL AND project != '' "
         "ORDER BY COALESCE(event_time, '') DESC, id DESC LIMIT 1",
-        (canon_id(sid),))
+        (canon_id(sid),),
+    )
     return rows[0]["project"] if rows else None
 
 
@@ -457,8 +460,9 @@ def init_db():
                 f"AFTER INSERT OR UPDATE OR DELETE ON {table} "
                 f"FOR EACH ROW EXECUTE FUNCTION bump_rev('{channel}')"
             )
-        con.execute("INSERT INTO meta (key, value) VALUES ('idcanon_v1', '1') "
-                    "ON CONFLICT (key) DO NOTHING")
+        con.execute(
+            "INSERT INTO meta (key, value) VALUES ('idcanon_v1', '1') ON CONFLICT (key) DO NOTHING"
+        )
     ensure_default_workspace()
 
 
@@ -493,19 +497,26 @@ def _ws(workspace_id):
 
 
 def create_workspace(name):
-    row = _query("INSERT INTO workspace (name, created_at) VALUES (?, ?) RETURNING id",
-                 (name, dt_to_db(now())))
+    row = _query(
+        "INSERT INTO workspace (name, created_at) VALUES (?, ?) RETURNING id",
+        (name, dt_to_db(now())),
+    )
     return row[0]["id"]
 
 
 def add_workspace_member(workspace_id, researcher_id):
-    _execute("INSERT INTO workspace_member (workspace_id, researcher_id) VALUES (?, ?) "
-             "ON CONFLICT DO NOTHING", (workspace_id, researcher_id))
+    _execute(
+        "INSERT INTO workspace_member (workspace_id, researcher_id) VALUES (?, ?) "
+        "ON CONFLICT DO NOTHING",
+        (workspace_id, researcher_id),
+    )
 
 
 def workspace_ids_for_researcher(researcher_id):
-    rows = _query("SELECT workspace_id FROM workspace_member WHERE researcher_id = ? "
-                  "ORDER BY workspace_id", (researcher_id,))
+    rows = _query(
+        "SELECT workspace_id FROM workspace_member WHERE researcher_id = ? ORDER BY workspace_id",
+        (researcher_id,),
+    )
     return [r["workspace_id"] for r in rows]
 
 
@@ -535,7 +546,8 @@ def workspace_for_client_key(client_key):
     rows = _query(
         "INSERT INTO workspace (name, created_at, client_key) VALUES (?, ?, ?) "
         "ON CONFLICT (client_key) DO NOTHING RETURNING id",
-        (f"browser {client_key[:8]}", dt_to_db(now()), client_key))
+        (f"browser {client_key[:8]}", dt_to_db(now()), client_key),
+    )
     if rows:
         return rows[0]["id"]
     return _query("SELECT id FROM workspace WHERE client_key = ?", (client_key,))[0]["id"]
@@ -553,9 +565,9 @@ def tracked_union():
     many boards watch them."""
     rows = _query(
         "SELECT studentID, MIN(backfilled) AS backfilled "
-        "FROM tracked_student GROUP BY studentID ORDER BY studentID")
-    return [{"studentID": r["studentID"], "backfilled": bool(r["backfilled"])}
-            for r in rows]
+        "FROM tracked_student GROUP BY studentID ORDER BY studentID"
+    )
+    return [{"studentID": r["studentID"], "backfilled": bool(r["backfilled"])} for r in rows]
 
 
 def students_in_workspaces(workspace_ids):
@@ -567,7 +579,8 @@ def students_in_workspaces(workspace_ids):
     placeholders = ",".join("?" * len(ids))
     rows = _query(
         f"SELECT DISTINCT studentID FROM tracked_student WHERE workspace_id IN ({placeholders})",
-        tuple(ids))
+        tuple(ids),
+    )
     return {r["studentID"] for r in rows}
 
 
@@ -579,9 +592,16 @@ def workspace_polling_states():
         "  MAX(CASE WHEN s.key = 'polling_enabled' THEN s.value END) AS polling_enabled, "
         "  MAX(CASE WHEN s.key = 'viewer_last_seen' THEN s.value END) AS viewer_last_seen "
         "FROM workspace w LEFT JOIN workspace_setting s ON s.workspace_id = w.id "
-        "GROUP BY w.id ORDER BY w.id")
-    return [{"id": r["id"], "polling_enabled": r["polling_enabled"],
-             "viewer_last_seen": r["viewer_last_seen"]} for r in rows]
+        "GROUP BY w.id ORDER BY w.id"
+    )
+    return [
+        {
+            "id": r["id"],
+            "polling_enabled": r["polling_enabled"],
+            "viewer_last_seen": r["viewer_last_seen"],
+        }
+        for r in rows
+    ]
 
 
 # Per-workspace control flags (polling_enabled, viewer_last_seen, disabled_triggers,
@@ -597,7 +617,8 @@ def set_workspace_setting(workspace_id, key, value):
 def get_workspace_setting(workspace_id, key):
     rows = _query(
         "SELECT value FROM workspace_setting WHERE workspace_id = ? AND key = ?",
-        (_ws(workspace_id), key))
+        (_ws(workspace_id), key),
+    )
     return rows[0]["value"] if rows else None
 
 
@@ -611,7 +632,8 @@ def get_workspace_settings_many(workspace_id, keys):
     rows = _query(
         f"SELECT key, value FROM workspace_setting "
         f"WHERE workspace_id = ? AND key IN ({placeholders})",
-        (_ws(workspace_id), *keys))
+        (_ws(workspace_id), *keys),
+    )
     present = {r["key"]: r["value"] for r in rows}
     return {k: present.get(k) for k in keys}
 
@@ -695,8 +717,10 @@ def get_meta_many(keys):
                     still_missing.append(k)
             if still_missing:
                 placeholders = ",".join("?" * len(still_missing))
-                rows = _query(f"SELECT key, value FROM meta WHERE key IN ({placeholders})",
-                              tuple(still_missing))
+                rows = _query(
+                    f"SELECT key, value FROM meta WHERE key IN ({placeholders})",
+                    tuple(still_missing),
+                )
                 present = {r["key"]: r["value"] for r in rows}
                 for k in still_missing:
                     value = present.get(k)
@@ -720,7 +744,8 @@ def reset_workspace(workspace_id=None):
         # Clear the picked toggles but keep the roster + presence.
         con.execute(
             "UPDATE tracked_student SET picked = 0, picked_at = NULL WHERE workspace_id = ?",
-            (wsid,))
+            (wsid,),
+        )
 
 
 # --------------------------------------------------------------------------
@@ -734,19 +759,19 @@ def reset_workspace(workspace_id=None):
 def _workspace_export_queries(workspace_id):
     """{table: (sql, params)} for a workspace-scoped CSV dump."""
     ws = workspace_id
-    roster = ("studentID IN (SELECT studentID FROM tracked_student "
-              "WHERE workspace_id = ?)")
-    vex_roster = ("lower(studentID) IN (SELECT studentID FROM tracked_student "
-                  "WHERE workspace_id = ?)")
+    roster = "studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?)"
+    vex_roster = (
+        "lower(studentID) IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?)"
+    )
     return {
         "tracked_student": ("SELECT * FROM tracked_student WHERE workspace_id = ?", (ws,)),
-        "note":            ("SELECT * FROM note WHERE workspace_id = ?", (ws,)),
-        "pick_event":      ("SELECT * FROM pick_event WHERE workspace_id = ?", (ws,)),
-        "trigger_ack":     ("SELECT * FROM trigger_ack WHERE workspace_id = ?", (ws,)),
-        "student_state":   (f"SELECT * FROM student_state WHERE {roster}", (ws,)),
-        "trigger_event":   (f"SELECT * FROM trigger_event WHERE {roster}", (ws,)),
-        "switch_event":    (f"SELECT * FROM switch_event WHERE {roster}", (ws,)),
-        "vex_log":         (f"SELECT * FROM vex_log WHERE {vex_roster}", (ws,)),
+        "note": ("SELECT * FROM note WHERE workspace_id = ?", (ws,)),
+        "pick_event": ("SELECT * FROM pick_event WHERE workspace_id = ?", (ws,)),
+        "trigger_ack": ("SELECT * FROM trigger_ack WHERE workspace_id = ?", (ws,)),
+        "student_state": (f"SELECT * FROM student_state WHERE {roster}", (ws,)),
+        "trigger_event": (f"SELECT * FROM trigger_event WHERE {roster}", (ws,)),
+        "switch_event": (f"SELECT * FROM switch_event WHERE {roster}", (ws,)),
+        "vex_log": (f"SELECT * FROM vex_log WHERE {vex_roster}", (ws,)),
     }
 
 
@@ -756,8 +781,7 @@ def _tree_to_brackets(text):
     The depth-0 section headers ([Active]/[Orphaned]) stay as bare inline labels;
     only blocks at depth >= 1 that actually have children get wrapped in { }.
     Indentation is one space per level (matches smart_delta_engine.build_tree)."""
-    lines = [(len(l) - len(l.lstrip(" ")), l.strip())
-             for l in text.split("\n") if l.strip()]
+    lines = [(len(l) - len(l.lstrip(" ")), l.strip()) for l in text.split("\n") if l.strip()]
     parts, open_depths = [], []
     for i, (depth, label) in enumerate(lines):
         while open_depths and open_depths[-1] >= depth:
@@ -808,8 +832,9 @@ def export_csv(out_dir, workspace_id=None, db_path=None):
         written = {}
         for table, (sql, params) in _workspace_export_queries(_ws(workspace_id)).items():
             text, n = _cursor_csv(con.execute(_ph(sql), params))
-            with open(os.path.join(out_dir, f"{table}.csv"), "w", newline="",
-                      encoding="utf-8") as f:
+            with open(
+                os.path.join(out_dir, f"{table}.csv"), "w", newline="", encoding="utf-8"
+            ) as f:
                 f.write(text)
             written[table] = n
         return out_dir, written
@@ -884,7 +909,8 @@ def list_student_states(students=None, class_code=None, workspace_id=None):
         params.append(class_code)
     if workspace_id is not None:
         clauses.append(
-            "studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?)")
+            "studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?)"
+        )
         params.append(workspace_id)
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
@@ -896,8 +922,10 @@ def list_student_states(students=None, class_code=None, workspace_id=None):
 # trigger_ack. Both queries compute `acknowledged` from that overlay (no longer
 # from the vestigial trigger_event.acknowledged column) so _trigger_row is
 # unchanged. Which trigger TYPES are active stays a global daemon setting.
-_TRIG_COLS = ("te.id, te.studentID, te.trigger_type, te.started_at, te.last_seen_at, "
-              "te.resolved_at, te.detail")
+_TRIG_COLS = (
+    "te.id, te.studentID, te.trigger_type, te.started_at, te.last_seen_at, "
+    "te.resolved_at, te.detail"
+)
 
 
 def triggers_feed(cutoff, limit=100, workspace_id=None):
@@ -910,8 +938,9 @@ def triggers_feed(cutoff, limit=100, workspace_id=None):
     params = [ack_ws]
     roster = ""
     if workspace_id is not None:
-        roster = ("AND te.studentID IN "
-                  "(SELECT studentID FROM tracked_student WHERE workspace_id = ?) ")
+        roster = (
+            "AND te.studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?) "
+        )
         params.append(workspace_id)
     params += [dt_to_db(cutoff), limit]
     rows = _query(
@@ -944,7 +973,9 @@ def trigger_history(sid, limit=100, workspace_id=None):
 def ack_by_id(tid, workspace_id=None):
     n = _execute(
         "INSERT INTO trigger_ack (workspace_id, trigger_id, ts) VALUES (?, ?, ?) "
-        "ON CONFLICT DO NOTHING", (_ws(workspace_id), tid, dt_to_db(now())))
+        "ON CONFLICT DO NOTHING",
+        (_ws(workspace_id), tid, dt_to_db(now())),
+    )
     # Keep the shared trigger_event.acknowledged flag in sync: the daemon's
     # re-alert logic (a global, per-student behavior) reads it to decide when an
     # acked-but-still-open alert should rotate into a fresh row.
@@ -959,9 +990,11 @@ def ack_by_student(sid, workspace_id=None):
         "INSERT INTO trigger_ack (workspace_id, trigger_id, ts) "
         "SELECT ?, id, ? FROM trigger_event WHERE studentID = ? "
         "ON CONFLICT DO NOTHING",
-        (_ws(workspace_id), dt_to_db(now()), sid))
-    _execute("UPDATE trigger_event SET acknowledged = 1 "
-             "WHERE studentID = ? AND acknowledged = 0", (sid,))
+        (_ws(workspace_id), dt_to_db(now()), sid),
+    )
+    _execute(
+        "UPDATE trigger_event SET acknowledged = 1 WHERE studentID = ? AND acknowledged = 0", (sid,)
+    )
     return n
 
 
@@ -981,8 +1014,8 @@ def tracked_list(workspace_id=None):
     )
     return [
         {
-            "studentID": r["studentID"],                       # canonical key
-            "display": r["display_id"] or r["studentID"],      # most-recent casing for the UI
+            "studentID": r["studentID"],  # canonical key
+            "display": r["display_id"] or r["studentID"],  # most-recent casing for the UI
             "backfilled": bool(r["backfilled"]),
             "has_data": bool(r["has_data"]),
             "present": bool(r["present"]),
@@ -1002,8 +1035,7 @@ def set_presence(sid, present, workspace_id=None):
     )
 
 
-def set_picked(sid, picked, source="roster", trigger_id=None, trigger_type=None,
-               workspace_id=None):
+def set_picked(sid, picked, source="roster", trigger_id=None, trigger_type=None, workspace_id=None):
     """Researcher toggle for whether the student has been picked/interviewed this
     session, scoped to the workspace. Marking stamps picked_at; unmarking clears
     it. Either way it also appends a pick_event row, so the full pick/unpick
@@ -1046,8 +1078,13 @@ def add_note(student_id, text, trigger_id=None, trigger_type=None, workspace_id=
         )
         nid = cur.fetchone()["id"]
     return {
-        "id": nid, "studentID": student_id, "ts": ts, "text": text,
-        "trigger_id": trigger_id, "trigger_type": trigger_type, "created_at": ts,
+        "id": nid,
+        "studentID": student_id,
+        "ts": ts,
+        "text": text,
+        "trigger_id": trigger_id,
+        "trigger_type": trigger_type,
+        "created_at": ts,
     }
 
 
@@ -1062,9 +1099,13 @@ def list_notes(student_id, workspace_id=None):
     # this dict is serialized straight to API JSON where the UI expects studentID.
     return [
         {
-            "id": r["id"], "studentID": r["studentID"], "ts": r["ts"],
-            "text": r["text"], "trigger_id": r["trigger_id"],
-            "trigger_type": r["trigger_type"], "created_at": r["created_at"],
+            "id": r["id"],
+            "studentID": r["studentID"],
+            "ts": r["ts"],
+            "text": r["text"],
+            "trigger_id": r["trigger_id"],
+            "trigger_type": r["trigger_type"],
+            "created_at": r["created_at"],
         }
         for r in rows
     ]
@@ -1088,8 +1129,7 @@ def record_outbox(op, payload, error, workspace_id=None):
     be replayed by hand later. `payload` is the original request body (already a
     JSON string, or None)."""
     _execute(
-        "INSERT INTO outbox (workspace_id, op, payload, error, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO outbox (workspace_id, op, payload, error, created_at) VALUES (?, ?, ?, ?, ?)",
         (_ws(workspace_id), op, payload, error, dt_to_db(now())),
     )
 
@@ -1098,7 +1138,9 @@ def list_outbox(limit=200, workspace_id=None):
     """A workspace's parked failed inputs, newest first."""
     rows = _query(
         "SELECT id, op, payload, error, created_at FROM outbox "
-        "WHERE workspace_id = ? ORDER BY id DESC LIMIT ?", (_ws(workspace_id), limit))
+        "WHERE workspace_id = ? ORDER BY id DESC LIMIT ?",
+        (_ws(workspace_id), limit),
+    )
     return [dict(r) for r in rows]
 
 
@@ -1109,7 +1151,8 @@ def list_switches(limit=100, unacked_only=False, workspace_id=None):
     clauses, params = [], []
     if workspace_id is not None:
         clauses.append(
-            "studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?)")
+            "studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?)"
+        )
         params.append(workspace_id)
     if unacked_only:
         clauses.append("acknowledged = 0")
@@ -1122,9 +1165,13 @@ def list_switches(limit=100, unacked_only=False, workspace_id=None):
     # Explicit keys (see list_notes): preserve the studentID casing the UI expects.
     return [
         {
-            "id": r["id"], "studentID": r["studentID"], "kind": r["kind"],
-            "from_value": r["from_value"], "to_value": r["to_value"],
-            "ts": r["ts"], "acknowledged": r["acknowledged"],
+            "id": r["id"],
+            "studentID": r["studentID"],
+            "kind": r["kind"],
+            "from_value": r["from_value"],
+            "to_value": r["to_value"],
+            "ts": r["ts"],
+            "acknowledged": r["acknowledged"],
         }
         for r in rows
     ]
@@ -1177,9 +1224,7 @@ def tracked_remove(sid, workspace_id=None):
         ]
         con.execute("DELETE FROM vex_log WHERE lower(studentID) = ?", (sid,))
         if msg_ids:
-            con.executemany(
-                "DELETE FROM message WHERE id = ?", [(m,) for m in msg_ids]
-            )
+            con.executemany("DELETE FROM message WHERE id = ?", [(m,) for m in msg_ids])
         con.execute("DELETE FROM student_state WHERE studentID = ?", (sid,))
         con.execute("DELETE FROM trigger_event WHERE studentID = ?", (sid,))
 
@@ -1277,7 +1322,7 @@ def student_tail(sid, limit, since=None):
     # (received_at fallback when event_time is null); v.id is a stable tiebreak.
     # DESC + LIMIT keeps the most-recent `limit` events; the reversed() below flips
     # them to oldest-first for replay.
-    
+
     order_by = "ORDER BY COALESCE(v.event_time, m.received_at) DESC, v.id DESC"
     rows = _query(
         "SELECT v.studentID, v.eventType, v.classCode, v.project, v.raw_message, v.event_time, "
@@ -1385,8 +1430,10 @@ def apply_sustained_sweep(creates, resolve_ids, touches):
                 "INSERT INTO trigger_event "
                 "(studentID, trigger_type, started_at, last_seen_at, resolved_at, "
                 " acknowledged, detail, created_at) VALUES (?, ?, ?, ?, NULL, 0, ?, ?)",
-                [(sid, tt, dt_to_db(st), dt_to_db(ls), _jdump(d), dt_to_db(now()))
-                 for (sid, tt, st, ls, d) in creates],
+                [
+                    (sid, tt, dt_to_db(st), dt_to_db(ls), _jdump(d), dt_to_db(now()))
+                    for (sid, tt, st, ls, d) in creates
+                ],
             )
         if resolve_ids:
             con.executemany(
@@ -1474,6 +1521,5 @@ def get_researcher_by_username(username):
 
 def get_researcher_by_id(researcher_id):
     """The row (id, username) a session resolves to, or None."""
-    rows = _query(
-        "SELECT id, username FROM researcher WHERE id = ?", (researcher_id,))
+    rows = _query("SELECT id, username FROM researcher WHERE id = ?", (researcher_id,))
     return dict(rows[0]) if rows else None

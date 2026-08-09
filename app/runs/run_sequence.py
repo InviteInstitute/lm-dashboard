@@ -12,10 +12,11 @@ Public API:
 `events` is a chronological list of dicts, each carrying at least
     {"event_type": "...", "content": {...parsed VEX log content...}, "ts": float|None}
 """
+
 import json
 
-from .ast_builder import xml_to_block_ast, extract_workspace_xml
 from .apted_similarity import cached_edit_distance
+from .ast_builder import extract_workspace_xml, xml_to_block_ast
 
 
 def _extract_runs(events):

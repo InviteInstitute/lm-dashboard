@@ -1,5 +1,6 @@
 """Trigger helper functions: idle formatting, the disabled-types reader, and the
 disabled-set parameter path."""
+
 from datetime import timedelta
 
 from app import db

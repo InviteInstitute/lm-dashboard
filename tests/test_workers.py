@@ -1,5 +1,6 @@
 """Per-student workers: edit-distance trigger firing/dedupe, the materialize
 write, and the route/rehydrate no-double-count rule."""
+
 from app import db
 from app.pipeline import workers
 
@@ -9,15 +10,18 @@ def _worker_with_distances(sid, dists):
     so we can drive recompute_and_write without constructing real VEX XML (the
     edit-distance computation is tested separately)."""
     w = workers.StudentWorker(sid)
-    w._runs_cache = {"runs": [{"index": i, "edit_distance": d, "ts": float(i)}
-                              for i, d in enumerate(dists)]}
+    w._runs_cache = {
+        "runs": [{"index": i, "edit_distance": d, "ts": float(i)} for i, d in enumerate(dists)]
+    }
     w.had_new_run = False
     return w
 
 
 def _fired(ttype):
-    return db._query("SELECT (detail::jsonb ->> 'run_index')::int i FROM trigger_event "
-                     "WHERE trigger_type=?", (ttype,))
+    return db._query(
+        "SELECT (detail::jsonb ->> 'run_index')::int i FROM trigger_event WHERE trigger_type=?",
+        (ttype,),
+    )
 
 
 def test_wheel_spin_fires_once_and_dedupes_across_recompute():
@@ -60,8 +64,12 @@ def test_fired_dedupe_seeded_from_db_on_rehydrate():
     w2 = workers.StudentWorker("s1")
     for t in w2.fired:
         w2.fired[t] = db.fired_indices("s1", t)
-    w2._runs_cache = {"runs": [{"index": 0, "edit_distance": None, "ts": 0.0},
-                               {"index": 1, "edit_distance": 13, "ts": 1.0}]}
+    w2._runs_cache = {
+        "runs": [
+            {"index": 0, "edit_distance": None, "ts": 0.0},
+            {"index": 1, "edit_distance": 13, "ts": 1.0},
+        ]
+    }
     w2.had_new_run = False
     w2.recompute_and_write()
     assert len(db._query("SELECT 1 FROM trigger_event WHERE trigger_type='explorer'")) == 1
@@ -78,6 +86,7 @@ def test_recompute_writes_run_and_event_counts():
 
 def test_recompute_builds_playground_prompt_from_latest_project():
     import json
+
     xml = '<xml><block type="events_whenStarted" id="a"></block></xml>'
     w = _worker_with_distances("s1", [None])
     w.latest_project = json.dumps({"workspace": xml})
@@ -91,26 +100,39 @@ def test_prompt_generation_failure_falls_back_to_none(monkeypatch):
     # to a null prompt and the state still writes.
     def boom(_proj):
         raise ValueError("bad workspace")
+
     monkeypatch.setattr(workers, "generate_llm_prompt_from_project", boom)
     w = _worker_with_distances("s1", [None])
     w.latest_project = '{"workspace": "<xml/>"}'
     w.recompute_and_write()
-    assert db._query("SELECT playground_prompt FROM student_state "
-                     "WHERE studentID='s1'")[0]["playground_prompt"] is None
+    assert (
+        db._query("SELECT playground_prompt FROM student_state WHERE studentID='s1'")[0][
+            "playground_prompt"
+        ]
+        is None
+    )
 
 
 def test_recompute_decodes_real_runs_from_buffered_events():
     """Exercise the real path (no pre-seeded cache): two runProject events with
     workspaces flow through compute_run_edit_distances."""
     import json
+
     xa = '<xml><block type="events_whenStarted" id="a"></block></xml>'
-    xb = ('<xml><block type="events_whenStarted" id="a">'
-          '<next><block type="motor_on" id="b"></block></next></block></xml>')
+    xb = (
+        '<xml><block type="events_whenStarted" id="a">'
+        '<next><block type="motor_on" id="b"></block></next></block></xml>'
+    )
     w = workers.StudentWorker("s1")
     for i, x in enumerate([xa, xb]):
-        w.events.append({"event_type": "runProject", "ts": float(i),
-                         "content": json.dumps({"project": {"workspace": x}})})
-    w.had_new_run = True                            # force a real recompute
+        w.events.append(
+            {
+                "event_type": "runProject",
+                "ts": float(i),
+                "content": json.dumps({"project": {"workspace": x}}),
+            }
+        )
+    w.had_new_run = True  # force a real recompute
     w.recompute_and_write()
     assert db.list_student_states(["s1"])[0]["run_count"] == 2
 
@@ -119,12 +141,16 @@ def test_route_rehydrates_then_does_not_double_count():
     """First event for an uncached student: route() must rehydrate from the DB row
     it was just persisted to, NOT also ingest it (which would double-count)."""
     norm = {
-        "raw_message": '{"eventType":"runProject"}', "event_time": db.now(),
-        "classCode": "C", "eventType": "runProject", "studentID": "s1",
-        "project": "{}", "source_event_id": 1,
+        "raw_message": '{"eventType":"runProject"}',
+        "event_time": db.now(),
+        "classCode": "C",
+        "eventType": "runProject",
+        "studentID": "s1",
+        "project": "{}",
+        "source_event_id": 1,
     }
     db.insert_message_and_log(norm)
-    workers.route(norm)                       # creates worker, rehydrates the 1 row
+    workers.route(norm)  # creates worker, rehydrates the 1 row
     assert len(workers.get_worker("s1").events) == 1
 
 
@@ -136,10 +162,18 @@ def test_reconcile_drops_untracked_workers():
 
 
 def test_route_to_cached_worker_ingests_without_double_count():
-    workers.get_worker("s1")                       # cache it (rehydrates 0 events)
-    workers.route({"studentID": "s1", "eventType": "blockMoved", "raw_message": "{}",
-                   "project": None, "source_event_id": 1, "event_time": db.now(),
-                   "classCode": "C"})
+    workers.get_worker("s1")  # cache it (rehydrates 0 events)
+    workers.route(
+        {
+            "studentID": "s1",
+            "eventType": "blockMoved",
+            "raw_message": "{}",
+            "project": None,
+            "source_event_id": 1,
+            "event_time": db.now(),
+            "classCode": "C",
+        }
+    )
     assert len(workers.get_worker("s1").events) == 1
 
 
@@ -148,23 +182,32 @@ def test_recompute_fires_step_by_step_at_the_playground_threshold():
     three edits (edit_distance > 1) in RoverRescue fire it, even though the default
     threshold (6) would not. Distances are seeded so the count is unambiguous."""
     w = workers.StudentWorker("s1")
-    w._runs_cache = {"runs": [
-        {"index": 0, "edit_distance": None, "ts": 0.0, "playground": "RoverRescue"},
-        {"index": 1, "edit_distance": 2, "ts": 1.0, "playground": "RoverRescue"},
-        {"index": 2, "edit_distance": 2, "ts": 2.0, "playground": "RoverRescue"},
-        {"index": 3, "edit_distance": 2, "ts": 3.0, "playground": "RoverRescue"},
-    ]}
+    w._runs_cache = {
+        "runs": [
+            {"index": 0, "edit_distance": None, "ts": 0.0, "playground": "RoverRescue"},
+            {"index": 1, "edit_distance": 2, "ts": 1.0, "playground": "RoverRescue"},
+            {"index": 2, "edit_distance": 2, "ts": 2.0, "playground": "RoverRescue"},
+            {"index": 3, "edit_distance": 2, "ts": 3.0, "playground": "RoverRescue"},
+        ]
+    }
     w.had_new_run = False
     w.recompute_and_write()
     assert db.fired_indices("s1", "iterative") == {3}
 
 
 def test_rehydrate_uses_received_at_when_event_time_missing():
-    db.insert_message_and_log({
-        "raw_message": '{"eventType":"runProject"}', "event_time": None,
-        "classCode": "C", "eventType": "runProject", "studentID": "s1",
-        "project": "{}", "source_event_id": 5})
-    w = workers.get_worker("s1")                     # cold start -> rehydrate
+    db.insert_message_and_log(
+        {
+            "raw_message": '{"eventType":"runProject"}',
+            "event_time": None,
+            "classCode": "C",
+            "eventType": "runProject",
+            "studentID": "s1",
+            "project": "{}",
+            "source_event_id": 5,
+        }
+    )
+    w = workers.get_worker("s1")  # cold start -> rehydrate
     assert len(w.events) == 1 and w.events[0]["ts"] is not None
 
 
@@ -172,14 +215,23 @@ def test_student_tail_replays_chronologically_despite_insertion_order():
     # Backfill persists page_student's newest-first results, so the autoincrement
     # id ends up reverse-chronological. student_tail must still return events
     # oldest-first by event_time, or the run pairing sees negative gaps.
-    for eid, ts in [(1, "2026-06-23T12:00:00Z"),    # newer event, inserted FIRST
-                    (2, "2026-06-23T08:00:00Z")]:   # older event, inserted second
-        db.insert_message_and_log({
-            "raw_message": "{}", "event_time": db.db_to_dt(ts), "classCode": "C",
-            "eventType": "runProject", "studentID": "s1", "project": "{}",
-            "source_event_id": eid})
+    for eid, ts in [
+        (1, "2026-06-23T12:00:00Z"),  # newer event, inserted FIRST
+        (2, "2026-06-23T08:00:00Z"),
+    ]:  # older event, inserted second
+        db.insert_message_and_log(
+            {
+                "raw_message": "{}",
+                "event_time": db.db_to_dt(ts),
+                "classCode": "C",
+                "eventType": "runProject",
+                "studentID": "s1",
+                "project": "{}",
+                "source_event_id": eid,
+            }
+        )
     times = [e["event_time"] for e in db.student_tail("s1", 10)]
-    assert times == sorted(times)      # chronological, not insertion (id) order
+    assert times == sorted(times)  # chronological, not insertion (id) order
 
 
 def test_student_tail_orders_null_event_time_by_received_at_fallback():
@@ -189,36 +241,47 @@ def test_student_tail_orders_null_event_time_by_received_at_fallback():
         with db.write_txn() as con:
             cur = con.execute(
                 "INSERT INTO message (queue_name, routing_key, exchange, content, received_at) "
-                "VALUES ('p', '', '', '{}', ?) RETURNING id", (rt,))
+                "VALUES ('p', '', '', '{}', ?) RETURNING id",
+                (rt,),
+            )
             con.execute(
                 "INSERT INTO vex_log (from_message_id, classCode, eventType, studentID, "
                 "project, raw_message, event_time, source_event_id) "
                 "VALUES (?, 'C', 'runProject', 's1', '{}', '{}', ?, ?)",
-                (cur.fetchone()["id"], et, eid))
+                (cur.fetchone()["id"], et, eid),
+            )
 
-    _insert(1, "2026-06-23T12:00:00Z", "2026-06-23T12:00:00Z")   # newest
-    _insert(2, None,                   "2026-06-23T10:00:00Z")   # middle, null event_time
-    _insert(3, "2026-06-23T08:00:00Z", "2026-06-23T08:00:00Z")   # oldest
+    _insert(1, "2026-06-23T12:00:00Z", "2026-06-23T12:00:00Z")  # newest
+    _insert(2, None, "2026-06-23T10:00:00Z")  # middle, null event_time
+    _insert(3, "2026-06-23T08:00:00Z", "2026-06-23T08:00:00Z")  # oldest
     eids = [e["source_event_id"] for e in db.student_tail("s1", 10)]
     assert eids == [3, 2, 1]
 
 
 def test_reset_clears_apted_score_cache():
     from app.runs import apted_similarity
+
     apted_similarity._distance_cache[("a", "b")] = 9
     workers.reset()
-    assert apted_similarity._distance_cache == {}      # reset drops the memoized distances
+    assert apted_similarity._distance_cache == {}  # reset drops the memoized distances
 
 
 def test_session_cutoff_hides_pre_session_events_on_rehydrate():
     for sid_eid, ts in [(1, "2026-06-23T08:00:00Z"), (2, "2026-06-23T12:00:00Z")]:
-        db.insert_message_and_log({
-            "raw_message": "{}", "event_time": db.db_to_dt(ts), "classCode": "C",
-            "eventType": "runProject", "studentID": "s1", "project": "{}",
-            "source_event_id": sid_eid})
+        db.insert_message_and_log(
+            {
+                "raw_message": "{}",
+                "event_time": db.db_to_dt(ts),
+                "classCode": "C",
+                "eventType": "runProject",
+                "studentID": "s1",
+                "project": "{}",
+                "source_event_id": sid_eid,
+            }
+        )
     workers.set_session_cutoff(db.db_to_dt("2026-06-23T10:00:00Z"))
     w = workers.get_worker("s1")
-    assert len(w.events) == 1            # only the post-cutoff event replayed
+    assert len(w.events) == 1  # only the post-cutoff event replayed
     assert w.last_event_id == 2
 
 
@@ -230,18 +293,24 @@ def test_out_of_order_project_snapshot_does_not_regress():
     from datetime import timedelta
 
     def _ev(project, when):
-        return {"studentID": "cobra3", "classCode": "FPFVDH", "eventType": "blockMoved",
-                "raw_message": "{}", "project": project, "event_time": when}
+        return {
+            "studentID": "cobra3",
+            "classCode": "FPFVDH",
+            "eventType": "blockMoved",
+            "raw_message": "{}",
+            "project": project,
+            "event_time": when,
+        }
 
     now = db.now()
     w = workers.StudentWorker("cobra3")
     w.ingest(_ev('{"newer": true}', now))
-    w.ingest(_ev('{"older": true}', now - timedelta(minutes=4)))   # skewed device, late arrival
+    w.ingest(_ev('{"older": true}', now - timedelta(minutes=4)))  # skewed device, late arrival
     assert w.latest_project == '{"newer": true}'
     assert w.latest_project_ts == now
 
     w.ingest(_ev('{"newest": true}', now + timedelta(seconds=1)))  # genuinely newer still lands
     assert w.latest_project == '{"newest": true}'
 
-    w.ingest(_ev('{"unstamped": true}', None))                     # no clock -> accept as before
+    w.ingest(_ev('{"unstamped": true}', None))  # no clock -> accept as before
     assert w.latest_project == '{"unstamped": true}'

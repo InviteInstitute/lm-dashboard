@@ -43,11 +43,12 @@ frontend/coverage/
 # Cache
 .pytest_cache
 
-# tunnel runtime
+# Tunnel Runtime
 .ngrok.pid
 .ngrok.log
 .cloudflared.pid
 .cloudflared.log
 
-# Graphs
+# Scripts & Graphs
 .ua/
+scripts/loadtest.py

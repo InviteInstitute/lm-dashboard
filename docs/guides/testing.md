@@ -26,12 +26,18 @@ toast) behave.
 You don't need to read every case to trust them. If they're green, the contract
 the daemon and dashboard depend on is intact.
 
+!!! tip "Or just run make test"
+    `make test` runs both suites in one go, and `make lint` / `make format` run the ruff
+    and prettier checks. See [Development](development.md) for the full command vocabulary
+    and the CI setup.
+
 ## Backend (pytest)
 
-The test tools (`pytest`, `pytest-cov`, `httpx`) are in `requirements.txt`. The suite
-needs a **Postgres it can reach** — it connects using `DATABASE_URL` with the database
-name swapped to **`lm_dashboard_test`** (override with `TEST_DATABASE_URL`), and it
-truncates that database between tests, so your real data is never touched.
+The test tools (`pytest`, `pytest-cov`, `ruff`) are the dev extras in `pyproject.toml`, so
+`pip install -e '.[dev]'` (or `make install`) pulls them in. The suite needs a **Postgres
+it can reach** — it connects using `DATABASE_URL` with the database name swapped to
+**`lm_dashboard_test`** (override with `TEST_DATABASE_URL`), and it truncates that database
+between tests, so your real data is never touched.
 
 Point `DATABASE_URL` at a local Postgres (the prod compose DB is internal, so for
 running tests use a Postgres exposed on a host port — e.g. a small `postgres` container

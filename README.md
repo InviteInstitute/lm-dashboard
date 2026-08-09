@@ -29,8 +29,11 @@ in prod:
 ```bash
 cp .env.example .env.mirror   # fill in PROD_USERNAME / PROD_PASSWORD
 echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16))')" > .env
-docker compose up -d
+make dev                      # or: docker compose up -d
 ```
+
+`make` (or `make help`) lists the shared command vocabulary — `dev`, `test`, `lint`,
+`format`, `build`, `deploy`. See the [Development](https://inviteinstitute.github.io/lm-dashboard/guides/development/) docs.
 
 Open the dashboard, sign in with `PROD_USERNAME` / `PROD_PASSWORD`, add a student ID,
 and its data begins flowing while the board is open.

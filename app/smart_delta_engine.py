@@ -10,6 +10,7 @@ deltas from the event stream, or by bootstrapping straight from a project's XML.
 Either way it ends up with flat block / parent / orphan maps, and can render
 them as a compact pseudo-code "prompt" that's cheap to feed to an LLM.
 """
+
 import json
 import xml.etree.ElementTree as ET
 
@@ -18,11 +19,11 @@ class SmartDeltaEngine:
     # The "hat" block types that can start a program (event handlers and
     # procedure definitions). At the workspace root, only these count as active;
     # any other block sitting loose at the top level is treated as an orphan.
-    HAT_BLOCK_PATTERNS = ('events_', 'procedures_definition')
+    HAT_BLOCK_PATTERNS = ("events_", "procedures_definition")
 
     def __init__(self):
-        self.blocks = {}         # block_id -> {type, x, y, fields}
-        self.parent_map = {}     # parent_id -> [child_id, ...]
+        self.blocks = {}  # block_id -> {type, x, y, fields}
+        self.parent_map = {}  # parent_id -> [child_id, ...]
         self.orphan_status = {}  # block_id -> bool (True == not reachable from a hat)
 
     def process_log(self, log_event):
@@ -31,19 +32,19 @@ class SmartDeltaEngine:
         create/move/delete/change events mutate the maps incrementally. Anything
         unparseable or irrelevant is silently ignored."""
         try:
-            content = json.loads(log_event.get('content', '{}'))
+            content = json.loads(log_event.get("content", "{}"))
         except Exception:
             return
 
-        event_type = content.get('eventType')
+        event_type = content.get("eventType")
 
         # A load/new event resets everything and re-derives state from the XML.
-        if event_type in ('loadProject', 'newProject'):
+        if event_type in ("loadProject", "newProject"):
             self._bootstrap_from_xml(content)
             return
 
         # Otherwise it's an incremental block delta.
-        raw_block_data = content.get('blockEventData')
+        raw_block_data = content.get("blockEventData")
         if not raw_block_data:
             return
 
@@ -52,59 +53,54 @@ class SmartDeltaEngine:
         except Exception:
             return
 
-        b_type = block_data.get('eventType')
-        block_id = block_data.get('blockID')
+        b_type = block_data.get("eventType")
+        block_id = block_data.get("blockID")
 
         if not block_id:
             return
 
-        if b_type == 'create':
-            block_type = block_data.get('blockType', '')
-            if 'shadow' not in block_type.lower():
-                self.blocks[block_id] = {
-                    'type': block_type,
-                    'x': None,
-                    'y': None,
-                    'fields': {}
-                }
+        if b_type == "create":
+            block_type = block_data.get("blockType", "")
+            if "shadow" not in block_type.lower():
+                self.blocks[block_id] = {"type": block_type, "x": None, "y": None, "fields": {}}
                 self.orphan_status[block_id] = True
 
-        elif b_type == 'move':
+        elif b_type == "move":
             self._sever_from_parents(block_id)
 
-            new_info = block_data.get('newInfo', {})
+            new_info = block_data.get("newInfo", {})
 
-            if 'parent' in new_info:
-                new_parent = new_info['parent']
+            if "parent" in new_info:
+                new_parent = new_info["parent"]
                 self.parent_map.setdefault(new_parent, []).append(block_id)
 
                 # Clear floating coordinates since it's now attached
                 if block_id in self.blocks:
-                    self.blocks[block_id]['x'] = None
-                    self.blocks[block_id]['y'] = None
+                    self.blocks[block_id]["x"] = None
+                    self.blocks[block_id]["y"] = None
 
                 p_orphan = self.orphan_status.get(new_parent, False)
                 self.orphan_status[block_id] = p_orphan
                 self._cascade_orphan(block_id, p_orphan, set())
 
-            elif 'coordinate' in new_info:
-                coord = new_info['coordinate']
+            elif "coordinate" in new_info:
+                coord = new_info["coordinate"]
                 if block_id in self.blocks:
-                    self.blocks[block_id]['x'] = coord.get('x')
-                    self.blocks[block_id]['y'] = coord.get('y')
+                    self.blocks[block_id]["x"] = coord.get("x")
+                    self.blocks[block_id]["y"] = coord.get("y")
 
                 self.orphan_status[block_id] = True
                 self._cascade_orphan(block_id, True, set())
 
-        elif b_type == 'delete':
+        elif b_type == "delete":
             self._sever_from_parents(block_id)
             self._delete_recursive(block_id, set())
 
-        elif b_type == 'change':
-            field_name = block_data.get('name')
-            new_value = block_data.get('newValue')
+        elif b_type == "change":
+            field_name = block_data.get("name")
+            new_value = block_data.get("newValue")
             if block_id in self.blocks and field_name:
-                self.blocks[block_id]['fields'][field_name] = new_value
+                self.blocks[block_id]["fields"][field_name] = new_value
 
     def _sever_from_parents(self, block_id):
         keys_to_remove = []
@@ -124,13 +120,13 @@ class SmartDeltaEngine:
         self.parent_map.clear()
         self.orphan_status.clear()
 
-        project_raw = content.get('project', '{}')
+        project_raw = content.get("project", "{}")
         try:
             project = json.loads(project_raw) if isinstance(project_raw, str) else project_raw
         except Exception:
             project = {}
 
-        xml_string = project.get('workspace', '')
+        xml_string = project.get("workspace", "")
         if not xml_string:
             return
 
@@ -140,28 +136,28 @@ class SmartDeltaEngine:
             return
 
         def traverse(node, current_parent=None):
-            tag_name = node.tag.split('}')[-1]
+            tag_name = node.tag.split("}")[-1]
 
-            if tag_name == 'block':
-                b_id = node.get('id')
-                b_type = node.get('type', 'unknown')
-                b_x = node.get('x')
-                b_y = node.get('y')
+            if tag_name == "block":
+                b_id = node.get("id")
+                b_type = node.get("type", "unknown")
+                b_x = node.get("x")
+                b_y = node.get("y")
 
                 # Extract field values from immediate <field> children
                 fields = {}
                 for child in node:
-                    child_tag = child.tag.split('}')[-1]
-                    if child_tag == 'field':
-                        fname = child.get('name')
+                    child_tag = child.tag.split("}")[-1]
+                    if child_tag == "field":
+                        fname = child.get("name")
                         if fname:
-                            fields[fname] = child.text or ''
+                            fields[fname] = child.text or ""
 
                 self.blocks[b_id] = {
-                    'type': b_type,
-                    'x': float(b_x) if b_x else None,
-                    'y': float(b_y) if b_y else None,
-                    'fields': fields
+                    "type": b_type,
+                    "x": float(b_x) if b_x else None,
+                    "y": float(b_y) if b_y else None,
+                    "fields": fields,
                 }
 
                 if current_parent is None:
@@ -176,7 +172,7 @@ class SmartDeltaEngine:
                 for t in node:
                     traverse(t, b_id)
 
-            elif tag_name == 'shadow':
+            elif tag_name == "shadow":
                 pass
             else:
                 for t in node:
@@ -235,9 +231,9 @@ class SmartDeltaEngine:
 
         def clean_type(raw):
             """Strip common VEX prefixes to save tokens."""
-            for prefix in ('pg_', 'aim_', 'mixed_'):
+            for prefix in ("pg_", "aim_", "mixed_"):
                 if raw.startswith(prefix):
-                    return raw[len(prefix):]
+                    return raw[len(prefix) :]
             return raw
 
         def build_tree(block_id, depth, visited=None):
@@ -248,12 +244,12 @@ class SmartDeltaEngine:
             visited.add(block_id)
 
             block = self.blocks.get(block_id, {})
-            name = clean_type(block.get('type', '?'))
-            fields = block.get('fields', {})
+            name = clean_type(block.get("type", "?"))
+            fields = block.get("fields", {})
 
             parts = [name]
             if fields:
-                parts.append("(" + ",".join(f'{k}={v}' for k, v in fields.items()) + ")")
+                parts.append("(" + ",".join(f"{k}={v}" for k, v in fields.items()) + ")")
 
             line = " " * depth + " ".join(parts) + "\n"
 
@@ -289,10 +285,7 @@ def generate_llm_prompt_from_project(project_json_str):
     engine = SmartDeltaEngine()
 
     # Wrap in a synthetic loadProject event for _bootstrap_from_xml
-    engine._bootstrap_from_xml({
-        'eventType': 'loadProject',
-        'project': project_json_str
-    })
+    engine._bootstrap_from_xml({"eventType": "loadProject", "project": project_json_str})
 
     if not engine.blocks:
         return None

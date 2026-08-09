@@ -1,6 +1,7 @@
 """Process-wide settings, read once at import. Every value falls back to a
 local-friendly default, so a fresh clone runs with no configuration; override
 any of them through the environment when you need to."""
+
 import os
 from pathlib import Path
 
@@ -34,8 +35,8 @@ TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET")
 # usual ports; comma-separated, blanks dropped.
 CORS_ORIGINS = [
     o.strip()
-    for o in os.environ.get(
-        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
-    ).split(",")
+    for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(
+        ","
+    )
     if o.strip()
 ]

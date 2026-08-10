@@ -8,12 +8,12 @@ The read API runs at `http://localhost:8000` and also serves the built dashboard
 `/`. It serves the materialized state the daemon computes and performs only small,
 per-board writes (track, ack, notes, toggles, reset, export, polling).
 
-**Auth.** The whole origin is behind **HTTP Basic Auth** — the browser's native login
+**Auth.** The whole origin is behind **HTTP Basic Auth** - the browser's native login
 dialog, verified against the researcher table (see
 [Configuration](../guides/configuration.md)). Every `/api` route below (and the static
-app) requires it; `/healthz` is the only open path. Each request also carries the
-browser's **board id** — the `X-Board-Id` header, or a `?board_id=` query param on the
-SSE stream — which scopes the response to that board's own roster, notes, and picks.
+app) requires it. `/healthz` is the only open path. Each request also carries the
+browser's **board id** - the `X-Board-Id` header, or a `?board_id=` query param on the
+SSE stream - which scopes the response to that board's own roster, notes, and picks.
 
 ## Endpoints At A Glance
 
@@ -40,14 +40,14 @@ SSE stream — which scopes the response to that board's own roster, notes, and 
 | `GET`  | `/api/outbox/` | failed researcher inputs parked for replay |
 | `POST` | `/api/outbox/` | park a failed researcher input |
 | `POST` | `/api/export/` | download a zip of CSV snapshots of this board's data |
-| `POST` | `/api/reset/` | clear THIS board's researcher data (notes, picks, acks); the shared mirror stays |
+| `POST` | `/api/reset/` | clear THIS board's researcher data (notes, picks, acks), the shared mirror stays |
 | `GET`  | `/api/polling/` | whether the daemon is currently polling production |
 | `POST` | `/api/polling/` | pause or resume the daemon's production polling |
 
 !!! tip "Responses are gzipped"
     Any JSON response over ~1KB is gzip-compressed when the client accepts it (the
     run arrays and playground payloads compress roughly 10x). The SSE stream is the
-    one exception; it's sent uncompressed so events are never buffered.
+    one exception. It's sent uncompressed so events are never buffered.
 
 ---
 
@@ -92,7 +92,7 @@ The channels are `states`, `triggers`, `switches`, and `roster`, mapping to
 !!! note "The stream is the viewer heartbeat"
     While a dashboard holds this connection open, the server stamps this board's
     `viewer_last_seen` (on connect and every ~10 seconds), which is what the daemon's
-    per-board dead-man's switch reads. A hidden tab closes the stream; if no dashboard
+    per-board dead-man's switch reads. A hidden tab closes the stream. If no dashboard
     is connected or polling, prod polling can wind down. See
     [Configuration](../guides/configuration.md#the-dead-mans-switch).
 
@@ -136,7 +136,7 @@ The dashboard's main read: the materialized per-student state.
 
 !!! note
     Rows are sorted by most recent activity. Each run's `edit_distance` is the integer
-    APTED tree-edit-distance from the previous run (`null` for the first run); that
+    APTED tree-edit-distance from the previous run (`null` for the first run). That
     sequence is what the dashboard colours and what every trigger reads. There is no
     stored status field, the dashboard derives a student's headline state from the
     triggers feed. This is the *light* shape: it omits the bulky playground `block`,
@@ -256,7 +256,7 @@ There are five trigger types, all defined on the per-run `edit_distance`:
 | `iterative` | Step-by-Step | 6 runs with `edit_distance >= 1` | `6 steady edits` |
 
 `wheel_spin`, `resilience`, `explorer`, and `iterative` are momentary (one row per
-qualifying run); `inactive` is sustained (open while idle, re-alerts after 10 min if
+qualifying run). `inactive` is sustained (open while idle, re-alerts after 10 min if
 acked and still holding).
 
 ---
@@ -286,7 +286,7 @@ dismissed alike. This is what the detail modal's trigger-history grid renders.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `studentID` | string | required; case-insensitive |
+| `studentID` | string | required, case-insensitive |
 
 ```json title="Response"
 {
@@ -352,7 +352,7 @@ code. These drive the dashboard's switch toasts and the Identity Switches feed.
 ```
 
 `kind` is `casing` or `class`. Identity is folded case-insensitively, so both
-spellings are one student; the switch is the signal that the same handle is active
+spellings are one student. The switch is the signal that the same handle is active
 from a new spelling or class (often a shared device).
 
 ---
@@ -405,7 +405,7 @@ A student's notes, oldest first.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `studentID` | string | required; the student to list notes for |
+| `studentID` | string | required, the student to list notes for |
 
 ```json title="Response"
 { "notes": [ { "id": 1, "studentID": "...", "ts": "...", "text": "...", "trigger_id": null, "trigger_type": null, "created_at": "..." } ], "count": 1 }
@@ -418,7 +418,7 @@ A missing `studentID` returns `400`.
 ## POST /api/notes/
 
 Add a note for a learner. Include `trigger_id` / `trigger_type` to link it to the
-alert it was written from; omit both for a free-standing note.
+alert it was written from. Omit both for a free-standing note.
 
 ```json title="Request"
 { "studentID": "abc123", "text": "talked through the loop", "trigger_id": 42, "trigger_type": "wheel_spin" }
@@ -432,7 +432,7 @@ Returns the created note row. A missing `studentID` or empty `text` returns `400
 
 Park a researcher input whose write failed its retries. The dashboard calls this
 automatically as the last step of its resilient-write path (see the
-[read path](../concepts/read-path.md#resilient-writes-and-the-outbox)); you normally
+[read path](../concepts/read-path.md#resilient-writes-and-the-outbox)). You normally
 never call it by hand. The raw payload is stored verbatim so the input can be
 replayed later.
 
@@ -486,7 +486,7 @@ Content-Disposition: attachment; filename="lm-dashboard_export_2026-06-14_103100
 Clear **this board's** researcher state for a fresh session: its notes, the
 interview-pick state (picked toggles + pick history), and its trigger dismissals.
 Its roster and presence stay. Unlike the old single-board reset, the **shared**
-per-student mirror (`vex_log`, `student_state`, `trigger_event`) is left intact —
+per-student mirror (`vex_log`, `student_state`, `trigger_event`) is left intact -
 other boards depend on it, and this board just re-derives its view from it.
 
 !!! info
@@ -531,11 +531,11 @@ without killing the process.
 ```
 
 Returns the new state, e.g. `{ "enabled": false }`. This is a per-board control flag
-(stored in `workspace_setting`); production is untouched.
+(stored in `workspace_setting`). Production is untouched.
 
 !!! note
     This is the *manual* pause. When the daemon runs with `--require-viewer` (the prod
     deployment arms it), there's also an *automatic* pause: prod polling stops for a
-    board whenever its dashboard hasn't polled recently. The two are independent — the
+    board whenever its dashboard hasn't polled recently. The two are independent - the
     daemon polls a board only when it's manually enabled **and** a viewer is present. See
     [Configuration](../guides/configuration.md#the-dead-mans-switch).

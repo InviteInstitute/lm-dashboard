@@ -22,8 +22,8 @@ flowchart LR
 ## Quick Start
 
 All you need is **Docker** (Desktop on Mac/Windows, or Docker + the compose plugin
-on Linux). The whole stack — Postgres, the API (which serves the built dashboard),
-and the ingestion daemon — runs from one compose file, the same on your laptop and
+on Linux). The whole stack - Postgres, the API (which serves the built dashboard),
+and the ingestion daemon - runs from one compose file, the same on your laptop and
 in prod:
 
 ```bash
@@ -32,7 +32,7 @@ echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16)
 make dev                      # or: docker compose up -d
 ```
 
-`make` (or `make help`) lists the shared command vocabulary — `dev`, `test`, `lint`,
+`make` (or `make help`) lists the shared command vocabulary - `dev`, `test`, `lint`,
 `format`, `build`, `deploy`. See the [Development](https://inviteinstitute.github.io/lm-dashboard/guides/development/) docs.
 
 Open the dashboard, sign in with `PROD_USERNAME` / `PROD_PASSWORD`, add a student ID,
@@ -48,13 +48,13 @@ Full setup (dev vs. prod, configuration, accounts) is in the
   from their active triggers, and **Present** / **Picked** toggles.
 - A live **"who needs help"** column driven by five edit-distance triggers
   (wheel-spinning, resilience, inactive, explorer, step-by-step) where you can jot
-  **notes** against each alert; click any learner for the full detail and notes log.
+  **notes** against each alert. Click any learner for the full detail and notes log.
 - A top bar to pause and resume polling, **export** all data as a downloadable zip of
   CSV snapshots, and reset the board.
 
 ## Serving It Remotely
 
-Run the prod stack (`docker compose -f compose.yml up -d`) — the API binds to
+Run the prod stack (`docker compose -f compose.yml up -d`) - the API binds to
 `127.0.0.1:8000` so nginx (or another reverse proxy) sits in front of it. The whole
 origin is gated by **HTTP Basic** (your browser's native login dialog), checked
 against the researcher table, so nothing is ever exposed ungated. While served, a
@@ -63,7 +63,7 @@ open.
 
 ## Under the Hood
 
-The daemon is the only process that writes; the API and dashboard just read a Postgres
+The daemon is the only process that writes. The API and dashboard just read a Postgres
 store that can be rebuilt from the raw event log at any time. The full write-up,
 covering configuration, the API, and the architecture, lives at
 <https://inviteinstitute.github.io/lm-dashboard/>.

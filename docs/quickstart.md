@@ -4,8 +4,8 @@ description: Bring up the whole stack (Postgres, API, daemon) with one docker co
 
 # Quickstart
 
-The whole stack — Postgres, the read API (which also serves the dashboard), and the
-ingestion daemon — runs from one `docker compose` file, the same on your laptop and
+The whole stack - Postgres, the read API (which also serves the dashboard), and the
+ingestion daemon - runs from one `docker compose` file, the same on your laptop and
 in production.
 
 ## Before You Start
@@ -19,7 +19,7 @@ in production.
 
 Two small files, both gitignored:
 
-1.  **App secrets** — copy the example and fill it in:
+1.  **App secrets** - copy the example and fill it in:
 
     ```bash
     cp .env.example .env.mirror     # set PROD_USERNAME / PROD_PASSWORD
@@ -35,7 +35,7 @@ Two small files, both gitignored:
     ```
 
 Compose builds `DATABASE_URL` for you (pointing at the `db` service), so you don't
-set it yourself. The schema is created automatically on API startup — there is no
+set it yourself. The schema is created automatically on API startup - there is no
 separate migration step.
 
 ## Run
@@ -44,7 +44,7 @@ separate migration step.
 docker compose up -d      # or: make dev
 ```
 
-`make dev` is the shortcut; see [Development](guides/development.md) for the full make
+`make dev` is the shortcut. See [Development](guides/development.md) for the full make
 vocabulary. In **dev**, compose auto-loads `compose.override.yml`, which adds:
 
 - the dashboard under **Vite with hot-reload** at [http://localhost:3000](http://localhost:3000)
@@ -72,7 +72,7 @@ docker compose down                  # stop everything
 
 ## Sign In and Track Your First Student
 
-Open the dashboard. Your **browser prompts for a username and password** — sign in
+Open the dashboard. Your **browser prompts for a username and password** - sign in
 with `PROD_USERNAME` / `PROD_PASSWORD`. Then type a student ID into **Track a
 student**: the daemon backfills their recent history, materializes their state, and
 their card appears within a tick or two.
@@ -80,7 +80,7 @@ their card appears within a tick or two.
 !!! note "Each browser is its own board"
     Under the shared login, every browser gets its own isolated board (roster,
     notes, picks). For stable per-person boards across devices, create named
-    accounts with `scripts/create_researcher.py` — see
+    accounts with `scripts/create_researcher.py` - see
     [Configuration](guides/configuration.md).
 
 !!! success

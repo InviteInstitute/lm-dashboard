@@ -10,9 +10,9 @@ dashboard. It only ever reads from production: it pulls events over the prod RES
 and never writes back.
 
 The whole thing is built around simplicity: one `docker compose up` brings up the
-entire stack — Postgres, the API, and the daemon. No message broker, no managed cloud
+entire stack - Postgres, the API, and the daemon. No message broker, no managed cloud
 services. It's also multi-tenant: each browser works on its own isolated board (no
-login — the dashboard is public), while the daemon serves all of them from one shared
+login - the dashboard is public), while the daemon serves all of them from one shared
 mirror.
 
 Here's the shape of it. Read it top to bottom: production feeds the daemon, the daemon
@@ -68,16 +68,16 @@ Three containers, one `docker compose` stack, connected through Postgres.
 |---|---|---|
 | **daemon** | `python -m app.pipeline` | the single writer, one blocking tick loop, fans out over every board |
 | **api** | `uvicorn app.main:app` | stateless reader (also serves the SPA), plus tiny per-board writes for track, ack, notes |
-| **db** | `postgres` | the seam; one writer and many readers at once via MVCC |
+| **db** | `postgres` | the seam, one writer and many readers at once via MVCC |
 
 The split is on purpose. The daemon is a long-running compute loop that has to be
 exactly one instance (the cursor assumes a single writer), while the API stays light,
 dependency-free (no numpy, no ML), and safe to restart on its own.
 
 !!! note "Access and serving"
-    The dashboard is public — no login — with **Cloudflare Turnstile** gating the API
+    The dashboard is public - no login - with **Cloudflare Turnstile** gating the API
     against bots rather than authenticating people. Each browser is isolated into its
-    own board. In production the API is served behind a reverse proxy (TLS); see
+    own board. In production the API is served behind a reverse proxy (TLS). See
     [Configuration](../guides/configuration.md) for the bot gate and the per-board
     dead-man's switch that keeps prod polling in check.
 
@@ -95,8 +95,8 @@ You get eventual consistency, but it's bounded, and the bound is small:
   which is nothing on human timescales.
 
 Coordination between the processes happens implicitly through Postgres. Reset is a
-per-board action now — it clears that board's own researcher data (notes, picks, acks)
-and leaves the shared mirror alone — so it needs no daemon handshake.
+per-board action now - it clears that board's own researcher data (notes, picks, acks)
+and leaves the shared mirror alone - so it needs no daemon handshake.
 
 ## Scaling And Evolution
 
@@ -104,7 +104,7 @@ and leaves the shared mirror alone — so it needs no daemon handshake.
 be on this list). This is comfortable from tens of students up through a program's
 worth of boards, each isolated. The first thing that actually
 gives at larger scale is the daemon's sequential per-student inference, plus the
-per-tick full-table trigger sweep. It's not memory; the worker buffers are bounded.
+per-tick full-table trigger sweep. It's not memory. The worker buffers are bounded.
 The rough order you'd reach for things as you grow:
 
 1.  **Push-based ingestion.** Have prod publish events (a webhook, Redis Streams,

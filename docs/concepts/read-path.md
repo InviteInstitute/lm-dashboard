@@ -42,7 +42,7 @@ flowchart LR
 ```
 
 The server watches a cheap per-channel change signal and emits a `changed` event
-naming just the channels that moved (`states`, `triggers`, `switches`, `roster`); the
+naming just the channels that moved (`states`, `triggers`, `switches`, `roster`). The
 dashboard refetches only those. So an idle board sits on one quiet connection instead
 of firing ~160 requests a minute, and a change lands on screen in about a quarter
 second instead of up to a poll interval. When you open a student's detail modal it
@@ -83,7 +83,7 @@ Every student in `/api/student_states/` carries their full derived state:
 
 | Field | Meaning |
 |---|---|
-| `display` | the student's handle in its most-recent casing (identity is folded case-insensitively; the raw casing is kept for the UI) |
+| `display` | the student's handle in its most-recent casing (identity is folded case-insensitively, the raw casing is kept for the UI) |
 | `run_count` / `event_count` | activity counters |
 | `last_seen` | timestamp of the most recent event |
 | `runs` | `{runs: [{index, edit_distance, ts}], run_count}`, the per-run edit distances that drive the run track (and every trigger) |
@@ -91,7 +91,7 @@ Every student in `/api/student_states/` carries their full derived state:
 | `updated_at` | when this row was last materialized |
 | `block` | the current "playground" LLM prompt, its timestamp, and a `readable` program listing (heavy payload only) |
 
-A student's headline status isn't stored on this row; the dashboard derives it from
+A student's headline status isn't stored on this row. The dashboard derives it from
 the [triggers feed](../reference/api.md#get-apitriggers) it already fetches.
 
 ## Resilient Writes And The Outbox

@@ -7,7 +7,7 @@ description: The Postgres tables, the event-log-as-truth split, tenancy, and the
 Everything lives in **Postgres**. All the SQL is in `app/db.py` (psycopg 3, no ORM),
 which keeps the whole query surface in one place. Postgres MVCC lets the single writer
 (the daemon) and the many readers (the API) run at once without blocking. Query bodies
-still use `?` placeholders, translated to psycopg's `%s` in one place; timestamps are
+still use `?` placeholders, translated to psycopg's `%s` in one place. Timestamps are
 stored as `text` (the fixed-width contract below) and the old SQLite booleans are
 `smallint` 0/1.
 
@@ -31,14 +31,14 @@ flowchart LR
 
 | Group | Tables | Role |
 |---|---|---|
-| Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` — **shared** |
-| Cursor | `ingest_cursor` | how far we've consumed — shared |
-| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable — **shared** (one per student) |
+| Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` - **shared** |
+| Cursor | `ingest_cursor` | how far we've consumed - shared |
+| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable - **shared** (one per student) |
 | Tenancy | `workspace`, `workspace_member`, `researcher` | boards, who can access them, and login accounts (argon2 hashes) |
 | Roster (per board) | `tracked_student` | a board's allowlist + its presence/picked toggles, keyed `(workspace_id, studentID)` |
 | Researcher input (per board) | `note`, `pick_event`, `trigger_ack`, `outbox` | observations, pick/unpick history, per-board alert dismissals, and failed inputs parked verbatim |
 | Control (per board) | `workspace_setting` | each board's flags (polling on/off, the viewer heartbeat) |
-| Change counters | `channel_rev` | the per-channel "what changed?" counters for the live stream — shared |
+| Change counters | `channel_rev` | the per-channel "what changed?" counters for the live stream - shared |
 
 !!! tip
     The read-model tables are just a cache of the event log. Delete them, or hit
@@ -60,13 +60,13 @@ differently:
   Postgres trigger function on every write to a source table (which also fires a
   `NOTIFY`). The live stream reads them as an O(1) "what changed?" check instead of
   scanning the tables (see the [read path](read-path.md#the-dashboard)). It's derived
-  state, so a wipe is harmless; the trigger rebuilds it on the next write.
+  state, so a wipe is harmless. The trigger rebuilds it on the next write.
 
 ### Shared vs. Per-Board
 
 The raw mirror and the derived analysis are a property of the **student**, so they're
 **shared** across every board: a student watched by two researchers is pulled from prod
-and materialized once. What's **per-board** is the researcher-facing overlay — which
+and materialized once. What's **per-board** is the researcher-facing overlay - which
 students that board tracks, its notes and picks, its alert dismissals (`trigger_ack`,
 since the shared `trigger_event` can't hold one board's ack), and its control flags.
 Removing a student from one board only purges the shared mirror once **no** board
@@ -111,7 +111,7 @@ recovery are so simple.
 
 | Reason | Detail |
 |---|---|
-| Concurrent boards | Many researchers on their own boards, all writing (roster, notes, picks) at once — MVCC handles it where SQLite's single-writer lock would contend. |
+| Concurrent boards | Many researchers on their own boards, all writing (roster, notes, picks) at once - MVCC handles it where SQLite's single-writer lock would contend. |
 | Real tenancy | Foreign keys + composite uniques (`(workspace_id, studentID)`) enforce per-board isolation cleanly. |
 | LISTEN/NOTIFY | The change-counter trigger emits a notification the live stream can build on. |
 | One command | It's a container in the same compose stack, so there's still nothing to install by hand. |

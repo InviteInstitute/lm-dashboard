@@ -43,8 +43,8 @@ researcher dashboard. It only ever reads from production: it pulls events over t
 prod REST API and never writes back.
 
 Every design choice bends toward simplicity of operation: one `docker compose up`
-brings up the whole stack — Postgres, the API, and the daemon. It's multi-tenant —
-each researcher works on their own isolated board behind a login — while the daemon
+brings up the whole stack - Postgres, the API, and the daemon. It's multi-tenant -
+each researcher works on their own isolated board behind a login - while the daemon
 serves all the boards from a single shared mirror.
 
 ## 2. Processing Model
@@ -90,7 +90,7 @@ A normal authenticated REST client (token auth, keep-alive session, re-auth on a
 401). Two backoffs doing different jobs:
 
 - **Idle backoff.** 0.5s when active, growing up to `PIPELINE_IDLE_MAX` (5s) when
-  idle; any activity resets it. This is what keeps load off prod.
+  idle. Any activity resets it. This is what keeps load off prod.
 - **Failure backoff.** Exponential up to 30s on errors, logging `UNHEALTHY` after
   five failures in a row. This is just resilience.
 
@@ -127,7 +127,7 @@ of recent events. The key choices:
 ### 4.5 Inference
 No model, no numpy. `compute_run_edit_distances` runs per `runProject`: extract the
 block AST and compute the integer APTED tree-edit-distance against the previous run
-(edge-aware costs, so adding a block scores 1; hashed-pair cache to skip repeats).
+(edge-aware costs, so adding a block scores 1, hashed-pair cache to skip repeats).
 The result is one number per run, `edit_distance`: `0` for an identical re-run, small
 for an incremental edit, large for a structural rewrite. On top of that, every tick
 segments the session into episodes (the vendored, dependency-free `app.episode_engine`)
@@ -147,13 +147,13 @@ The five: **wheel-spin** (6+ consecutive `edit_distance == 0`), **resilience** (
 edit after 4+ zeros), **explorer** (a run with `edit_distance >= 13`), **step-by-step**
 (6 runs of `edit_distance >= 1`), and **inactive** (idle past 240s). Wheel-spin and
 resilience read the same zero-streak from opposite ends, which is why both can fire on
-one streak; `TRIGGER_PRIORITY` only decides the headline badge.
+one streak. `TRIGGER_PRIORITY` only decides the headline badge.
 
 ## 5. Data Model And Storage
 
 Postgres, all the SQL isolated in `app/db.py` (psycopg, no ORM). The raw mirror and the
-derived analysis are **shared** (one per student); the researcher-facing overlay — a
-board's roster, notes, picks, alert dismissals, and control flags — is **per-workspace**
+derived analysis are **shared** (one per student). The researcher-facing overlay - a
+board's roster, notes, picks, alert dismissals, and control flags - is **per-workspace**
 (keyed on `workspace_id`). Each browser maps to its own workspace under the shared
 login.
 
@@ -176,7 +176,7 @@ as JSON text).
 - **API.** FastAPI. Reads the materialized view and shapes it. No ML imports. It
   makes sure the schema exists on load so a fresh clone works no matter which process
   starts first.
-- **Dashboard.** Holds one Server-Sent Events stream (`/api/stream/`); the server
+- **Dashboard.** Holds one Server-Sent Events stream (`/api/stream/`). The server
   watches an O(1) per-channel change counter and pushes which of the four channels
   (states, triggers, switches, roster) moved, and the dashboard refetches only those.
   The old four poll loops remain as an automatic fallback when the stream is down.
@@ -188,7 +188,7 @@ as JSON text).
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
 rows), so the edit-distance and episode work already happened on the write side. It
-still hits Postgres on every request; it's quick because *what* it reads is cheap, not
+still hits Postgres on every request. It's quick because *what* it reads is cheap, not
 because of the in-memory workers (those speed up the daemon, not the dashboard). The
 per-poll cost also doubles as the daemon's viewer heartbeat, and the frontend pauses
 polling whenever its browser tab is hidden.
@@ -211,7 +211,7 @@ polling whenever its browser tab is hidden.
 | Crash mid-drain | re-fetch the overlap on restart, dedupe, nothing lost |
 | Prod down or 5xx | failure backoff, `UNHEALTHY` log, resumes when prod is back |
 | Daemon restart | workers rehydrate from `vex_log`, cursor was persisted |
-| Two daemons by mistake | the cursor races; this is the one thing that breaks, so run exactly one |
+| Two daemons by mistake | the cursor races, this is the one thing that breaks, so run exactly one |
 
 ## 9. Scaling And Evolution
 
@@ -219,7 +219,7 @@ polling whenever its browser tab is hidden.
 used to be on this list). Comfortable from tens of students up through a program's
 worth of researchers on their own boards. The first real wall at larger scale is the
 daemon's sequential per-student inference, plus the per-tick full-table trigger sweep.
-It's not memory; the worker buffers are bounded. The evolution path, in the order you'd
+It's not memory. The worker buffers are bounded. The evolution path, in the order you'd
 actually need it:
 
 1. **Push-based ingestion.** Have prod publish events (a webhook, Redis Streams,

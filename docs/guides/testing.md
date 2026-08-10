@@ -35,12 +35,12 @@ the daemon and dashboard depend on is intact.
 
 The test tools (`pytest`, `pytest-cov`, `ruff`) are the dev extras in `pyproject.toml`, so
 `pip install -e '.[dev]'` (or `make install`) pulls them in. The suite needs a **Postgres
-it can reach** — it connects using `DATABASE_URL` with the database name swapped to
+it can reach** - it connects using `DATABASE_URL` with the database name swapped to
 **`lm_dashboard_test`** (override with `TEST_DATABASE_URL`), and it truncates that database
 between tests, so your real data is never touched.
 
 Point `DATABASE_URL` at a local Postgres (the prod compose DB is internal, so for
-running tests use a Postgres exposed on a host port — e.g. a small `postgres` container
+running tests use a Postgres exposed on a host port - e.g. a small `postgres` container
 on `localhost:5432`), create the test database once, then run from the repo root:
 
 ```bash

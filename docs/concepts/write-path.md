@@ -6,7 +6,7 @@ description: How the single-writer daemon ingests events, computes per-run edit 
 
 The daemon (`python -m app.pipeline`) is the only thing in the system that writes.
 It's one blocking loop, and every pass through it runs the whole pipeline start to
-finish — serving **every board at once** from one shared mirror.
+finish - serving **every board at once** from one shared mirror.
 
 ## Tick Order
 
@@ -75,13 +75,13 @@ processing, with nothing lost.
 ## Roster Allowlist And Fan-Out
 
 The daemon only ingests and computes students that appear on some board's
-`tracked_student` roster — it takes the **union** across all boards, so a student
+`tracked_student` roster - it takes the **union** across all boards, so a student
 watched by two researchers is polled and materialized exactly once. It polls prod only
 for students on a **live** board (polling on + a fresh viewer under the dead-man's
 switch), so a paused or unwatched board's exclusive students don't cost any prod calls,
 while a shared student stays live as long as *any* watching board is. Adding a student
 kicks off a one-time backfill of their recent history (separate from the cursor) so
-their card fills in within a tick or two; the backfill runs once per student and marks
+their card fills in within a tick or two. The backfill runs once per student and marks
 every board's roster row for them.
 
 ## Per-Student Workers
@@ -138,7 +138,7 @@ all of this surfaces.
     minutes of skew). So "last
     event to arrive" is not "last to happen," and a delayed upload used to be able to
     overwrite newer code with an older snapshot. The worker now accepts a `project`
-    snapshot only when its `event_time` is not older than the one it holds; a missing
+    snapshot only when its `event_time` is not older than the one it holds. A missing
     timestamp still accepts, since a clock that isn't there can't be compared.
     Rehydrate already sorts by event time, so live ingest and the restart path agree.
 
@@ -146,7 +146,7 @@ all of this surfaces.
     Each write to `student_state`, `trigger_event`, `switch_event`, or
     `tracked_student` also bumps that channel's row in `channel_rev`, via a Postgres
     trigger function in the schema (which also fires a `NOTIFY`). The daemon doesn't
-    know or care; the trigger fires inside its own transaction. That counter is what
+    know or care. The trigger fires inside its own transaction. That counter is what
     lets the live stream answer "what changed?" in O(1) (see the
     [read path](read-path.md#the-dashboard)).
 
@@ -169,10 +169,10 @@ The five rules:
 
 | Trigger | Type | Fires when |
 |---|---|---|
-| **Wheel-spinning** | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) consecutive `edit_distance == 0` runs; silent until a real edit re-arms it |
+| **Wheel-spinning** | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) consecutive `edit_distance == 0` runs, silent until a real edit re-arms it |
 | **Resilience** | momentary | a real edit (`edit_distance > 0`) right after `RESILIENCE_ZERO_RUNS` (4) or more zeros |
 | **Explorer** | momentary | a single run with `edit_distance >= EXPLORER_EDIT_DISTANCE` (13) |
-| **Step-by-Step** | momentary | the count of runs with `edit_distance >= 1` reaches the iterative threshold (per playground, default 6); resets on a zero-edit run |
+| **Step-by-Step** | momentary | the count of runs with `edit_distance >= 1` reaches the iterative threshold (per playground, default 6), resets on a zero-edit run |
 | **Inactive** | sustained | no event for at least `INACTIVE_TRIGGER_SECONDS` (240s / 4 min) |
 
 !!! note "Analyzed per playground"
@@ -185,13 +185,13 @@ The five rules:
     one) starts every counter fresh. Step-by-Step also picks its threshold per stretch
     from `ITERATIVE_THRESHOLDS` (`CastleCrasherPlus` 6, `CoralReefRescue` 5,
     `RoverRescue` 3), falling back to `ITERATIVE_DEFAULT_THRESHOLD` (6) for any
-    unlisted playground. `detect_run_triggers` stays a pure single-stretch function;
+    unlisted playground. `detect_run_triggers` stays a pure single-stretch function.
     the segmentation wraps it in `detect_run_triggers_by_playground`.
 
 !!! note "Wheel-spin and resilience are two sides of one streak"
     On the sequence `[0 0 0 0 0 0 1]`, wheel-spin fires on the sixth zero (the student
     is stuck re-running identical code) and resilience fires on the `1` (they finally
-    made a real edit). Both are logged; `TRIGGER_PRIORITY` only decides which one wins
+    made a real edit). Both are logged. `TRIGGER_PRIORITY` only decides which one wins
     the card's headline badge (`wheel_spin` outranks `resilience`).
 
 ### Re-Alert On A Persistent Inactive

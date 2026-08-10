@@ -30,7 +30,7 @@ off when things go quiet), drops the raw logs into **Postgres**, and keeps each
 tracked student's derived state, per-run edit distances, episodes, and flags, up to
 date in a **materialized table**. A small **read API** serves that table to a
 **React dashboard** over a live stream, so changes land on screen in about a quarter
-second. Only the daemon writes; the dashboard recomputes nothing, it just reads
+second. Only the daemon writes. The dashboard recomputes nothing, it just reads
 what's already there. And nothing ever flows back to production. It's a read-only
 mirror, full stop.
 

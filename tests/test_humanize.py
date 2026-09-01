@@ -3,8 +3,9 @@ the edit-distance AST drops, nested reporters, and if/else branch labels."""
 
 import json
 
+from log_parser_delta_engine import generate_readable_lines, generate_readable_text
+
 from app import db
-from app.runs.humanize import humanize_text, humanize_workspace
 
 
 def _wrap(inner):
@@ -16,7 +17,7 @@ def _num(slot, n):
 
 
 def test_simple_block_is_just_its_name():
-    assert humanize_workspace(_wrap('<block type="pg_drivetrain_stop_driving"/>')) == [
+    assert generate_readable_lines(_wrap('<block type="pg_drivetrain_stop_driving"/>')) == [
         "stop driving"
     ]
 
@@ -27,13 +28,15 @@ def test_keeps_the_value_number_and_hides_mutator_noise():
         '<field name="DIRECTION">fwd</field><field name="UNITS">mm</field>'
         '<field name="anddontwait_mutator">false</field>' + _num("AMOUNT", 200) + "</block>"
     )
-    line = humanize_workspace(xml)[0]
+    line = generate_readable_lines(xml)[0]
     assert "drive for" in line and "forward" in line and "200" in line
     assert "mutator" not in line  # Blockly plumbing hidden
 
 
 def test_unknown_block_falls_back_to_raw_type():
-    assert humanize_workspace(_wrap('<block type="pg_brand_new_2099"/>')) == ["pg_brand_new_2099"]
+    assert generate_readable_lines(_wrap('<block type="pg_brand_new_2099"/>')) == [
+        "pg_brand_new_2099"
+    ]
 
 
 def test_if_else_labels_the_else_branch():
@@ -46,7 +49,7 @@ def test_if_else_labels_the_else_branch():
         '<statement name="SUBSTACK"><block type="pg_drivetrain_drive"><field name="DIRECTION">fwd</field></block></statement>'
         '<statement name="SUBSTACK2"><block type="pg_drivetrain_stop_driving"/></statement></block>'
     )
-    lines = humanize_workspace(xml)
+    lines = generate_readable_lines(xml)
     assert any("object distance" in l and "< 200" in l for l in lines)  # condition rendered
     assert "else:" in [l.strip() for l in lines]  # branch labeled
     assert "  drive forward" in lines and "  stop driving" in lines  # both bodies indented
@@ -68,7 +71,7 @@ def test_nested_reporters_recurse_to_any_depth():
         f'<block type="pg_control_if_then"><value name="CONDITION">{cond}</value>'
         '<statement name="SUBSTACK"><block type="pg_drivetrain_stop_driving"/></statement></block>'
     )
-    top = humanize_workspace(xml)[0]
+    top = generate_readable_lines(xml)[0]
     assert "not (" in top and "and" in top and "< 200" in top  # full depth rendered
 
 
@@ -82,14 +85,14 @@ def test_range_operator_keeps_all_three_numbers():
         + "</block></value>"
         '<statement name="SUBSTACK"><block type="pg_drivetrain_stop_driving"/></statement></block>'
     )
-    top = humanize_workspace(xml)[0]
+    top = generate_readable_lines(xml)[0]
     assert "0" in top and "50" in top and "90" in top  # none dropped
 
 
 def test_bad_input_never_raises():
-    assert humanize_workspace("") == []
-    assert humanize_workspace("<xml><not closed") == []
-    assert humanize_text(None) == ""
+    assert generate_readable_lines("") == []
+    assert generate_readable_lines("<xml><not closed") == []
+    assert generate_readable_text(None) == ""
 
 
 def test_detail_endpoint_exposes_readable_program(client, seed_state):

@@ -1,7 +1,7 @@
 """The single-pass run-trigger scanner: wheel_spin / resilience / explorer / iterative
 from an integer edit_distance sequence. The first element is None (first run)."""
 
-from app.pipeline.triggers import detect_run_triggers
+from learner_models import detect_run_triggers
 
 
 def _types(seq, **kw):

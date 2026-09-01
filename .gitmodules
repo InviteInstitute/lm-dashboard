@@ -1,0 +1,3 @@
+[submodule "vendor/agent-lm-packages"]
+	path = vendor/agent-lm-packages
+	url = https://github.com/InviteInstitute/agent-lm-packages

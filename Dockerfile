@@ -19,8 +19,11 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 COPY pyproject.toml requirements.txt ./
 COPY app/ ./app/
 COPY scripts/ ./scripts/
-# editable install; pyproject.toml is the single source of truth for deps.
-RUN pip install -e .
+COPY vendor/ ./vendor/
+# The trigger/learner-model engine is the agent-lm-packages submodule under vendor/.
+# Install it editable first so app can import learner_models / log_parser_delta_engine.
+# pyproject.toml is the single source of truth for the rest of the deps.
+RUN pip install -e ./vendor/agent-lm-packages && pip install -e .
 COPY --from=web /web/dist ./frontend/dist
 EXPOSE 8000
 # Default is the API; the daemon service overrides this command in compose.

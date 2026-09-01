@@ -1,4 +1,4 @@
-from app.pipeline.triggers import detect_run_triggers_by_playground
+from learner_models import detect_run_triggers_by_playground
 
 
 def _runs(*specs):

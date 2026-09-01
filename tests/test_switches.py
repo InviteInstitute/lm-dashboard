@@ -1,4 +1,4 @@
-from app.pipeline.switches import detect_switches
+from learner_models import detect_switches
 
 
 def test_first_event_is_never_a_switch():

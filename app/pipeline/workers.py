@@ -17,13 +17,19 @@ import logging
 from collections import deque
 from datetime import UTC, datetime
 
+from learner_models import (
+    clear_cache as clear_score_cache,
+)
+from learner_models import (
+    compute_run_edit_distances,
+    detect_run_triggers_by_playground,
+    detect_switches,
+    segment_session,
+)
+from log_parser_delta_engine import generate_compact_prompt_from_project
+
 from app import db
-from app.episode_engine import segment_session
-from app.pipeline.switches import detect_switches
-from app.pipeline.triggers import _disabled_types, detect_run_triggers_by_playground
-from app.runs.apted_similarity import clear_cache as clear_score_cache
-from app.runs.run_sequence import compute_run_edit_distances
-from app.smart_delta_engine import generate_llm_prompt_from_project
+from app.pipeline.triggers import _disabled_types
 
 logger = logging.getLogger("pipeline")
 
@@ -150,7 +156,7 @@ class StudentWorker:
         prompt = None
         if self.latest_project:
             try:
-                prompt = generate_llm_prompt_from_project(self.latest_project)
+                prompt = generate_compact_prompt_from_project(self.latest_project)
             except Exception:
                 prompt = None
 

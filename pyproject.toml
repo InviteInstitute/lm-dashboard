@@ -17,7 +17,9 @@ dependencies = [
     "argon2-cffi==25.1.0",         # per-account password hashing (app/auth, scripts/create_researcher)
     "requests==2.34.2",            # ingestion daemon
     "python-dotenv==1.2.2",
-    "apted==1.0.3",                # per-run code-diff signal: APTED tree-edit distance (daemon)
+    # The trigger + learner-model engine (and its apted dependency) come from the
+    # agent-lm-packages submodule, installed editable from vendor/ (see the
+    # Dockerfile, requirements.txt, and CI).
 ]
 
 [project.optional-dependencies]

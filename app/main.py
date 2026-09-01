@@ -17,6 +17,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
+from learner_models import extract_workspace_xml
+from log_parser_delta_engine import generate_readable_text
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -25,8 +27,6 @@ from app.constants import (
     TRIGGER_LABELS,
     TRIGGER_RECENT_SECONDS,
 )
-from app.runs.ast_builder import extract_workspace_xml
-from app.runs.humanize import humanize_text
 from app.turnstile import COOKIE_NAME, TurnstileGateMiddleware, sign_cookie, verify_turnstile
 
 app = FastAPI(title="LM Dashboard")
@@ -255,7 +255,7 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
     # Best-effort and isolated -- a parse miss just yields "".
     proj = db.latest_project(student_id)
     payload["block"]["readable"] = (
-        humanize_text(extract_workspace_xml({"project": proj})) if proj else ""
+        generate_readable_text(extract_workspace_xml({"project": proj})) if proj else ""
     )
     return payload
 

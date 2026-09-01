@@ -1,8 +1,9 @@
 """Episode segmentation: CODE/RUN/RESET carving, soft-event absorption, and the
 two pause detectors."""
 
+from learner_models import segment_session
+
 from app.constants import PAUSE_THRESHOLD_S, SHORT_PAUSE_MIN_S
-from app.episode_engine import segment_session
 
 
 def _e(et, ts):

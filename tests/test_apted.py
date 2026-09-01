@@ -1,8 +1,8 @@
 """APTED similarity: node labels, AST->tree conversion, the integer edit_distance,
 and the distance cache."""
 
-from app.runs import apted_similarity as A
-from app.runs.ast_builder import xml_to_block_ast
+from learner_models import distance as A
+from learner_models import xml_to_block_ast
 
 
 def test_make_node_label_variants():
@@ -77,7 +77,7 @@ def test_cached_edit_distance_short_circuits_and_memoizes():
 
 
 def test_rename_cost_field_vs_type_change():
-    cfg = A.BlocklyConfig()
+    cfg = A.VexConfig()
     same = A.AptedNode("motor|PORT=A", node_type="motor")
     same2 = A.AptedNode("motor|PORT=A", node_type="motor")
     field_diff = A.AptedNode("motor|PORT=B", node_type="motor")

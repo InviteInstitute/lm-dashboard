@@ -1,4 +1,4 @@
-from app.runs.run_sequence import compute_run_edit_distances
+from learner_models import compute_run_edit_distances
 
 XA = '<xml><block type="events_whenStarted" id="a"></block></xml>'
 XB = (

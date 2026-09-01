@@ -1,19 +1,13 @@
 """
-The intervention rules that feed the dashboard's "who needs help" column, all
-defined on each run's integer edit_distance.
+The sustained inactive trigger that feeds the dashboard's "who needs help" column.
 
-  wheel_spin : >= WHEEL_SPIN_ZERO_RUNS consecutive zero-edit runs (re-running the
-               same code); silent until a real edit re-arms it.
-  resilience : a real edit right after >= RESILIENCE_ZERO_RUNS zeros (recovered).
-  explorer   : a single run with edit_distance >= EXPLORER_EDIT_DISTANCE.
-  iterative  : ITERATIVE_DEFAULT_THRESHOLD runs with edit_distance >= 1 (steady edits).
-  inactive   : no event for at least INACTIVE_TRIGGER_SECONDS.
+  inactive : no event for at least INACTIVE_TRIGGER_SECONDS.
 
-The four edit-distance triggers are momentary: they fire from the worker the
-instant a run lands (detect_run_triggers below, called from
-workers.recompute_and_write), deduped per type by run index. Only inactive is
-sustained and evaluated by the per-tick sweep here. Acknowledged rows drop out
-of the feed.
+The four momentary edit-distance triggers (wheel_spin, resilience, explorer,
+iterative) live in the shared learner_models engine and fire from the worker the
+instant a run lands (workers.recompute_and_write), deduped per type by run index.
+Only inactive is sustained and evaluated by the per-tick sweep here (evaluate).
+Acknowledged rows drop out of the feed.
 """
 
 import logging
@@ -23,116 +17,17 @@ from app import db
 
 log = logging.getLogger("pipeline")
 
-# Thresholds + labels live in app/constants.py; aliased here to the names this
-# module (and its tests) already use. RE_ALERT_SECONDS rotates an acked-but-still-
-# holding sustained trigger so a student who never got unstuck resurfaces.
+# Thresholds + labels live in app/constants.py. RE_ALERT_SECONDS rotates an
+# acked-but-still-holding sustained trigger so a student who never got unstuck
+# resurfaces.
 from app.constants import (
-    EXPLORER_EDIT_DISTANCE,
     INACTIVE_TRIGGER_SECONDS,
-    ITERATIVE_DEFAULT_THRESHOLD,
-    ITERATIVE_EDIT_MIN,
-    ITERATIVE_THRESHOLDS,
     RE_ALERT_SECONDS,
-    RESILIENCE_ZERO_RUNS,
     TRIGGER_TOUCH_THROTTLE_S,
-    WHEEL_SPIN_ZERO_RUNS,
 )
 from app.constants import (
     TRIGGER_LABELS as LABELS,
 )
-
-
-def detect_run_triggers(edit_distances, iterative_threshold=ITERATIVE_DEFAULT_THRESHOLD):
-    """One pure pass over a per-run edit_distance sequence (first element None).
-    Emits (trigger_type, run_index, detail) for each momentary fire. Deterministic,
-    so the worker can re-run it and dedupe by run_index without double-firing.
-
-      wheel_spin : a trailing run of edit_distance == 0 reaches WHEEL_SPIN_ZERO_RUNS;
-                   silent (cooldown) until a non-zero edit re-arms it.
-      resilience : a non-zero edit lands right after >= RESILIENCE_ZERO_RUNS zeros.
-      explorer   : a single run with edit_distance >= EXPLORER_EDIT_DISTANCE.
-      iterative  : the count of runs with edit_distance > ITERATIVE_EDIT_MIN reaches
-                   the threshold; silent until an edit_distance == 0 run resets it.
-    """
-    out = []
-    zero_streak = 0
-    wheel_armed = True
-    iter_count = 0
-    iter_armed = True
-    for i, ed in enumerate(edit_distances):
-        if ed is None:
-            continue
-        if ed > 0 and zero_streak >= RESILIENCE_ZERO_RUNS:
-            out.append(
-                (
-                    "resilience",
-                    i,
-                    {
-                        "label": LABELS["resilience"],
-                        "value": f"recovered after {zero_streak} reruns",
-                    },
-                )
-            )
-        if ed == 0:
-            zero_streak += 1
-            if zero_streak >= WHEEL_SPIN_ZERO_RUNS and wheel_armed:
-                out.append(
-                    (
-                        "wheel_spin",
-                        i,
-                        {"label": LABELS["wheel_spin"], "value": f"{zero_streak} identical reruns"},
-                    )
-                )
-                wheel_armed = False
-        else:
-            zero_streak = 0
-            wheel_armed = True
-        if ed >= EXPLORER_EDIT_DISTANCE:
-            out.append(("explorer", i, {"label": LABELS["explorer"], "value": f"changed {ed}"}))
-        if ed > ITERATIVE_EDIT_MIN:
-            iter_count += 1
-            if iter_count >= iterative_threshold and iter_armed:
-                out.append(
-                    (
-                        "iterative",
-                        i,
-                        {"label": LABELS["iterative"], "value": f"{iter_count} steady edits"},
-                    )
-                )
-                iter_armed = False
-        if ed == 0:
-            iter_count = 0
-            iter_armed = True
-    return out
-
-
-def detect_run_triggers_by_playground(runs):
-    """Split `runs` into contiguous same-playground stretches and run
-    detect_run_triggers on each, using that playground's Step-by-Step threshold
-    (ITERATIVE_THRESHOLDS.get(playground, ITERATIVE_DEFAULT_THRESHOLD)). `runs` is
-    the list from compute_run_edit_distances ({index, edit_distance, ts, playground}).
-    Returns [(trigger_type, global_run_index, detail)].
-
-    Each stretch is its own detect_run_triggers call, so every counter (zero streak,
-    iterative count, re-arm flags) resets at a playground switch, and jumping back to
-    an earlier playground starts fresh. Run indices must stay global via the stretch
-    offset. Read the playground with .get so runs built without the field collapse
-    into one default-threshold stretch instead of raising."""
-    out = []
-    i, n = 0, len(runs)
-    while i < n:
-        pg = runs[i].get("playground")
-        j = i
-        while j < n and runs[j].get("playground") == pg:
-            j += 1
-        edit_distances = [r["edit_distance"] for r in runs[i:j]]
-        threshold = ITERATIVE_THRESHOLDS.get(pg, ITERATIVE_DEFAULT_THRESHOLD)
-        for ttype, local_idx, detail in detect_run_triggers(
-            edit_distances, iterative_threshold=threshold
-        ):
-            out.append((ttype, i + local_idx, detail))
-        i = j
-    return out
 
 
 def _fmt_idle(secs):

@@ -101,7 +101,7 @@ def test_prompt_generation_failure_falls_back_to_none(monkeypatch):
     def boom(_proj):
         raise ValueError("bad workspace")
 
-    monkeypatch.setattr(workers, "generate_llm_prompt_from_project", boom)
+    monkeypatch.setattr(workers, "generate_compact_prompt_from_project", boom)
     w = _worker_with_distances("s1", [None])
     w.latest_project = '{"workspace": "<xml/>"}'
     w.recompute_and_write()
@@ -259,7 +259,7 @@ def test_student_tail_orders_null_event_time_by_received_at_fallback():
 
 
 def test_reset_clears_apted_score_cache():
-    from app.runs import apted_similarity
+    from learner_models import distance as apted_similarity
 
     apted_similarity._distance_cache[("a", "b")] = 9
     workers.reset()

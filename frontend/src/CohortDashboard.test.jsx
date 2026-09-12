@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
 // Mock the shared axios instance so the component talks to canned data, not a
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
@@ -314,14 +314,14 @@ describe("CohortDashboard", () => {
       );
       api.post.mockImplementation(() => new Promise(() => {})); // never resolves
       render(<CohortDashboard />);
-      await vi.advanceTimersByTimeAsync(0); // mount fetch -> "on"
+      await act(() => vi.advanceTimersByTimeAsync(0)); // mount fetch -> "on"
 
       fireEvent.click(screen.getByText(/Pause polling/)); // optimistic -> off
       expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
 
       // advance well past several poll intervals: the other feeds re-poll, but the
       // pause state is NOT on a timer, so nothing can flip it back to "on".
-      await vi.advanceTimersByTimeAsync(5000);
+      await act(() => vi.advanceTimersByTimeAsync(5000));
       expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -523,7 +523,7 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     const input = await screen.findByPlaceholderText(/Track student IDs/);
     fireEvent.change(input, { target: { value: " alice ;bob; ;  carol ; bob " } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form"));
     await waitFor(() => {
       const tracked = api.post.mock.calls
         .filter(([url]) => url === "/api/tracked/")

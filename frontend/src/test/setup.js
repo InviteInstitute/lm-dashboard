@@ -15,3 +15,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+
+// jsdom has no native dialog lifecycle; browser checks cover focus and Escape.
+HTMLDialogElement.prototype.showModal = function () {
+  this.setAttribute("open", "");
+};

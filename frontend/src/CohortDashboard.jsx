@@ -465,12 +465,11 @@ const pre = {
 const S = {
   page: {
     background: T.bg,
-    height: "100vh",
+    minHeight: "100dvh",
     display: "flex",
     flexDirection: "column",
     fontFamily: FONT,
     color: T.ink,
-    overflow: "hidden",
   },
   bar: {
     display: "flex",
@@ -491,7 +490,6 @@ const S = {
     gap: 9,
   },
   input: {
-    marginLeft: "auto",
     background: T.panel,
     border: `1px solid ${T.border}`,
     borderRadius: 999,
@@ -499,12 +497,11 @@ const S = {
     padding: "9px 16px",
     fontSize: 14,
     fontFamily: FONT,
-    outline: "none",
     width: 220,
   },
   export: {
     background: "#22c55e1a",
-    color: "#22c55e",
+    color: "var(--lmd-success)",
     border: "1px solid #22c55e66",
     borderRadius: 999,
     padding: "9px 16px",
@@ -528,7 +525,7 @@ const S = {
   },
   pollPause: {
     background: "#f59e0b1a",
-    color: "#f59e0b",
+    color: "var(--lmd-warning)",
     border: "1px solid #f59e0b66",
     borderRadius: 999,
     padding: "9px 16px",
@@ -540,7 +537,7 @@ const S = {
   },
   pollResume: {
     background: "#22c55e1a",
-    color: "#22c55e",
+    color: "var(--lmd-success)",
     border: "1px solid #22c55e66",
     borderRadius: 999,
     padding: "9px 16px",
@@ -554,11 +551,11 @@ const S = {
   tgPresent: {
     flex: 1,
     background: "#22c55e1a",
-    color: "#22c55e",
+    color: "var(--lmd-success)",
     border: "1px solid #22c55e55",
     borderRadius: 8,
     padding: "5px 6px",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
     fontFamily: FONT,
@@ -566,11 +563,11 @@ const S = {
   tgAbsent: {
     flex: 1,
     background: "#6b72801a",
-    color: "#9ca3af",
+    color: T.sub,
     border: "1px solid #6b728055",
     borderRadius: 8,
     padding: "5px 6px",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
     fontFamily: FONT,
@@ -578,11 +575,11 @@ const S = {
   tgPicked: {
     flex: 1,
     background: "#a855f71f",
-    color: "#c084fc",
+    color: "var(--lmd-purple)",
     border: "1px solid #a855f766",
     borderRadius: 8,
     padding: "5px 6px",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
     fontFamily: FONT,
@@ -594,7 +591,7 @@ const S = {
     border: `1px solid ${T.border}`,
     borderRadius: 8,
     padding: "5px 6px",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
     fontFamily: FONT,
@@ -602,11 +599,11 @@ const S = {
   noteBtn: {
     flex: 1,
     background: "#4f46e51a",
-    color: "#818cf8",
+    color: "var(--lmd-accent)",
     border: "1px solid #4f46e566",
     borderRadius: 8,
     padding: "5px 6px",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
     fontFamily: FONT,
@@ -669,7 +666,7 @@ const S = {
   },
   tgOn: {
     background: "#22c55e1a",
-    color: "#22c55e",
+    color: "var(--lmd-success)",
     border: "1px solid #22c55e66",
     borderRadius: 999,
     padding: "4px 14px",
@@ -680,7 +677,7 @@ const S = {
   },
   tgOff: {
     background: "#6b72801a",
-    color: "#9ca3af",
+    color: T.sub,
     border: "1px solid #6b728055",
     borderRadius: 999,
     padding: "4px 14px",
@@ -701,17 +698,16 @@ const S = {
     padding: "7px 9px",
     fontSize: 12.5,
     fontFamily: FONT,
-    outline: "none",
     boxSizing: "border-box",
   },
   noteSave: {
     alignSelf: "flex-end",
     background: "#4f46e51a",
-    color: "#818cf8",
+    color: "var(--lmd-accent)",
     border: "1px solid #4f46e566",
     borderRadius: 8,
     padding: "5px 12px",
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: 700,
     cursor: "pointer",
     fontFamily: FONT,
@@ -753,10 +749,10 @@ const S = {
   },
 
   main: { display: "flex", flex: 1, minHeight: 0 }, // two-pane shell
-  board: { flex: 1, overflow: "auto", padding: "22px 28px" },
+  board: { flex: 1, minWidth: 0 },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
     gap: 14,
     alignContent: "start",
   },
@@ -765,10 +761,9 @@ const S = {
     background: T.panel,
     border: `1px solid ${T.border}`,
     borderRadius: 12,
-    padding: "13px 15px",
+    padding: "18px",
     cursor: "pointer",
     position: "relative",
-    boxShadow: `inset 4px 0 0 ${accent}`,
     transition: "transform .08s, border-color .12s",
   }),
   boxHead: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 },
@@ -783,17 +778,17 @@ const S = {
   stateBadge: (c) => ({
     marginLeft: "auto",
     background: `${c}1f`,
-    color: c,
+    color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
     border: `1px solid ${c}55`,
     borderRadius: 999,
     padding: "2px 10px",
-    fontSize: 11.5,
+    fontSize: 12,
     fontWeight: 700,
     whiteSpace: "nowrap",
   }),
   miniLbl: {
     fontFamily: HEADFONT,
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: 700,
     letterSpacing: 1,
     color: T.faint,
@@ -809,12 +804,10 @@ const S = {
   },
 
   col: {
-    width: 320,
     flexShrink: 0,
     borderLeft: `1px solid ${T.border}`,
     background: T.panel,
     overflow: "auto",
-    padding: "20px 18px",
   },
   colHead: {
     fontFamily: HEADFONT,
@@ -831,7 +824,7 @@ const S = {
   colCount: (c) => ({
     marginLeft: "auto",
     background: `${c}1f`,
-    color: c,
+    color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
     border: `1px solid ${c}55`,
     borderRadius: 999,
     padding: "1px 9px",
@@ -840,7 +833,6 @@ const S = {
   colItem: (c) => ({
     background: T.bg,
     border: `1px solid ${c}40`,
-    borderLeft: `3px solid ${c}`,
     borderRadius: 10,
     padding: "11px 13px",
     marginBottom: 10,
@@ -850,7 +842,7 @@ const S = {
   colSid: { fontFamily: MONO, fontWeight: 700, fontSize: 14 },
   colSub: (c) => ({
     fontSize: 12,
-    color: c,
+    color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
     marginTop: 4,
     display: "flex",
     alignItems: "center",
@@ -939,16 +931,6 @@ const S = {
   },
 
   empty: { color: T.sub, fontSize: 14, textAlign: "center", marginTop: 60 },
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(3,5,9,0.72)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 20,
-    padding: 24,
-  },
   modal: {
     background: T.bg,
     border: `1px solid ${T.border}`,
@@ -991,7 +973,9 @@ const NotesPanel = ({ notes, onAdd }) => {
         <div key={n.id} style={S.notesItem}>
           <div style={S.notesMeta}>
             <span>{n.ts}</span>
-            {n.trigger_type && <span style={{ color: "#818cf8" }}>· during {n.trigger_type}</span>}
+            {n.trigger_type && (
+              <span style={{ color: "var(--lmd-accent)" }}>· during {n.trigger_type}</span>
+            )}
           </div>
           <div style={{ fontSize: 13, color: T.ink, whiteSpace: "pre-wrap" }}>{n.text}</div>
         </div>
@@ -1015,6 +999,7 @@ const NotesPanel = ({ notes, onAdd }) => {
 // action. Each data source has its own fetch callback on the shared POLL_MS
 // timer so the views stay current without a single giant request.
 const CohortDashboard = () => {
+  const detailDialog = React.useRef(null);
   const [states, setStates] = React.useState({}); // studentID -> light payload (grid)
   const [detailFull, setDetailFull] = React.useState(null); // heavy payload for the open student
   const [roster, setRoster] = React.useState([]);
@@ -1027,6 +1012,15 @@ const CohortDashboard = () => {
   const [notes, setNotes] = React.useState([]); // notes for `selected`
   const [noteOpen, setNoteOpen] = React.useState(null); // trigger id with an open editor
   const [noteText, setNoteText] = React.useState("");
+  React.useEffect(() => {
+    if (selected && detailDialog.current && !detailDialog.current.open) {
+      const opener = document.activeElement;
+      detailDialog.current.showModal();
+      return () => {
+        if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+      };
+    }
+  }, [selected]);
   const [triggerCfg, setTriggerCfg] = React.useState({
     wheel_spin: true,
     resilience: true,
@@ -1532,9 +1526,9 @@ const CohortDashboard = () => {
   const detail = detailFull; // heavy payload fetched per-open student
 
   return (
-    <div style={S.page}>
-      <div style={S.bar}>
-        <span style={S.title}>
+    <div className="dashboard" style={S.page}>
+      <header className="dashboard-header" style={S.bar}>
+        <h1 style={{ ...S.title, margin: 0 }}>
           <span
             style={{
               width: 8,
@@ -1546,58 +1540,74 @@ const CohortDashboard = () => {
           />
           Learner Modeling Dashboard
           {!pollingOn && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>· Daemon Paused</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--lmd-warning)" }}>
+              · Daemon Paused
+            </span>
           )}
-        </span>
-        <input
-          style={S.input}
-          placeholder="Track student IDs"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addTracked();
+        </h1>
+        <form
+          className="track-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addTracked();
           }}
-        />
-        <button
-          style={pollingOn ? S.pollPause : S.pollResume}
-          onClick={togglePolling}
-          title={
-            pollingOn
-              ? "Pause the daemon: stop ALL polling of the production server. The board keeps showing the last data. No new events are fetched until you resume. Use this between sessions to stop loading prod."
-              : "Polling is paused. The daemon is making no requests to production. Click to resume fetching new events."
-          }
         >
-          {pollingOn ? "⏸ Pause polling" : "▶ Resume polling"}
-        </button>
-        <button
-          style={S.reset}
-          onClick={resetAll}
-          title="Wipe all student data with NO backup. Export first if you want a copy."
-        >
-          ↺ Reset
-        </button>
-        <button
-          style={S.export}
-          onClick={exportData}
-          title="Download a zip of CSV snapshots of all data"
-        >
-          ⬇ Export
-        </button>
-        <button
-          style={S.triggersBtn}
-          onClick={() => setTriggerPanel((p) => !p)}
-          title="Turn trigger types on or off"
-        >
-          ⚙ Triggers
-        </button>
-        <button
-          style={S.themeToggle}
-          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-        >
-          {theme === "dark" ? "☀" : "☾"}
-        </button>
-      </div>
+          <input
+            aria-label="Track student IDs"
+            style={S.input}
+            placeholder="Track student IDs"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button className="track-submit" type="submit" disabled={!query.trim()}>
+            Track
+          </button>
+        </form>
+        <div className="dashboard-actions">
+          <button
+            style={pollingOn ? S.pollPause : S.pollResume}
+            onClick={togglePolling}
+            title={
+              pollingOn
+                ? "Pause the daemon: stop ALL polling of the production server. The board keeps showing the last data. No new events are fetched until you resume. Use this between sessions to stop loading prod."
+                : "Polling is paused. The daemon is making no requests to production. Click to resume fetching new events."
+            }
+          >
+            {pollingOn ? "⏸ Pause polling" : "▶ Resume polling"}
+          </button>
+          <button
+            className="secondary-action reset-action"
+            style={S.reset}
+            onClick={resetAll}
+            title="Wipe all student data with NO backup. Export first if you want a copy."
+          >
+            ↺ Reset
+          </button>
+          <button
+            className="secondary-action"
+            style={S.export}
+            onClick={exportData}
+            title="Download a zip of CSV snapshots of all data"
+          >
+            ⬇ Export
+          </button>
+          <button
+            aria-expanded={triggerPanel}
+            style={S.triggersBtn}
+            onClick={() => setTriggerPanel((p) => !p)}
+            title="Turn trigger types on or off"
+          >
+            ⚙ Triggers
+          </button>
+          <button
+            style={S.themeToggle}
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+        </div>
+      </header>
 
       {triggerPanel && (
         <div style={S.popOverlay} onClick={() => setTriggerPanel(false)}>
@@ -1618,7 +1628,7 @@ const CohortDashboard = () => {
         </div>
       )}
 
-      <div style={S.rosterBar}>
+      <div className="roster-bar" style={S.rosterBar}>
         <span style={{ fontSize: 12, color: T.sub, fontWeight: 700 }}>
           Tracking {roster.length}:
         </span>
@@ -1640,7 +1650,9 @@ const CohortDashboard = () => {
                 background: r.has_data ? "#22c55e" : "#f59e0b",
               }}
             />
-            {r.display || r.studentID}
+            <button className="student-open" onClick={() => setSelected(r.studentID)}>
+              {r.display || r.studentID}
+            </button>
             <button
               style={S.rx}
               title="Stop tracking"
@@ -1655,11 +1667,30 @@ const CohortDashboard = () => {
         ))}
       </div>
 
-      <div style={S.main}>
+      <main className="dashboard-main" style={S.main}>
         {/* left: a box per tracked student */}
-        <div style={S.board}>
+        <section className="student-board" aria-label="Students" style={S.board}>
+          <div className="board-heading">
+            <h2>Students</h2>
+            <a className="feed-jump" href="#interventions">
+              View alerts ({alerts.length})
+            </a>
+            <span>
+              {boxes.filter((b) => b.present).length} present ·{" "}
+              {boxes.filter((b) => b.picked).length} picked
+            </span>
+          </div>
           {boxes.length === 0 ? (
-            <div style={S.empty}>No students added yet. Enter student IDs up top to start.</div>
+            <div className="board-empty" style={S.empty}>
+              <h3>Start with your first student</h3>
+              <p>No students added yet. Enter student IDs up top to start.</p>
+              <button
+                className="empty-action"
+                onClick={() => document.querySelector(".track-form input").focus()}
+              >
+                Track a student
+              </button>
+            </div>
           ) : (
             <div style={S.grid}>
               {boxes.map((b) => {
@@ -1668,21 +1699,19 @@ const CohortDashboard = () => {
                 return (
                   <div
                     key={b.studentID}
+                    className="student-card"
                     style={{ ...S.box(accent), opacity: b.present ? 1 : 0.5 }}
                     onClick={() => setSelected(b.studentID)}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.borderColor = accent + "66";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = "none";
-                      e.currentTarget.style.borderColor = T.border;
-                    }}
                   >
                     <div style={S.boxHead}>
-                      <span style={S.sid} title={b.display}>
+                      <button
+                        className="student-open"
+                        style={S.sid}
+                        title={b.display}
+                        onClick={() => setSelected(b.studentID)}
+                      >
                         {b.display}
-                      </span>
+                      </button>
                       <span style={S.stateBadge(accent)}>{sm.label}</span>
                     </div>
                     {b.st ? (
@@ -1705,6 +1734,7 @@ const CohortDashboard = () => {
                     )}
                     <div style={S.toggleRow}>
                       <button
+                        aria-pressed={b.present}
                         style={b.present ? S.tgPresent : S.tgAbsent}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1717,6 +1747,7 @@ const CohortDashboard = () => {
                         {b.present ? "● Present" : "○ Absent"}
                       </button>
                       <button
+                        aria-pressed={b.picked}
                         style={b.picked ? S.tgPicked : S.tgUnpicked}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1736,10 +1767,15 @@ const CohortDashboard = () => {
               })}
             </div>
           )}
-        </div>
+        </section>
 
         {/* right: backend-fired alerts (the five edit-distance / idle triggers) */}
-        <div style={S.col}>
+        <aside
+          id="interventions"
+          className="intervention-feed"
+          aria-label="Needs intervention"
+          style={S.col}
+        >
           <div style={S.colHead}>
             <span style={{ color: headColor }}>{TRIGGERS.wheel_spin.icon}</span> Needs intervention
             <span style={S.colCount(headColor)}>{alerts.length}</span>
@@ -1752,7 +1788,13 @@ const CohortDashboard = () => {
               return (
                 <div key={t.id} style={S.colItem(meta.c)} onClick={() => setSelected(t.studentID)}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={S.colSid}>{displayFor(t.studentID)}</span>
+                    <button
+                      className="student-open"
+                      style={S.colSid}
+                      onClick={() => setSelected(t.studentID)}
+                    >
+                      {displayFor(t.studentID)}
+                    </button>
                     {(() => {
                       const picked = !!(roster.find((r) => r.studentID === t.studentID) || {})
                         .picked;
@@ -1848,7 +1890,13 @@ const CohortDashboard = () => {
                   onClick={() => setSelected(s.studentID)}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={S.colSid}>{displayFor(s.studentID)}</span>
+                    <button
+                      className="student-open"
+                      style={S.colSid}
+                      onClick={() => setSelected(s.studentID)}
+                    >
+                      {displayFor(s.studentID)}
+                    </button>
                     <button
                       style={S.ackBtn}
                       title="Dismiss switch"
@@ -1870,8 +1918,8 @@ const CohortDashboard = () => {
               ))}
             </>
           )}
-        </div>
-      </div>
+        </aside>
+      </main>
 
       {toasts.length > 0 && (
         <div style={S.toastWrap}>
@@ -1923,9 +1971,22 @@ const CohortDashboard = () => {
       )}
 
       {selected && (
-        <div style={S.overlay} onClick={() => setSelected(null)}>
-          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
-            <button style={S.modalX} onClick={() => setSelected(null)}>
+        <dialog
+          ref={detailDialog}
+          className="student-dialog"
+          aria-label={`Student details: ${selected}`}
+          onCancel={() => setSelected(null)}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelected(null);
+          }}
+        >
+          <div className="student-detail" style={S.modal}>
+            <button
+              aria-label="Close student details"
+              autoFocus
+              style={S.modalX}
+              onClick={() => setSelected(null)}
+            >
               ×
             </button>
             <Detail
@@ -1936,7 +1997,7 @@ const CohortDashboard = () => {
             />
             <NotesPanel notes={notes} onAdd={(text) => addNote(selected, text, null)} />
           </div>
-        </div>
+        </dialog>
       )}
     </div>
   );

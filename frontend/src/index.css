@@ -57,3 +57,292 @@ code {
     transform: translateY(0) scale(1);
   }
 }
+
+/* Semantic text colors stay separate from timeline fills. */
+:root {
+  color-scheme: light;
+  --lmd-faint: #627380;
+  --lmd-success: #187544;
+  --lmd-warning: #916000;
+  --lmd-purple: #8040b5;
+  --lmd-accent: #354bb5;
+  --lmd-signal-22c55e: #187544;
+  --lmd-signal-ef4444: #c12d35;
+  --lmd-signal-f59e0b: #916000;
+  --lmd-signal-a855f7: #8040b5;
+  --lmd-signal-3b82f6: #2463b9;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --lmd-sub: #a5afbd;
+  --lmd-faint: #98a4b4;
+  --lmd-success: #65d895;
+  --lmd-warning: #f6bf58;
+  --lmd-purple: #cf9bf6;
+  --lmd-accent: #a5b4fc;
+  --lmd-signal-22c55e: #65d895;
+  --lmd-signal-ef4444: #ff858b;
+  --lmd-signal-f59e0b: #f6bf58;
+  --lmd-signal-a855f7: #cf9bf6;
+  --lmd-signal-3b82f6: #80b5ff;
+}
+.dashboard *,
+.student-dialog,
+.student-dialog * {
+  box-sizing: border-box;
+}
+.dashboard {
+  height: 100dvh;
+}
+.dashboard button,
+.student-dialog button {
+  min-height: 36px;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+.dashboard button:hover,
+.student-dialog button:hover {
+  filter: brightness(0.92);
+}
+.dashboard button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.dashboard :focus-visible,
+.student-dialog :focus-visible {
+  outline: 2px solid var(--lmd-accent);
+  outline-offset: 3px;
+}
+input,
+textarea {
+  caret-color: var(--lmd-accent);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--lmd-faint);
+  opacity: 1;
+}
+::selection {
+  background: var(--lmd-accent);
+  color: var(--lmd-panel);
+}
+.dashboard-header {
+  background: var(--lmd-panel);
+}
+.dashboard-header h1 {
+  flex: 1 1 340px;
+}
+.track-form {
+  display: flex;
+  gap: 8px;
+}
+.track-form input {
+  min-width: 0;
+  border-radius: 8px !important;
+}
+.track-submit,
+.empty-action {
+  border: 1px solid var(--lmd-ink);
+  border-radius: 8px;
+  background: var(--lmd-ink);
+  color: var(--lmd-panel);
+  padding: 9px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dashboard-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dashboard-actions button {
+  border-radius: 8px !important;
+}
+.dashboard-actions .secondary-action {
+  color: var(--lmd-sub) !important;
+  background: var(--lmd-panel) !important;
+  border-color: var(--lmd-border) !important;
+}
+.dashboard-actions .reset-action:hover {
+  color: var(--lmd-signal-ef4444) !important;
+}
+.roster-bar {
+  max-height: 145px;
+  overflow-y: auto;
+}
+.student-board {
+  padding: 24px 28px;
+  overflow: auto;
+}
+.board-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.board-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+}
+.board-heading > span {
+  color: var(--lmd-sub);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.student-card:hover {
+  border-color: var(--lmd-sub) !important;
+}
+.student-open {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.student-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.roster-bar .student-open {
+  min-height: 24px;
+}
+.intervention-feed {
+  width: 370px;
+  padding: 27px 22px;
+}
+.intervention-feed .student-open {
+  flex: 1;
+}
+.board-empty {
+  padding: 40px 20px;
+  margin: 24px auto !important;
+  max-width: 480px;
+}
+.board-empty h3 {
+  font-size: 22px;
+  color: var(--lmd-ink);
+  margin: 0 0 12px;
+}
+.board-empty p {
+  font-size: 16px;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+.student-dialog {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--lmd-ink);
+  max-width: calc(100vw - 32px);
+  max-height: 90dvh;
+}
+.student-dialog::backdrop {
+  background: rgb(3 5 9 / 65%);
+}
+.student-detail {
+  max-width: 100%;
+}
+@media (max-width: 1100px) {
+  .dashboard-header h1 {
+    flex-basis: 100%;
+  }
+  .dashboard-actions {
+    margin-left: auto;
+  }
+  .intervention-feed {
+    width: 330px;
+    padding: 24px 16px;
+  }
+  .student-board {
+    padding: 24px 20px;
+  }
+}
+@media (max-width: 760px) {
+  .dashboard {
+    height: auto;
+  }
+  .dashboard-header {
+    padding: 20px 16px !important;
+    gap: 16px !important;
+  }
+  .dashboard-header h1 {
+    font-size: 17px !important;
+    letter-spacing: 0 !important;
+  }
+  .track-form {
+    width: 100%;
+  }
+  .track-form input {
+    flex: 1;
+    width: auto !important;
+    font-size: 16px !important;
+  }
+  .dashboard-actions {
+    margin: 0;
+    gap: 8px;
+  }
+  .dashboard-actions button {
+    min-height: 44px;
+  }
+  .roster-bar {
+    padding: 12px 16px !important;
+    max-height: 132px;
+  }
+  .dashboard-main {
+    flex-direction: column;
+  }
+  .student-board {
+    padding: 24px 16px;
+    overflow: visible;
+  }
+  .student-card button {
+    min-height: 44px;
+  }
+  .intervention-feed {
+    width: 100%;
+    padding: 24px 16px;
+    border-left: 0 !important;
+    border-top: 1px solid var(--lmd-border);
+    overflow: visible !important;
+  }
+  .intervention-feed button {
+    min-height: 44px;
+  }
+  .student-detail {
+    padding: 24px 16px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard *,
+  .student-dialog * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.feed-jump {
+  display: none;
+  color: var(--lmd-accent);
+  font-size: 14px;
+  text-underline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .feed-jump {
+    display: inline-block;
+    margin-left: auto;
+    padding: 10px 0;
+  }
+  .board-heading > span {
+    flex-basis: 100%;
+  }
+}

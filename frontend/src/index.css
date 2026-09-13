@@ -127,6 +127,32 @@ textarea::placeholder {
   background: var(--lmd-accent);
   color: var(--lmd-panel);
 }
+/* Themed scrollbars: the board, roster, feed, and modal all scroll, and a
+   default OS scrollbar is the giveaway that no one styled the surface. */
+.dashboard,
+.student-dialog {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lmd-border) transparent;
+}
+.dashboard *::-webkit-scrollbar,
+.student-dialog *::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+.dashboard *::-webkit-scrollbar-track,
+.student-dialog *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dashboard *::-webkit-scrollbar-thumb,
+.student-dialog *::-webkit-scrollbar-thumb {
+  background: var(--lmd-border);
+  border-radius: 7px;
+  border: 3px solid var(--lmd-panel);
+}
+.dashboard *::-webkit-scrollbar-thumb:hover,
+.student-dialog *::-webkit-scrollbar-thumb:hover {
+  background: var(--lmd-faint);
+}
 .dashboard-header {
   background: var(--lmd-panel);
 }

@@ -124,7 +124,7 @@ describe("CohortDashboard", () => {
       new RegExp(`^Run #${total - COMPACT_TAIL + 1} `),
     ); // window start
     // episode track: one event tile per (1-event) episode, also capped at the tail
-    expect(document.querySelectorAll('[title^="CODE · "]')).toHaveLength(COMPACT_TAIL);
+    expect(document.querySelectorAll('[title^="CODE | "]')).toHaveLength(COMPACT_TAIL);
   });
 
   it("renders one block per episode with an events + duration tooltip", async () => {
@@ -164,9 +164,9 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    const blocks = await screen.findAllByTitle(/^CODE · /);
+    const blocks = await screen.findAllByTitle(/^CODE \| /);
     expect(blocks).toHaveLength(1); // one block, not per-event
-    expect(blocks[0].getAttribute("title")).toBe("CODE · 4 events · 45.0s");
+    expect(blocks[0].getAttribute("title")).toBe("CODE | 4 events | 45.0s");
   });
 
   it("surfaces a backend alert in the intervention column", async () => {
@@ -662,7 +662,7 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     expect(await screen.findByText(/Identity switches/)).toBeInTheDocument();
-    expect(await screen.findByText(/new class · FPFVDH → AFURRR/)).toBeInTheDocument();
+    expect(await screen.findByText(/new class \| FPFVDH -> AFURRR/)).toBeInTheDocument();
     fireEvent.click(await screen.findByTitle("Dismiss switch"));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/switches/ack/", { id: 5 }));
   });

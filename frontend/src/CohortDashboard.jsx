@@ -8,6 +8,7 @@
 // already did the work.
 import React from "react";
 import api, { API_URL, boardId } from "./api";
+import { Icon } from "./icons";
 import {
   T,
   FONT,
@@ -39,7 +40,7 @@ export { COMPACT_TAIL } from "./constants";
 const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
 export function relTime(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return `${Math.round(s)}s`;
   if (s < 3600) return `${Math.round(s / 60)}m`;
@@ -47,7 +48,7 @@ export function relTime(iso) {
   return `${Math.round(s / 86400)}d`;
 }
 export function fmtDur(s) {
-  if (s == null) return "—";
+  if (s == null) return "-";
   if (s < 60) return `${s.toFixed(1)}s`;
   if (s < 3600) return `${(s / 60).toFixed(1)}m`;
   return `${(s / 3600).toFixed(1)}h`;
@@ -55,7 +56,7 @@ export function fmtDur(s) {
 // Wall-clock time for "at what time did that fire" readouts (alert prev-line,
 // trigger-history grid). Locale-aware, e.g. "10:24 AM".
 export function clockTime(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 // Save a Blob to the user's computer as `filename`. A browser can't write to
@@ -205,7 +206,7 @@ function runSegments(data, compact) {
       key: `r${i + off}`,
       bg: edColor(d),
       faint: d == null,
-      title: `Run #${i + off + 1} · ${d == null ? "first run" : `edit distance ${d}`}`,
+      title: `Run #${i + off + 1} | ${d == null ? "first run" : `edit distance ${d}`}`,
     };
   });
 }
@@ -226,7 +227,7 @@ function episodeSegments(data, compact) {
     segs.push({
       key: `e${ep.start_idx}`,
       bg: EP[ep.episode_type] || EP.CODE,
-      title: `${ep.episode_type} · ${ep.event_count} events${dur != null ? ` · ${fmtDur(dur)}` : ""}`,
+      title: `${ep.episode_type} | ${ep.event_count} events${dur != null ? ` | ${fmtDur(dur)}` : ""}`,
     });
     const p = pauseAt[ep.end_idx - 1];
     if (p && p.after_idx >= minIdx) {
@@ -234,7 +235,7 @@ function episodeSegments(data, compact) {
         key: `p${ep.end_idx}`,
         pause: true,
         bg: PAUSE_FILL[p.episode_type] || HATCH_AMBER,
-        title: `${p.episode_type} · ${fmtDur(p.duration)}`,
+        title: `${p.episode_type} | ${fmtDur(p.duration)}`,
       });
     }
   });
@@ -259,7 +260,7 @@ const RunTrack = ({ data, compact }) => {
           </span>
           <span>
             <i style={sw(ED_BIG)} />
-            Big change (≥13)
+            Big change (&gt;=13)
           </span>
         </div>
       )}
@@ -351,19 +352,34 @@ const Detail = ({ s, sid, status, history = [] }) => {
         </span>
         <span
           style={{
-            background: `${cur.c}1f`,
-            color: cur.c,
-            border: `1px solid ${cur.c}55`,
-            borderRadius: 999,
-            padding: "3px 12px",
-            fontSize: 12.5,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            background: "var(--lmd-track)",
+            color: `var(--lmd-signal-${cur.c.slice(1)}, ${cur.c})`,
+            border: "1px solid var(--lmd-border)",
+            borderRadius: 6,
+            padding: "4px 11px",
+            fontSize: 11,
             fontWeight: 700,
+            letterSpacing: 0.5,
+            textTransform: "uppercase",
           }}
         >
+          <span
+            style={{ width: 7, height: 7, borderRadius: "50%", background: cur.c, flexShrink: 0 }}
+          />
           {cur.label}
         </span>
-        <span style={{ marginLeft: "auto", color: T.sub, fontSize: 12.5 }}>
-          runs <b style={{ color: T.ink }}>{s.run_count}</b> · events{" "}
+        <span
+          style={{
+            marginLeft: "auto",
+            color: T.sub,
+            fontSize: 12.5,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          runs <b style={{ color: T.ink }}>{s.run_count}</b> | events{" "}
           <b style={{ color: T.ink }}>{s.event_count}</b>
         </span>
       </div>
@@ -383,7 +399,7 @@ const Detail = ({ s, sid, status, history = [] }) => {
       )}
       <div style={{ ...lbl, marginTop: 22 }}>Episode timeline</div>
       <EpisodeTrack data={s.episodes} />
-      <div style={{ ...lbl, marginTop: 22 }}>Runs · edit distance per run</div>
+      <div style={{ ...lbl, marginTop: 22 }}>Runs | edit distance per run</div>
       <RunTrack data={s.runs} />
       <div style={{ ...lbl, marginTop: 22 }}>Trigger history</div>
       {history.length === 0 ? (
@@ -420,10 +436,19 @@ const Detail = ({ s, sid, status, history = [] }) => {
                   <span style={{ color: T.sub }} title={h.started_at}>
                     {clockTime(h.started_at)}
                   </span>
-                  <span style={{ color: m.c, fontWeight: 700 }}>
-                    {m.icon} {h.label}
+                  <span
+                    style={{
+                      color: `var(--lmd-signal-${m.c.slice(1)}, ${m.c})`,
+                      fontWeight: 700,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <Icon name={m.icon} size={14} />
+                    {h.label}
                   </span>
-                  <span style={{ color: T.ink }}>{h.value || "—"}</span>
+                  <span style={{ color: T.ink }}>{h.value || "-"}</span>
                   <span style={{ color: h.status === "active" ? m.c : T.faint }}>{h.status}</span>
                 </React.Fragment>
               );
@@ -492,7 +517,7 @@ const S = {
   input: {
     background: T.panel,
     border: `1px solid ${T.border}`,
-    borderRadius: 999,
+    borderRadius: 8,
     color: T.ink,
     padding: "9px 16px",
     fontSize: 14,
@@ -500,122 +525,101 @@ const S = {
     width: 220,
   },
   export: {
-    background: "#22c55e1a",
-    color: "var(--lmd-success)",
-    border: "1px solid #22c55e66",
-    borderRadius: 999,
-    padding: "9px 16px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    background: "var(--lmd-panel)",
+    color: "var(--lmd-sub)",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    padding: "9px 14px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
     whiteSpace: "nowrap",
   },
   reset: {
-    background: "#ef44441a",
-    color: "#ef4444",
-    border: "1px solid #ef444466",
-    borderRadius: 999,
-    padding: "9px 16px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    background: "var(--lmd-panel)",
+    color: "var(--lmd-sub)",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    padding: "9px 14px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
     whiteSpace: "nowrap",
   },
   pollPause: {
-    background: "#f59e0b1a",
-    color: "var(--lmd-warning)",
-    border: "1px solid #f59e0b66",
-    borderRadius: 999,
-    padding: "9px 16px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    background: "var(--lmd-panel)",
+    color: "var(--lmd-sub)",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    padding: "9px 14px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
     whiteSpace: "nowrap",
   },
   pollResume: {
-    background: "#22c55e1a",
-    color: "var(--lmd-success)",
-    border: "1px solid #22c55e66",
-    borderRadius: 999,
-    padding: "9px 16px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    background: "var(--lmd-panel)",
+    color: "var(--lmd-ink)",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    padding: "9px 14px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
     whiteSpace: "nowrap",
   },
   toggleRow: { display: "flex", gap: 6, marginTop: 10 },
-  tgPresent: {
+  tgBtn: {
     flex: 1,
-    background: "#22c55e1a",
-    color: "var(--lmd-success)",
-    border: "1px solid #22c55e55",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
     borderRadius: 8,
-    padding: "5px 6px",
+    padding: "6px 8px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
-  },
-  tgAbsent: {
-    flex: 1,
-    background: "#6b72801a",
-    color: T.sub,
-    border: "1px solid #6b728055",
-    borderRadius: 8,
-    padding: "5px 6px",
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
-  tgPicked: {
-    flex: 1,
-    background: "#a855f71f",
-    color: "var(--lmd-purple)",
-    border: "1px solid #a855f766",
-    borderRadius: 8,
-    padding: "5px 6px",
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
-  tgUnpicked: {
-    flex: 1,
     background: "transparent",
     color: T.sub,
     border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "5px 6px",
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: FONT,
   },
-  noteBtn: {
-    flex: 1,
-    background: "#4f46e51a",
-    color: "var(--lmd-accent)",
-    border: "1px solid #4f46e566",
-    borderRadius: 8,
-    padding: "5px 6px",
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
+  presDot: (on) => ({
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    flexShrink: 0,
+    background: on ? "currentColor" : "transparent",
+    border: on ? "none" : "1.5px solid currentColor",
+  }),
   triggersBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
     background: T.panel,
     color: T.ink,
     border: `1px solid ${T.border}`,
-    borderRadius: 999,
-    padding: "9px 16px",
+    borderRadius: 8,
+    padding: "9px 14px",
     fontSize: 13,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
     whiteSpace: "nowrap",
@@ -624,7 +628,7 @@ const S = {
     background: T.panel,
     color: T.ink,
     border: `1px solid ${T.border}`,
-    borderRadius: 999,
+    borderRadius: 8,
     width: 38,
     height: 38,
     fontSize: 15,
@@ -665,24 +669,24 @@ const S = {
     color: T.ink,
   },
   tgOn: {
-    background: "#22c55e1a",
+    background: "var(--lmd-track)",
     color: "var(--lmd-success)",
-    border: "1px solid #22c55e66",
-    borderRadius: 999,
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
     padding: "4px 14px",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
   },
   tgOff: {
-    background: "#6b72801a",
-    color: T.sub,
-    border: "1px solid #6b728055",
-    borderRadius: 999,
+    background: "transparent",
+    color: T.faint,
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
     padding: "4px 14px",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
   },
@@ -702,13 +706,13 @@ const S = {
   },
   noteSave: {
     alignSelf: "flex-end",
-    background: "#4f46e51a",
-    color: "var(--lmd-accent)",
-    border: "1px solid #4f46e566",
+    background: "var(--lmd-ink)",
+    color: "var(--lmd-panel)",
+    border: "1px solid var(--lmd-ink)",
     borderRadius: 8,
-    padding: "5px 12px",
-    fontSize: 12,
-    fontWeight: 700,
+    padding: "7px 14px",
+    fontSize: 12.5,
+    fontWeight: 600,
     cursor: "pointer",
     fontFamily: FONT,
   },
@@ -731,7 +735,7 @@ const S = {
     gap: 7,
     background: T.bg,
     border: `1px solid ${T.border}`,
-    borderRadius: 999,
+    borderRadius: 8,
     padding: "5px 6px 5px 11px",
     fontSize: 12.5,
     fontFamily: MONO,
@@ -739,10 +743,12 @@ const S = {
     cursor: "pointer",
   },
   rx: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     border: "none",
     background: "transparent",
     color: T.faint,
-    fontSize: 15,
     cursor: "pointer",
     lineHeight: 1,
     padding: "0 2px",
@@ -777,15 +783,21 @@ const S = {
   },
   stateBadge: (c) => ({
     marginLeft: "auto",
-    background: `${c}1f`,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    background: "var(--lmd-track)",
     color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
-    border: `1px solid ${c}55`,
-    borderRadius: 999,
-    padding: "2px 10px",
-    fontSize: 12,
+    border: "1px solid var(--lmd-border)",
+    borderRadius: 6,
+    padding: "3px 9px",
+    fontSize: 10.5,
     fontWeight: 700,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
     whiteSpace: "nowrap",
   }),
+  stateDot: (c) => ({ width: 6, height: 6, borderRadius: "50%", background: c, flexShrink: 0 }),
   miniLbl: {
     fontFamily: HEADFONT,
     fontSize: 11,
@@ -801,6 +813,7 @@ const S = {
     marginTop: 12,
     fontSize: 12,
     color: T.sub,
+    fontVariantNumeric: "tabular-nums",
   },
 
   col: {
@@ -823,12 +836,14 @@ const S = {
   },
   colCount: (c) => ({
     marginLeft: "auto",
-    background: `${c}1f`,
+    background: "var(--lmd-track)",
     color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
-    border: `1px solid ${c}55`,
-    borderRadius: 999,
-    padding: "1px 9px",
+    border: "1px solid var(--lmd-border)",
+    borderRadius: 6,
+    padding: "1px 8px",
     fontSize: 12,
+    fontWeight: 700,
+    fontVariantNumeric: "tabular-nums",
   }),
   colItem: (c) => ({
     background: T.bg,
@@ -851,12 +866,14 @@ const S = {
   colEmpty: { color: T.sub, fontSize: 13, lineHeight: 1.5 },
   ackBtn: {
     marginLeft: "auto",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     background: "transparent",
     border: `1px solid ${T.border}`,
-    color: T.sub,
-    borderRadius: 999,
-    padding: "2px 9px",
-    fontSize: 11,
+    color: T.faint,
+    borderRadius: 8,
+    padding: "5px",
     cursor: "pointer",
     fontFamily: FONT,
   },
@@ -893,10 +910,9 @@ const S = {
     maxWidth: "92vw",
     background: T.panel,
     border: `1px solid ${T.border}`,
-    borderLeft: "3px solid #eab308",
-    borderRadius: 12,
-    padding: "10px 12px 10px 12px",
-    boxShadow: "0 14px 38px rgba(0,0,0,0.5)",
+    borderRadius: 10,
+    padding: "11px 13px",
+    boxShadow: "0 12px 30px rgba(15, 23, 42, 0.22)",
     animation: "toastIn .3s cubic-bezier(.2,.8,.25,1)",
     pointerEvents: "auto",
   },
@@ -904,14 +920,13 @@ const S = {
     flexShrink: 0,
     width: 30,
     height: 30,
-    borderRadius: 9,
-    background: "#eab30820",
-    color: "#eab308",
+    borderRadius: 8,
+    background: "var(--lmd-track)",
+    border: `1px solid ${T.border}`,
+    color: "var(--lmd-warning)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: 15,
-    fontWeight: 800,
   },
   toastBody: { display: "flex", flexDirection: "column", gap: 2, lineHeight: 1.25 },
   toastTitle: { fontFamily: MONO, fontSize: 13.5, fontWeight: 700, color: T.ink },
@@ -920,11 +935,12 @@ const S = {
   toastClose: {
     flexShrink: 0,
     marginLeft: "auto",
-    paddingLeft: 8,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     border: "none",
     background: "transparent",
     color: T.faint,
-    fontSize: 17,
     lineHeight: 1,
     cursor: "pointer",
     fontFamily: FONT,
@@ -946,10 +962,14 @@ const S = {
     position: "absolute",
     top: 14,
     right: 16,
-    border: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    padding: 6,
     background: "transparent",
     color: T.sub,
-    fontSize: 22,
     cursor: "pointer",
   },
 };
@@ -974,7 +994,7 @@ const NotesPanel = ({ notes, onAdd }) => {
           <div style={S.notesMeta}>
             <span>{n.ts}</span>
             {n.trigger_type && (
-              <span style={{ color: "var(--lmd-accent)" }}>· during {n.trigger_type}</span>
+              <span style={{ color: "var(--lmd-accent)" }}>| during {n.trigger_type}</span>
             )}
           </div>
           <div style={{ fontSize: 13, color: T.ink, whiteSpace: "pre-wrap" }}>{n.text}</div>
@@ -984,7 +1004,7 @@ const NotesPanel = ({ notes, onAdd }) => {
         <textarea
           style={S.noteArea}
           value={draft}
-          placeholder="Add a manual note…"
+          placeholder="Add a manual note..."
           onChange={(e) => setDraft(e.target.value)}
         />
         <button style={S.noteSave} onClick={save}>
@@ -1530,18 +1550,27 @@ const CohortDashboard = () => {
       <header className="dashboard-header" style={S.bar}>
         <h1 style={{ ...S.title, margin: 0 }}>
           <span
+            aria-hidden="true"
             style={{
               width: 8,
               height: 8,
               borderRadius: "50%",
-              background: pollingOn ? "#22c55e" : "#f59e0b",
-              boxShadow: `0 0 0 3px ${pollingOn ? "#22c55e33" : "#f59e0b33"}`,
+              flexShrink: 0,
+              background: pollingOn ? "var(--lmd-success)" : "var(--lmd-warning)",
             }}
           />
           Learner Modeling Dashboard
           {!pollingOn && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--lmd-warning)" }}>
-              · Daemon Paused
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: 0.5,
+                textTransform: "uppercase",
+                color: "var(--lmd-warning)",
+              }}
+            >
+              Daemon paused
             </span>
           )}
         </h1>
@@ -1573,7 +1602,17 @@ const CohortDashboard = () => {
                 : "Polling is paused. The daemon is making no requests to production. Click to resume fetching new events."
             }
           >
-            {pollingOn ? "⏸ Pause polling" : "▶ Resume polling"}
+            {pollingOn ? (
+              <>
+                <Icon name="pause" />
+                <span>Pause polling</span>
+              </>
+            ) : (
+              <>
+                <Icon name="play" />
+                <span>Resume polling</span>
+              </>
+            )}
           </button>
           <button
             className="secondary-action reset-action"
@@ -1581,7 +1620,8 @@ const CohortDashboard = () => {
             onClick={resetAll}
             title="Wipe all student data with NO backup. Export first if you want a copy."
           >
-            ↺ Reset
+            <Icon name="reset" />
+            <span>Reset</span>
           </button>
           <button
             className="secondary-action"
@@ -1589,7 +1629,8 @@ const CohortDashboard = () => {
             onClick={exportData}
             title="Download a zip of CSV snapshots of all data"
           >
-            ⬇ Export
+            <Icon name="download" />
+            <span>Export</span>
           </button>
           <button
             aria-expanded={triggerPanel}
@@ -1597,14 +1638,15 @@ const CohortDashboard = () => {
             onClick={() => setTriggerPanel((p) => !p)}
             title="Turn trigger types on or off"
           >
-            ⚙ Triggers
+            <Icon name="sliders" />
+            <span>Triggers</span>
           </button>
           <button
             style={S.themeToggle}
             onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
             title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           >
-            {theme === "dark" ? "☀" : "☾"}
+            <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
           </button>
         </div>
       </header>
@@ -1647,7 +1689,8 @@ const CohortDashboard = () => {
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: r.has_data ? "#22c55e" : "#f59e0b",
+                flexShrink: 0,
+                background: r.has_data ? "var(--lmd-success)" : "var(--lmd-warning)",
               }}
             />
             <button className="student-open" onClick={() => setSelected(r.studentID)}>
@@ -1661,7 +1704,7 @@ const CohortDashboard = () => {
                 removeTracked(r.studentID);
               }}
             >
-              ×
+              <Icon name="close" size={15} />
             </button>
           </span>
         ))}
@@ -1676,7 +1719,7 @@ const CohortDashboard = () => {
               View alerts ({alerts.length})
             </a>
             <span>
-              {boxes.filter((b) => b.present).length} present ·{" "}
+              {boxes.filter((b) => b.present).length} present |{" "}
               {boxes.filter((b) => b.picked).length} picked
             </span>
           </div>
@@ -1712,7 +1755,10 @@ const CohortDashboard = () => {
                       >
                         {b.display}
                       </button>
-                      <span style={S.stateBadge(accent)}>{sm.label}</span>
+                      <span style={S.stateBadge(accent)}>
+                        <span style={S.stateDot(accent)} />
+                        {sm.label}
+                      </span>
                     </div>
                     {b.st ? (
                       <>
@@ -1722,20 +1768,28 @@ const CohortDashboard = () => {
                         <EpisodeTrack data={b.st.episodes} compact />
                         <div style={S.metaRow}>
                           <span>
-                            {b.st.run_count} runs · {b.st.event_count} events
+                            {b.st.run_count} runs | {b.st.event_count} events
                           </span>
                           <span>{relTime(b.st.last_seen)}</span>
                         </div>
                       </>
                     ) : (
                       <div style={{ color: T.faint, fontSize: 12.5, padding: "16px 0 8px" }}>
-                        {b.has_data ? "Loading…" : "Waiting for activity…"}
+                        {b.has_data ? "Loading..." : "Waiting for activity..."}
                       </div>
                     )}
                     <div style={S.toggleRow}>
                       <button
                         aria-pressed={b.present}
-                        style={b.present ? S.tgPresent : S.tgAbsent}
+                        style={
+                          b.present
+                            ? {
+                                ...S.tgBtn,
+                                background: "var(--lmd-track)",
+                                color: "var(--lmd-success)",
+                              }
+                            : S.tgBtn
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           setPresence(b.studentID, !b.present);
@@ -1744,22 +1798,32 @@ const CohortDashboard = () => {
                           b.present ? "Mark absent (drops to the bottom, dimmed)" : "Mark present"
                         }
                       >
-                        {b.present ? "● Present" : "○ Absent"}
+                        <span style={S.presDot(b.present)} />
+                        <span>{b.present ? "Present" : "Absent"}</span>
                       </button>
                       <button
                         aria-pressed={b.picked}
-                        style={b.picked ? S.tgPicked : S.tgUnpicked}
+                        style={
+                          b.picked
+                            ? {
+                                ...S.tgBtn,
+                                background: "var(--lmd-track)",
+                                color: "var(--lmd-purple)",
+                              }
+                            : S.tgBtn
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           setPicked(b.studentID, !b.picked, "roster");
                         }}
                         title={
                           b.picked
-                            ? "Picked / interviewed — click to unmark"
+                            ? "Picked / interviewed - click to unmark"
                             : "Mark as picked / interviewed"
                         }
                       >
-                        {b.picked ? "✓ Picked" : "Mark picked"}
+                        {b.picked && <Icon name="check" size={14} />}
+                        <span>{b.picked ? "Picked" : "Mark picked"}</span>
                       </button>
                     </div>
                   </div>
@@ -1777,11 +1841,16 @@ const CohortDashboard = () => {
           style={S.col}
         >
           <div style={S.colHead}>
-            <span style={{ color: headColor }}>{TRIGGERS.wheel_spin.icon}</span> Needs intervention
+            <Icon
+              name={TRIGGERS.wheel_spin.icon}
+              size={16}
+              style={{ color: `var(--lmd-signal-${headColor.slice(1)}, ${headColor})` }}
+            />{" "}
+            Needs intervention
             <span style={S.colCount(headColor)}>{alerts.length}</span>
           </div>
           {alerts.length === 0 ? (
-            <div style={S.colEmpty}>No active alerts right now. 🎉</div>
+            <div style={S.colEmpty}>No active alerts right now.</div>
           ) : (
             alerts.map((t) => {
               const meta = triggerMeta(t.trigger_type);
@@ -1800,10 +1869,18 @@ const CohortDashboard = () => {
                         .picked;
                       return (
                         <button
-                          style={picked ? S.tgPicked : S.tgUnpicked}
+                          style={
+                            picked
+                              ? {
+                                  ...S.tgBtn,
+                                  background: "var(--lmd-track)",
+                                  color: "var(--lmd-purple)",
+                                }
+                              : S.tgBtn
+                          }
                           title={
                             picked
-                              ? "Picked / interviewed — click to unmark"
+                              ? "Picked / interviewed - click to unmark"
                               : "Mark as picked / interviewed"
                           }
                           onClick={(e) => {
@@ -1811,12 +1888,13 @@ const CohortDashboard = () => {
                             setPicked(t.studentID, !picked, "intervention", t);
                           }}
                         >
-                          {picked ? "✓ Picked" : "Picked"}
+                          {picked && <Icon name="check" size={14} />}
+                          <span>Picked</span>
                         </button>
                       );
                     })()}
                     <button
-                      style={S.noteBtn}
+                      style={{ ...S.tgBtn, color: "var(--lmd-accent)" }}
                       title="Add a note for this learner"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1834,7 +1912,7 @@ const CohortDashboard = () => {
                         ackTrigger(t.id);
                       }}
                     >
-                      ✕
+                      <Icon name="close" size={15} />
                     </button>
                   </div>
                   {noteOpen === t.id && (
@@ -1843,7 +1921,7 @@ const CohortDashboard = () => {
                         style={S.noteArea}
                         value={noteText}
                         autoFocus
-                        placeholder="Observation during this alert…"
+                        placeholder="Observation during this alert..."
                         onChange={(e) => setNoteText(e.target.value)}
                       />
                       <button
@@ -1859,16 +1937,31 @@ const CohortDashboard = () => {
                     </div>
                   )}
                   <div style={S.colSub(meta.c)}>
-                    {meta.icon} {t.label || meta.label}
-                    {t.value ? ` · ${t.value}` : ""}
-                    <span style={{ marginLeft: "auto", color: T.faint }}>
-                      {t.age_seconds != null ? fmtDur(t.age_seconds) : "—"}
+                    <Icon name={meta.icon} size={14} />
+                    <span>
+                      {t.label || meta.label}
+                      {t.value ? ` | ${t.value}` : ""}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        color: T.faint,
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {t.age_seconds != null ? fmtDur(t.age_seconds) : "-"}
                     </span>
                   </div>
                   {t.prev && (
                     <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>
-                      last: {triggerMeta(t.prev.trigger_type).icon} {t.prev.label}
-                      {" · "}
+                      last:{" "}
+                      <Icon
+                        name={triggerMeta(t.prev.trigger_type).icon}
+                        size={12}
+                        style={{ display: "inline-block", verticalAlign: "-2px" }}
+                      />{" "}
+                      {t.prev.label}
+                      {" | "}
                       {clockTime(t.prev.at)} ({relTime(t.prev.at)} ago)
                     </div>
                   )}
@@ -1880,8 +1973,9 @@ const CohortDashboard = () => {
           {unackedSwitches.length > 0 && (
             <>
               <div style={S.switchHead}>
-                <span style={{ color: "#eab308" }}>⇄</span> Identity switches
-                <span style={S.colCount("#eab308")}>{unackedSwitches.length}</span>
+                <Icon name="swap" size={16} style={{ color: "var(--lmd-warning)" }} />
+                Identity switches
+                <span style={S.colCount("#f59e0b")}>{unackedSwitches.length}</span>
               </div>
               {unackedSwitches.map((s) => (
                 <div
@@ -1905,13 +1999,13 @@ const CohortDashboard = () => {
                         ackSwitch(s.id);
                       }}
                     >
-                      ✕
+                      <Icon name="close" size={15} />
                     </button>
                   </div>
                   <div style={S.colSub("#eab308")}>
                     {s.kind === "casing"
-                      ? `casing · ${s.from} → ${s.to}`
-                      : `new class · ${s.from || "—"} → ${s.to}`}
+                      ? `casing | ${s.from} -> ${s.to}`
+                      : `new class | ${s.from || "-"} -> ${s.to}`}
                     <span style={{ marginLeft: "auto", color: T.faint }}>{relTime(s.ts)}</span>
                   </div>
                 </div>
@@ -1929,16 +2023,14 @@ const CohortDashboard = () => {
             // sticky -- an error that vanishes on its own isn't loud.
             <div
               key={t.id}
-              style={t.error ? { ...S.toast, borderLeft: "3px solid #ef4444" } : S.toast}
+              style={t.error ? { ...S.toast, borderColor: "var(--lmd-signal-ef4444)" } : S.toast}
             >
               <div
                 style={
-                  t.error
-                    ? { ...S.toastIcon, background: "#ef444420", color: "#ef4444" }
-                    : S.toastIcon
+                  t.error ? { ...S.toastIcon, color: "var(--lmd-signal-ef4444)" } : S.toastIcon
                 }
               >
-                {t.error ? "!" : "⇄"}
+                <Icon name={t.error ? "alert" : "swap"} size={16} />
               </div>
               <div style={S.toastBody}>
                 <span style={t.error ? { ...S.toastTitle, color: "#ef4444" } : S.toastTitle}>
@@ -1952,7 +2044,7 @@ const CohortDashboard = () => {
                       {t.kind === "casing" ? "casing changed" : "new class"}
                       {"  "}
                       <span style={{ ...S.toastArrow, color: T.faint }}>{t.from}</span>
-                      <span style={S.toastArrow}> → </span>
+                      <span style={S.toastArrow}>{" -> "}</span>
                       <span style={{ ...S.toastArrow, color: "#eab308" }}>{t.to}</span>
                     </>
                   )}
@@ -1963,7 +2055,7 @@ const CohortDashboard = () => {
                 title="Dismiss"
                 onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))}
               >
-                ×
+                <Icon name="close" size={16} />
               </button>
             </div>
           ))}
@@ -1987,7 +2079,7 @@ const CohortDashboard = () => {
               style={S.modalX}
               onClick={() => setSelected(null)}
             >
-              ×
+              <Icon name="close" size={18} />
             </button>
             <Detail
               s={detail}

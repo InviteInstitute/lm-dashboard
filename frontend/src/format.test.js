@@ -3,7 +3,7 @@ import { relTime, fmtDur, statusMeta } from "./CohortDashboard.jsx";
 
 describe("relTime", () => {
   it("shows a dash for missing input", () => {
-    expect(relTime(null)).toBe("—");
+    expect(relTime(null)).toBe("-");
   });
   it("renders seconds / minutes / hours / days by magnitude", () => {
     const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
@@ -19,7 +19,7 @@ describe("relTime", () => {
 
 describe("fmtDur", () => {
   it("shows a dash for null", () => {
-    expect(fmtDur(null)).toBe("—");
+    expect(fmtDur(null)).toBe("-");
   });
   it("formats seconds, minutes, hours with one decimal", () => {
     expect(fmtDur(5)).toBe("5.0s");

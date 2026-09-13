@@ -51,13 +51,13 @@ export const PAUSE_LEGEND = [
 
 // ----- triggers (intervention alerts) -----
 export const TRIGGERS = {
-  wheel_spin: { c: "#ef4444", icon: "⟳", label: "Wheel-spinning" },
-  resilience: { c: "#22c55e", icon: "✦", label: "Resilience" },
-  inactive: { c: "#f59e0b", icon: "⏸", label: "Inactive" },
-  explorer: { c: "#a855f7", icon: "✎", label: "Explorer" },
-  iterative: { c: "#3b82f6", icon: "◇", label: "Step-by-Step" },
+  wheel_spin: { c: "#ef4444", icon: "wheelSpin", label: "Wheel-spinning" },
+  resilience: { c: "#22c55e", icon: "resilience", label: "Resilience" },
+  inactive: { c: "#f59e0b", icon: "inactive", label: "Inactive" },
+  explorer: { c: "#a855f7", icon: "explorer", label: "Explorer" },
+  iterative: { c: "#3b82f6", icon: "iterative", label: "Step-by-Step" },
 };
-export const TRIGGER_FALLBACK = { c: "#6b7280", icon: "•", label: "Trigger" };
+export const TRIGGER_FALLBACK = { c: "#6b7280", icon: "trigger", label: "Trigger" };
 export const TRIGGER_ROWS = [
   ["wheel_spin", "Wheel-spinning"],
   ["resilience", "Resilience"],

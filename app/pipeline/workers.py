@@ -13,6 +13,7 @@ prompt refresh on any new event. The whole recompute is cheap, on the order of
 tens of milliseconds per student.
 """
 
+import json
 import logging
 from collections import deque
 from datetime import UTC, datetime
@@ -63,14 +64,38 @@ class StudentWorker:
 
     def _feed_goal(self, evt):
         """Push one buffered event ({event_type, content, ts}) into the goal
-        stream. Non-critical, exactly like switch detection: a failure here must
-        never break ingest or rehydrate."""
+        stream, and pair a playgroundData outcome (weight_cleared, GPS, ...) with
+        the run it belongs to. Non-critical, exactly like switch detection: a
+        failure here must never break ingest or rehydrate."""
         if self.gstream is None:
             return
         try:
             self.gstream.push(evt)
+            if evt.get("event_type") == "playgroundData":
+                self._associate_outcome(evt)
         except Exception:
-            logger.exception("goal_strategy push failed for %s", self.student_id)
+            logger.exception("goal_strategy feed failed for %s", self.student_id)
+
+    def _associate_outcome(self, evt):
+        """A playgroundData event reports the playground state after the latest
+        run, so its {playground, parameters} outcome belongs to the most recent
+        profiled run. Re-profiling that run with the outcome turns the
+        outcome-channel indicators (weight_cleared, on-island GPS) from
+        'absent'/'unavailable' into real evidence."""
+        idx = len(self.gstream.runs) - 1
+        if idx < 0:
+            return  # outcome before any run — nothing to attach it to
+        content = evt.get("content")
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except (ValueError, TypeError):
+                return
+        outcome = (content or {}).get("playgroundData") if isinstance(content, dict) else None
+        if not isinstance(outcome, dict):
+            return
+        self.gstream.associate_outcome(idx, {"playground_data": outcome})
+        self.goal_written.discard(idx)  # force recompute_and_write to re-persist with the outcome
 
     # -- ingest ----------------------------------------------------------
     def ingest(self, ev):

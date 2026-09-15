@@ -38,6 +38,70 @@ def _raw_run(sid, xml, playground, i):
     }
 
 
+# A real playgroundData outcome, shaped exactly like the mirror stores it.
+OUTCOME = {
+    "weight_cleared": 1600,
+    "elapsedtime": 6.5,
+    "difficulty_level": 1,
+    "project_stopped_by_user": False,
+    "gps_x_position": -2085,
+    "gps_y_position": 57,
+}
+
+
+def _raw_pgdata(sid, params, i):
+    content = {
+        "playground": "CasteCrasherPlus",
+        "playgroundData": {"playground": "CasteCrasherPlus", "parameters": params},
+    }
+    return {
+        "studentID": sid,
+        "classCode": "C1",
+        "eventType": "playgroundData",
+        "raw_message": json.dumps(content),
+        "project": None,
+        "source_event_id": i + 1,
+        "event_time": T0 + timedelta(seconds=i),
+    }
+
+
+def _outcome_indicators(profile):
+    return [
+        ind
+        for g in profile["goals"]
+        for ind in (g["intent"] + g["attainment"])
+        if ind["channel"] == "outcome"
+    ]
+
+
+def test_playground_outcome_is_associated_to_its_run():
+    w = StudentWorker("cobra13")
+    w.ingest(_raw_run("cobra13", CC_XML, "CasteCrasherPlus", 0))
+    w.ingest(_raw_pgdata("cobra13", OUTCOME, 1))  # outcome for run 0
+    w.recompute_and_write()
+
+    profs = db.list_goal_profiles("cobra13")
+    assert len(profs) == 1
+    outs = _outcome_indicators(profs[0]["profile"])
+    by_name = {o["name"]: o for o in outs}
+    assert not by_name["weight_cleared"]["abstained"]
+    assert by_name["weight_cleared"]["value"] == 1600.0
+    assert not by_name["on_island_observed"]["abstained"]  # GPS present -> no longer "gps_unavailable"
+
+
+def test_outcome_absent_until_playground_data_arrives():
+    w = StudentWorker("cobra14")
+    w.ingest(_raw_run("cobra14", CC_XML, "CasteCrasherPlus", 0))
+    w.recompute_and_write()  # run persisted with no outcome yet
+    before = {o["name"]: o["abstained"] for o in _outcome_indicators(db.list_goal_profiles("cobra14")[0]["profile"])}
+    assert all(before.values())  # all outcome indicators abstained
+
+    w.ingest(_raw_pgdata("cobra14", OUTCOME, 1))  # late outcome
+    w.recompute_and_write()  # must RE-persist run 0 with the outcome
+    after = {o["name"]: o["abstained"] for o in _outcome_indicators(db.list_goal_profiles("cobra14")[0]["profile"])}
+    assert not after["weight_cleared"] and not after["on_island_observed"]
+
+
 def test_castle_crashers_runs_are_profiled_and_stored():
     w = StudentWorker("cobra9")
     for i in range(3):

@@ -333,6 +333,116 @@ const sw = (bg) => ({
 });
 const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 
+// ---------------- goal evidence (inside modal) ----------------
+// Per-run goal recognition from the agent-lm goal_strategy engine: for each
+// profiled Castle Crashers run, the goals with the rung reached and the
+// uncertainty flags. This is EVIDENCE with explicit abstentions, not a score or
+// an assessment of the student's ability -- the flags are the whole point.
+const _humanize = (s) => (s || "").replace(/_/g, " ");
+
+const goalFlagChip = {
+  fontFamily: MONO,
+  fontSize: 10.5,
+  color: "var(--lmd-signal-amber, #b7791f)",
+  border: `1px solid ${T.border}`,
+  borderRadius: 5,
+  padding: "1px 6px",
+  background: T.bg,
+  whiteSpace: "nowrap",
+};
+
+const GoalEvidence = ({ runs, enabled }) => {
+  if (enabled === false)
+    return <div style={{ color: T.sub, fontSize: 13 }}>Goal recognition is switched off.</div>;
+  if (!runs || runs.length === 0)
+    return (
+      <div style={{ color: T.sub, fontSize: 13 }}>
+        No Castle Crashers runs profiled yet (goal evidence is Castle Crashers only).
+      </div>
+    );
+  return (
+    <div
+      style={{
+        maxHeight: 320,
+        overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {runs.map((r) => (
+        <div
+          key={r.index}
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: 10,
+            padding: "10px 12px",
+            background: T.track,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              color: T.sub,
+              marginBottom: 8,
+              letterSpacing: 0.5,
+            }}
+          >
+            RUN {r.index}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {(r.goals || []).map((g) => (
+              <div key={g.goal}>
+                <div
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    color: T.ink,
+                    marginBottom: 3,
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {_humanize(g.goal)}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  {(g.indicators || []).map((ind, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        fontSize: 12,
+                        fontFamily: MONO,
+                      }}
+                    >
+                      <span style={{ color: T.sub, minWidth: 168 }}>{_humanize(ind.name)}</span>
+                      {ind.abstained ? (
+                        <span style={{ color: T.faint }}>
+                          — {_humanize(ind.abstain_reason) || "abstained"}
+                        </span>
+                      ) : (
+                        <span style={{ color: T.ink }}>{_humanize(ind.rung) || "—"}</span>
+                      )}
+                      {(ind.flags || []).map((f) => (
+                        <span key={f} style={goalFlagChip}>
+                          {_humanize(f)}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // ---------------- detail (inside modal) ----------------
 // The body of the drill-down modal for one student: header + state badge, the
 // playground prompt, and full-size episode and strategy timelines.
@@ -401,6 +511,8 @@ const Detail = ({ s, sid, status, history = [] }) => {
       <EpisodeTrack data={s.episodes} />
       <div style={{ ...lbl, marginTop: 22 }}>Runs | edit distance per run</div>
       <RunTrack data={s.runs} />
+      <div style={{ ...lbl, marginTop: 22 }}>Goal evidence (with uncertainty)</div>
+      <GoalEvidence runs={s.goal_runs} enabled={s.goal_recognition_enabled} />
       <div style={{ ...lbl, marginTop: 22 }}>Trigger history</div>
       {history.length === 0 ? (
         <div style={{ color: T.sub, fontSize: 13 }}>No triggers yet this session</div>

@@ -420,6 +420,62 @@ describe("CohortDashboard", () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/student_states/alice/"));
   });
 
+  it("renders per-run goal evidence with rungs and uncertainty flags", async () => {
+    api.get.mockImplementation((url) => {
+      if (url === "/api/student_states/alice/") {
+        return Promise.resolve({
+          data: {
+            studentID: "alice",
+            run_count: 1,
+            event_count: 3,
+            block: { llm_prompt: null },
+            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+            runs: { runs: [], run_count: 0 },
+            goal_recognition_enabled: true,
+            goal_runs: [
+              {
+                index: 0,
+                playground: "castle_crashers",
+                status: "profiled",
+                goals: [
+                  {
+                    goal: "clear_debris_zone",
+                    indicators: [
+                      {
+                        name: "debris_zone_coverage",
+                        role: "intent",
+                        rung: "negligible",
+                        abstained: false,
+                        abstain_reason: null,
+                        flags: [],
+                      },
+                      {
+                        name: "plow_proximity_execution",
+                        role: "attainment",
+                        rung: null,
+                        abstained: true,
+                        abstain_reason: "no_simulation",
+                        flags: ["sim_unverified"],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle("alice"));
+    expect(await screen.findByText("Goal evidence (with uncertainty)")).toBeInTheDocument();
+    expect(await screen.findByText("clear debris zone")).toBeInTheDocument();
+    expect(await screen.findByText("negligible")).toBeInTheDocument();
+    expect(await screen.findByText("sim unverified")).toBeInTheDocument(); // an uncertainty flag chip
+  });
+
   it("toggles a trigger type from the Triggers panel", async () => {
     // the POST echoes the new enabled map back, which the component stores
     api.post.mockResolvedValue({

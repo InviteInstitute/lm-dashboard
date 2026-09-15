@@ -474,6 +474,10 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("clear debris zone")).toBeInTheDocument();
     expect(await screen.findByText("negligible")).toBeInTheDocument();
     expect(await screen.findByText("sim unverified")).toBeInTheDocument(); // an uncertainty flag chip
+    // result/intent grouping and the single-run label
+    expect(await screen.findByText("result")).toBeInTheDocument();
+    expect(await screen.findByText("intent")).toBeInTheDocument();
+    expect(await screen.findByText("RUN 0")).toBeInTheDocument();
   });
 
   it("toggles a trigger type from the Triggers panel", async () => {

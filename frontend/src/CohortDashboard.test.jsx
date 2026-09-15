@@ -480,6 +480,62 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("RUN 0")).toBeInTheDocument();
   });
 
+  it("surfaces run-level outputs: left-the-island, fidelity, diagnostics", async () => {
+    const runs = [
+      {
+        index: 0,
+        playground: "castle_crashers",
+        status: "profiled",
+        diagnostics: ["invalid_timestamp", "inherited_playground"],
+        summary: {
+          boundary_exceeded: true,
+          boundary_exit_step: 3,
+          boundary_exit_overridden: false,
+          outcome_available: false,
+          fidelity_verdict: "agree",
+          fabricated_motion: false,
+        },
+        goals: [
+          {
+            goal: "remain_on_island",
+            indicators: [
+              {
+                name: "on_island_sim",
+                role: "attainment",
+                rung: "off_island",
+                abstained: false,
+                abstain_reason: null,
+                flags: [],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    api.get.mockImplementation((url) => {
+      if (url === "/api/student_states/alice/")
+        return Promise.resolve({
+          data: {
+            studentID: "alice",
+            block: { llm_prompt: null },
+            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+            runs: { runs: [], run_count: 0 },
+            goal_recognition_enabled: true,
+            goal_runs: runs,
+          },
+        });
+      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle("alice"));
+    const chip = await screen.findByText(/left the island/);
+    expect(chip.textContent).toContain("step 3"); // critical failure surfaced with the exit step
+    expect(await screen.findByText(/sim vs GPS: agree/)).toBeInTheDocument();
+    expect(await screen.findByText("invalid timestamp")).toBeInTheDocument(); // a diagnostic chip
+    expect(screen.queryByText("inherited playground")).toBeNull(); // routine bookkeeping, hidden
+  });
+
   it("clears the previous student's goal evidence when switching students", async () => {
     const aliceRuns = [
       {

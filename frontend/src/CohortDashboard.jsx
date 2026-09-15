@@ -340,105 +340,189 @@ const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 // an assessment of the student's ability -- the flags are the whole point.
 const _humanize = (s) => (s || "").replace(/_/g, " ");
 
+// Goal-evidence styling. Restrained on colour on purpose: this is evidence, not
+// a score, so a rung never reads as good/bad. Rungs are mono pills, abstentions
+// are dashed pills (no data), uncertainty is an amber flag chip.
 const goalFlagChip = {
   fontFamily: MONO,
   fontSize: 10.5,
   color: "var(--lmd-signal-amber, #b7791f)",
-  border: `1px solid ${T.border}`,
-  borderRadius: 5,
-  padding: "1px 6px",
-  background: T.bg,
+  border: "1px solid var(--lmd-signal-amber, #b7791f)",
+  borderRadius: 999,
+  padding: "1px 8px",
+  background: "transparent",
   whiteSpace: "nowrap",
+};
+const goalRungPill = (strong) => ({
+  fontFamily: MONO,
+  fontSize: 11.5,
+  fontWeight: strong ? 700 : 600,
+  color: T.ink,
+  border: `1px solid ${T.border}`,
+  borderRadius: 6,
+  padding: "2px 9px",
+  background: strong ? T.panel : T.bg,
+  whiteSpace: "nowrap",
+});
+const goalAbstainPill = {
+  fontFamily: MONO,
+  fontSize: 11,
+  color: T.faint,
+  border: `1px dashed ${T.border}`,
+  borderRadius: 6,
+  padding: "2px 9px",
+  background: "transparent",
+  whiteSpace: "nowrap",
+};
+const goalRoleLabel = {
+  fontFamily: MONO,
+  fontSize: 9.5,
+  letterSpacing: 1,
+  textTransform: "uppercase",
+  color: T.faint,
+  margin: "9px 0 4px",
+};
+const goalRunCell = (active) => ({
+  fontFamily: MONO,
+  fontSize: 11.5,
+  fontWeight: active ? 700 : 500,
+  minWidth: 26,
+  height: 26,
+  padding: "0 7px",
+  borderRadius: 6,
+  cursor: "pointer",
+  color: active ? T.ink : T.sub,
+  background: active ? T.panel : T.track,
+  border: `1px solid ${active ? T.ink : T.border}`,
+});
+
+const GoalIndicatorRow = ({ ind, strong }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+    <span style={{ color: T.sub, fontSize: 12, minWidth: 170 }}>{_humanize(ind.name)}</span>
+    {ind.abstained ? (
+      <span
+        style={goalAbstainPill}
+        title={`abstained: ${_humanize(ind.abstain_reason) || "no data"}`}
+      >
+        {_humanize(ind.abstain_reason) || "abstained"}
+      </span>
+    ) : (
+      <span style={goalRungPill(strong)}>{_humanize(ind.rung) || "—"}</span>
+    )}
+    {(ind.flags || []).map((f) => (
+      <span key={f} style={goalFlagChip} title="uncertainty flag">
+        {_humanize(f)}
+      </span>
+    ))}
+  </div>
+);
+
+// One goal, its outcome ("result", the attainment indicators) shown first and a
+// touch stronger, then what the code was reaching for ("intent").
+const GoalCard = ({ g }) => {
+  const inds = g.indicators || [];
+  const attainment = inds.filter((i) => i.role === "attainment");
+  const intent = inds.filter((i) => i.role !== "attainment");
+  return (
+    <div
+      style={{
+        border: `1px solid ${T.border}`,
+        borderRadius: 10,
+        padding: "11px 13px",
+        background: T.track,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: HEADFONT,
+          fontSize: 13,
+          fontWeight: 700,
+          color: T.ink,
+          letterSpacing: 0.2,
+          textTransform: "capitalize",
+        }}
+      >
+        {_humanize(g.goal)}
+      </div>
+      {attainment.length > 0 && (
+        <>
+          <div style={goalRoleLabel}>result</div>
+          {attainment.map((ind, i) => (
+            <GoalIndicatorRow key={i} ind={ind} strong />
+          ))}
+        </>
+      )}
+      {intent.length > 0 && (
+        <>
+          <div style={goalRoleLabel}>intent</div>
+          {intent.map((ind, i) => (
+            <GoalIndicatorRow key={i} ind={ind} />
+          ))}
+        </>
+      )}
+    </div>
+  );
 };
 
 const GoalEvidence = ({ runs, enabled }) => {
+  const list = runs || [];
+  const [picked, setPicked] = React.useState(null);
   if (enabled === false)
     return <div style={{ color: T.sub, fontSize: 13 }}>Goal recognition is switched off.</div>;
-  if (!runs || runs.length === 0)
+  if (list.length === 0)
     return (
       <div style={{ color: T.sub, fontSize: 13 }}>
         No Castle Crashers runs profiled yet (goal evidence is Castle Crashers only).
       </div>
     );
+  // Focus one run (latest by default); honour a manual pick while it still exists.
+  const run = list.find((r) => r.index === picked) || list[list.length - 1];
   return (
-    <div
-      style={{
-        maxHeight: 320,
-        overflowY: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-      }}
-    >
-      {runs.map((r) => (
+    <div>
+      <div style={{ color: T.sub, fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
+        The rung each goal reached on this run, with abstentions and uncertainty flags shown.
+        Evidence with explicit uncertainty &mdash; not a score.
+      </div>
+      {list.length > 1 ? (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+          {list.map((r) => (
+            <button
+              key={r.index}
+              type="button"
+              onClick={() => setPicked(r.index)}
+              title={`Run ${r.index}`}
+              style={goalRunCell(r.index === run.index)}
+            >
+              {r.index}
+            </button>
+          ))}
+        </div>
+      ) : (
         <div
-          key={r.index}
           style={{
-            border: `1px solid ${T.border}`,
-            borderRadius: 10,
-            padding: "10px 12px",
-            background: T.track,
+            fontFamily: MONO,
+            fontSize: 11,
+            color: T.sub,
+            letterSpacing: 0.5,
+            marginBottom: 10,
           }}
         >
-          <div
-            style={{
-              fontFamily: MONO,
-              fontSize: 11,
-              color: T.sub,
-              marginBottom: 8,
-              letterSpacing: 0.5,
-            }}
-          >
-            RUN {r.index}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            {(r.goals || []).map((g) => (
-              <div key={g.goal}>
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    color: T.ink,
-                    marginBottom: 3,
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {_humanize(g.goal)}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  {(g.indicators || []).map((ind, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        fontSize: 12,
-                        fontFamily: MONO,
-                      }}
-                    >
-                      <span style={{ color: T.sub, minWidth: 168 }}>{_humanize(ind.name)}</span>
-                      {ind.abstained ? (
-                        <span style={{ color: T.faint }}>
-                          — {_humanize(ind.abstain_reason) || "abstained"}
-                        </span>
-                      ) : (
-                        <span style={{ color: T.ink }}>{_humanize(ind.rung) || "—"}</span>
-                      )}
-                      {(ind.flags || []).map((f) => (
-                        <span key={f} style={goalFlagChip}>
-                          {_humanize(f)}
-                        </span>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          RUN {run.index}
         </div>
-      ))}
+      )}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          maxHeight: 340,
+          overflowY: "auto",
+        }}
+      >
+        {(run.goals || []).map((g) => (
+          <GoalCard key={g.goal} g={g} />
+        ))}
+      </div>
     </div>
   );
 };

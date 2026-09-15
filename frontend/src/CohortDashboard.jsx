@@ -407,7 +407,7 @@ const GoalIndicatorRow = ({ ind, strong }) => (
         {_humanize(ind.abstain_reason) || "abstained"}
       </span>
     ) : (
-      <span style={goalRungPill(strong)}>{_humanize(ind.rung) || "—"}</span>
+      <span style={goalRungPill(strong)}>{_humanize(ind.rung) || "-"}</span>
     )}
     {(ind.flags || []).map((f) => (
       <span key={f} style={goalFlagChip} title="uncertainty flag">
@@ -481,7 +481,7 @@ const GoalEvidence = ({ runs, enabled }) => {
     <div>
       <div style={{ color: T.sub, fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
         The rung each goal reached on this run, with abstentions and uncertainty flags shown.
-        Evidence with explicit uncertainty &mdash; not a score.
+        Evidence with explicit uncertainty, not a score.
       </div>
       {list.length > 1 ? (
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
@@ -596,7 +596,8 @@ const Detail = ({ s, sid, status, history = [] }) => {
       <div style={{ ...lbl, marginTop: 22 }}>Runs | edit distance per run</div>
       <RunTrack data={s.runs} />
       <div style={{ ...lbl, marginTop: 22 }}>Goal evidence (with uncertainty)</div>
-      <GoalEvidence runs={s.goal_runs} enabled={s.goal_recognition_enabled} />
+      {/* key by student so the run selector resets when the modal switches students */}
+      <GoalEvidence key={sid} runs={s.goal_runs} enabled={s.goal_recognition_enabled} />
       <div style={{ ...lbl, marginTop: 22 }}>Trigger history</div>
       {history.length === 0 ? (
         <div style={{ color: T.sub, fontSize: 13 }}>No triggers yet this session</div>
@@ -1566,6 +1567,13 @@ const CohortDashboard = () => {
   // Under the polling fallback, states updates each tick, which degrades this
   // to the old POLL_MS cadence automatically. `alive` discards a late response
   // that arrives after you've already switched to a different student.
+  // Clear the previous student's heavy payload the instant the selection
+  // changes, so switching students never shows the old detail (program, prompt,
+  // goal evidence) until the new fetch lands. Keyed on `selected` only, so a
+  // routine poll (states change) refreshes in place without blanking.
+  React.useEffect(() => {
+    setDetailFull(null);
+  }, [selected]);
   React.useEffect(() => {
     if (!selected) {
       setDetailFull(null);

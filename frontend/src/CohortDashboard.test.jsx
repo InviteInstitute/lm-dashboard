@@ -480,6 +480,78 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("RUN 0")).toBeInTheDocument();
   });
 
+  it("clears the previous student's goal evidence when switching students", async () => {
+    const aliceRuns = [
+      {
+        index: 0,
+        playground: "castle_crashers",
+        status: "profiled",
+        goals: [
+          {
+            goal: "clear_debris_zone",
+            indicators: [
+              {
+                name: "weight_cleared",
+                role: "attainment",
+                rung: "med_goal",
+                abstained: false,
+                abstain_reason: null,
+                flags: [],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const roster = (ids) => ({
+      tracked: ids.map((studentID) => ({
+        studentID,
+        backfilled: true,
+        has_data: true,
+        present: true,
+        picked: false,
+      })),
+      count: ids.length,
+    });
+    const lightCard = (studentID) => ({
+      studentID,
+      classCode: "C1",
+      run_count: 1,
+      event_count: 3,
+      last_seen: new Date().toISOString(),
+      runs: { runs: [], run_count: 0 },
+      episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+    });
+    const heavy = (studentID, goal_runs) => ({
+      studentID,
+      block: { llm_prompt: null },
+      episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+      runs: { runs: [], run_count: 0 },
+      goal_recognition_enabled: true,
+      goal_runs,
+    });
+    api.get.mockImplementation((url) => {
+      if (url === "/api/student_states/")
+        return Promise.resolve({
+          data: { students: [lightCard("alice"), lightCard("bob")], student_count: 2 },
+        });
+      if (url === "/api/tracked/") return Promise.resolve({ data: roster(["alice", "bob"]) });
+      if (url === "/api/student_states/alice/")
+        return Promise.resolve({ data: heavy("alice", aliceRuns) });
+      if (url === "/api/student_states/bob/") return Promise.resolve({ data: heavy("bob", []) }); // bob has no goal runs
+      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle("alice"));
+    expect(await screen.findByText("clear debris zone")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("bob")); // switch students
+    // alice's goal must clear out, and bob's empty state must show
+    await waitFor(() => expect(screen.queryByText("clear debris zone")).toBeNull());
+    expect(await screen.findByText(/No Castle Crashers runs profiled yet/)).toBeInTheDocument();
+  });
+
   it("toggles a trigger type from the Triggers panel", async () => {
     // the POST echoes the new enabled map back, which the component stores
     api.post.mockResolvedValue({

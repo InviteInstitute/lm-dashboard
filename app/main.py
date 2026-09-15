@@ -110,6 +110,30 @@ def _shape_goal_runs(student_id):
                 for ind in inds
             ]
             goals.append({"goal": g.get("goal"), "indicators": indicators})
+        # Goal-progression timeline (rung transitions) and sensor-test battery are
+        # top-level goal_strategy outputs; pass them through when computed (they may
+        # be null if their config flag is off, or the battery may be not-eligible).
+        tl = p.get("timeline") or None
+        timeline = (
+            {
+                "events": tl.get("events") or [],
+                "post_exit_events": tl.get("post_exit_events") or [],
+                "boundary_exit_step": tl.get("boundary_exit_step"),
+            }
+            if isinstance(tl, dict)
+            else None
+        )
+        bat = p.get("battery") or None
+        battery = (
+            {
+                "eligible": bat.get("eligible"),
+                "qualifying_blocks": bat.get("qualifying_blocks") or [],
+                "scenarios": bat.get("scenarios") or [],
+                "goal_mapping": bat.get("goal_mapping") or {},
+            }
+            if isinstance(bat, dict)
+            else None
+        )
         # Run-level evidence the goals list doesn't carry: whether the robot left
         # the island (a critical failure, not a goal), whether an outcome was
         # associated, the sim-vs-GPS fidelity verdict, and the descriptive flags.
@@ -120,6 +144,8 @@ def _shape_goal_runs(student_id):
             "reason": p.get("reason"),
             "diagnostics": p.get("diagnostics") or [],
             "goals": goals,
+            "timeline": timeline,
+            "battery": battery,
             "summary": {
                 "boundary_exceeded": prof.get("boundary_exceeded"),
                 "boundary_exit_step": prof.get("boundary_exit_step"),

@@ -190,3 +190,7 @@ def test_detail_endpoint_returns_goal_runs(client):
     summ = gr0["summary"]
     assert {"boundary_exceeded", "fidelity_verdict", "outcome_available"} <= set(summ)
     assert summ["outcome_available"] is False  # no playgroundData in this run
+    # timeline + battery outputs are wired in
+    assert gr0["timeline"] is not None and isinstance(gr0["timeline"]["events"], list)
+    assert gr0["battery"] is not None
+    assert gr0["battery"]["eligible"] is False  # a plain drive program reads no sensors

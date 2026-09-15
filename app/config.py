@@ -23,12 +23,16 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 # Goal recognition (agent-lm-packages goal_strategy) profiles each run in the
 # worker and stores per-run goal evidence with explicit uncertainty. On by
 # default; set GOAL_RECOGNITION_ENABLED=0 to disable the feed + storage entirely.
-GOAL_RECOGNITION_ENABLED = os.environ.get("GOAL_RECOGNITION_ENABLED", "1").strip().lower() not in (
-    "0",
-    "false",
-    "no",
-    "",
-)
+def _flag(name, default="1"):
+    return os.environ.get(name, default).strip().lower() not in ("0", "false", "no", "")
+
+
+GOAL_RECOGNITION_ENABLED = _flag("GOAL_RECOGNITION_ENABLED")
+# The goal-progression timeline (cheap) and the sensor-test battery (runs 5 extra
+# simulations per eligible run) are extra goal_strategy outputs. On by default;
+# set GOAL_BATTERY_ENABLED=0 to shed the heavier one under load.
+GOAL_TIMELINE_ENABLED = _flag("GOAL_TIMELINE_ENABLED")
+GOAL_BATTERY_ENABLED = _flag("GOAL_BATTERY_ENABLED")
 
 # Secret used to sign the "this browser solved Turnstile" cookie (see
 # app/turnstile.py). Required in any real deployment -- set a long random value

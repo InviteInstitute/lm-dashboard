@@ -17,6 +17,7 @@ import logging
 from collections import deque
 from datetime import UTC, datetime
 
+from goal_strategy import GoalProfileStream
 from learner_models import (
     clear_cache as clear_score_cache,
 )
@@ -29,6 +30,7 @@ from learner_models import (
 from log_parser_delta_engine import generate_compact_prompt_from_project
 
 from app import db
+from app.config import GOAL_RECOGNITION_ENABLED
 from app.pipeline.triggers import _disabled_types
 
 logger = logging.getLogger("pipeline")
@@ -53,6 +55,22 @@ class StudentWorker:
         self.dirty = False
         self._runs_cache = None  # last run edit-distance sequence
         self.fired = {t: set() for t in RUN_TRIGGER_TYPES}  # run indices already alerted, per type
+        # Real-time goal recognition: one stream per student, fed every event
+        # (rehydrate + ingest) so its run indices line up with the edit-distance
+        # runs above. goal_written dedupes the per-run upsert into goal_profile.
+        self.gstream = GoalProfileStream(session_id=self.student_id) if GOAL_RECOGNITION_ENABLED else None
+        self.goal_written = set()  # run indices already persisted to goal_profile
+
+    def _feed_goal(self, evt):
+        """Push one buffered event ({event_type, content, ts}) into the goal
+        stream. Non-critical, exactly like switch detection: a failure here must
+        never break ingest or rehydrate."""
+        if self.gstream is None:
+            return
+        try:
+            self.gstream.push(evt)
+        except Exception:
+            logger.exception("goal_strategy push failed for %s", self.student_id)
 
     # -- ingest ----------------------------------------------------------
     def ingest(self, ev):
@@ -63,7 +81,9 @@ class StudentWorker:
         raw_message, project, source_event_id, and event_time (a datetime)."""
         et = ev.get("eventType") or ""
         ts = ev["event_time"].timestamp() if ev.get("event_time") else None
-        self.events.append({"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts})
+        evt = {"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts}
+        self.events.append(evt)
+        self._feed_goal(evt)
         # Switch detection: compare this event's casing/class against the
         # last-seen ones BEFORE we overwrite them. Only tracked students have a
         # worker, so this is roster-only for free. Non-critical telemetry, so a
@@ -175,6 +195,25 @@ class StudentWorker:
                 "last_event_time": self.last_event_time,
             },
         )
+
+        # Goal evidence: persist each newly-profiled Castle Crashers run once.
+        # The stream indexes runs the same way compute_run_edit_distances does
+        # (same event buffer), so run_index joins the edit-distance runs above.
+        # Unsupported playgrounds (status != "profiled") are skipped, per the
+        # Castle-Crashers-only gate. Non-critical: never break the materialize.
+        if self.gstream is not None:
+            for gr in self.gstream.runs:
+                idx = gr.get("index")
+                if idx is None or idx in self.goal_written or gr.get("status") != "profiled":
+                    continue
+                try:
+                    db.upsert_goal_profile(self.student_id, idx, gr)
+                    self.goal_written.add(idx)
+                except Exception:
+                    logger.exception(
+                        "upsert_goal_profile failed for %s run %s", self.student_id, idx
+                    )
+
         self.dirty = False
 
 
@@ -263,7 +302,9 @@ def _rehydrate(worker):
             ts = row["event_time"].timestamp()
         elif row["received_at"]:
             ts = row["received_at"].timestamp()
-        worker.events.append({"event_type": et, "content": row["raw_message"] or "{}", "ts": ts})
+        evt = {"event_type": et, "content": row["raw_message"] or "{}", "ts": ts}
+        worker.events.append(evt)
+        worker._feed_goal(evt)  # keep the goal stream in lockstep with the buffer
         if row.get("studentID"):
             worker.display_id = row[
                 "studentID"

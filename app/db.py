@@ -301,6 +301,20 @@ _SCHEMA = [
         last_event_id BIGINT NOT NULL DEFAULT 0, last_event_time TEXT,
         updated_at TEXT NOT NULL
     )""",
+    # goal_profile is shared (daemon-written per student), one row per profiled
+    # run. run_index lines up with student_state.runs[i] (same event buffer), so
+    # the detail view joins goal evidence to the edit-distance run. profile holds
+    # the full goal_strategy result dict as JSON (json.dumps, like runs/episodes).
+    """CREATE TABLE IF NOT EXISTS goal_profile (
+        studentID VARCHAR(128) NOT NULL,          -- canonical (folded) key; see canon_id
+        run_index INTEGER NOT NULL,
+        playground VARCHAR(64),
+        status VARCHAR(32),
+        ts DOUBLE PRECISION,
+        profile TEXT NOT NULL,                    -- json.dumps of the goal result dict
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (studentID, run_index)
+    )""",
     # tracked_student is per-workspace: which students a workspace's board tracks,
     # plus that workspace's presence/picked state for them. Same student in two
     # workspaces = two rows, so the roster is isolated (UNIQUE per workspace).
@@ -1374,6 +1388,44 @@ def upsert_student_state(student_id, defaults):
         f"ON CONFLICT(studentID) DO UPDATE SET {updates}"
     )
     _execute(sql, tuple(cols[k] for k in keys))
+
+
+# ==========================================================================
+# Goal profiles: one row per profiled run, shared per student (like student_state).
+# ==========================================================================
+def upsert_goal_profile(student_id, run_index, result):
+    """Store one run's goal_strategy result dict. `result` is the full envelope
+    (index, playground, status, profile, diagnostics, ...); we keep the whole
+    thing as JSON and lift a few columns out for querying/export."""
+    sql = (
+        "INSERT INTO goal_profile (studentID, run_index, playground, status, ts, profile, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(studentID, run_index) DO UPDATE SET "
+        "playground=excluded.playground, status=excluded.status, ts=excluded.ts, "
+        "profile=excluded.profile, updated_at=excluded.updated_at"
+    )
+    _execute(
+        sql,
+        (
+            canon_id(student_id),
+            int(run_index),
+            result.get("playground"),
+            result.get("status"),
+            result.get("ts"),
+            _jdump(result),
+            dt_to_db(now()),
+        ),
+    )
+
+
+def list_goal_profiles(student_id):
+    """Every stored goal profile for a student, oldest run first. Returns the
+    full result dicts (the drill-down joins them to runs by run_index)."""
+    rows = _query(
+        "SELECT profile FROM goal_profile WHERE studentID = ? ORDER BY run_index",
+        (canon_id(student_id),),
+    )
+    return [json.loads(r["profile"]) for r in rows if r.get("profile")]
 
 
 # ==========================================================================

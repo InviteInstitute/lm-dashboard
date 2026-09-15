@@ -84,6 +84,41 @@ def _shape_state(s, heavy=False):
     return out
 
 
+def _shape_goal_runs(student_id):
+    """Per-run goal evidence for the detail view: for each profiled Castle
+    Crashers run, its goals with the rung reached and the uncertainty flags. This
+    is goal *evidence* with explicit abstentions/flags, not a score. run_index
+    joins the edit-distance runs. Best-effort: a bad row just drops out."""
+    runs = []
+    for p in db.list_goal_profiles(student_id):
+        prof = p.get("profile") or {}
+        goals = []
+        for g in prof.get("goals", []):
+            indicators = [
+                {
+                    "name": ind.get("name"),
+                    "role": role,
+                    "channel": ind.get("channel"),
+                    "rung": ind.get("rung"),
+                    "value": ind.get("value"),
+                    "abstained": ind.get("abstained"),
+                    "abstain_reason": ind.get("abstain_reason"),
+                    "flags": ind.get("flags") or [],
+                }
+                for role, inds in (("intent", g.get("intent") or []),
+                                   ("attainment", g.get("attainment") or []))
+                for ind in inds
+            ]
+            goals.append({"goal": g.get("goal"), "indicators": indicators})
+        runs.append({
+            "index": p.get("index"),
+            "playground": p.get("playground"),
+            "status": p.get("status"),
+            "goals": goals,
+        })
+    return runs
+
+
 # --------------------------------------------------------------------------
 # routes
 # --------------------------------------------------------------------------
@@ -257,6 +292,13 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
     payload["block"]["readable"] = (
         generate_readable_text(extract_workspace_xml({"project": proj})) if proj else ""
     )
+    # Real-time goal evidence (with uncertainty), one entry per profiled run.
+    # Best-effort and isolated -- absent or failing, the detail view just omits it.
+    payload["goal_recognition_enabled"] = config.GOAL_RECOGNITION_ENABLED
+    try:
+        payload["goal_runs"] = _shape_goal_runs(student_id)
+    except Exception:
+        payload["goal_runs"] = []
     return payload
 
 

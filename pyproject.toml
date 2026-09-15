@@ -26,6 +26,12 @@ dependencies = [
 dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.2"]
 docs = ["mkdocs-material==9.7.7"]
 
+# Scope pytest to this repo's own suite. The agent-lm-packages submodule ships
+# its own tests under vendor/ (some need optional extras like pandas); those are
+# validated in that repo, not here, so `make test` must not try to collect them.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 

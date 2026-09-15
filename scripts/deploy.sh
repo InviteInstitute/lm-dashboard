@@ -27,8 +27,21 @@ else
   echo "Updated $BEFORE -> $AFTER"
 fi
 
+# The trigger/learner-model engine is the agent-lm-packages git submodule under
+# vendor/. Sync it to the commit the pull just recorded, or the image builds
+# against stale vendored code (a fresh host would ship the wrong engine).
+git submodule update --init --recursive
+
 echo "Building + rolling the stack ..."
-docker compose -f compose.yml up -d --build
+# Build first, then recreate the app containers explicitly. Compose's in-place
+# recreate has occasionally left orphaned, hash-prefixed api/daemon containers
+# that collide on the next roll: the old container keeps serving while `up`
+# prints a name conflict yet still exits 0, so the deploy silently ships stale
+# code. Removing the app containers first guarantees the new images take effect.
+# The db keeps running throughout (its data lives in a named volume).
+docker compose -f compose.yml build
+docker compose -f compose.yml rm -sf api daemon
+docker compose -f compose.yml up -d --remove-orphans
 
 echo "Waiting for the API to come back up ..."
 for _ in $(seq 1 30); do

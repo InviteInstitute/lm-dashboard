@@ -536,6 +536,89 @@ describe("CohortDashboard", () => {
     expect(screen.queryByText("inherited playground")).toBeNull(); // routine bookkeeping, hidden
   });
 
+  it("renders the goal-progression timeline and sensor-test battery", async () => {
+    const runs = [
+      {
+        index: 0,
+        playground: "castle_crashers",
+        status: "profiled",
+        summary: {},
+        diagnostics: [],
+        goals: [
+          {
+            goal: "clear_debris_zone",
+            indicators: [
+              {
+                name: "weight_cleared",
+                role: "attainment",
+                rung: "med_goal",
+                abstained: false,
+                abstain_reason: null,
+                flags: [],
+              },
+            ],
+          },
+        ],
+        timeline: {
+          events: [
+            {
+              step: 2,
+              block_type: "pg_drivetrain_drive_for",
+              goal: "playground_engagement",
+              indicator: "robot_moved",
+              from_rung: "stationary",
+              to_rung: "moved",
+              flags: [],
+            },
+          ],
+          post_exit_events: [],
+          boundary_exit_step: null,
+        },
+        battery: {
+          eligible: true,
+          qualifying_blocks: ["pg_sensing_optical_near_object"],
+          goal_mapping: {},
+          scenarios: [
+            {
+              scenario_id: "edge_handling",
+              goal: "clear_debris_zone",
+              construct: "static",
+              checks: [
+                { name: "detects", status: "fail", facet: "object_detection", detail: "0mm" },
+                { name: "stays_on_island", status: "pass", facet: "edge_failure_handling" },
+              ],
+            },
+          ],
+        },
+      },
+    ];
+    api.get.mockImplementation((url) => {
+      if (url === "/api/student_states/alice/")
+        return Promise.resolve({
+          data: {
+            studentID: "alice",
+            block: { llm_prompt: null },
+            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+            runs: { runs: [], run_count: 0 },
+            goal_recognition_enabled: true,
+            goal_runs: runs,
+          },
+        });
+      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
+      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    });
+    render(<CohortDashboard />);
+    fireEvent.click(await screen.findByTitle("alice"));
+    // timeline: a rung transition
+    expect(await screen.findByText("Goal progression")).toBeInTheDocument();
+    const ev = await screen.findByText(/stationary/);
+    expect(ev.textContent).toContain("moved");
+    // battery: eligible scenario with named checks
+    expect(await screen.findByText("Sensor test battery")).toBeInTheDocument();
+    expect(await screen.findByText("edge handling")).toBeInTheDocument();
+    expect(await screen.findByText("detects")).toBeInTheDocument();
+  });
+
   it("clears the previous student's goal evidence when switching students", async () => {
     const aliceRuns = [
       {

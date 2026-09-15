@@ -31,7 +31,7 @@ from learner_models import (
 from log_parser_delta_engine import generate_compact_prompt_from_project
 
 from app import db
-from app.config import GOAL_RECOGNITION_ENABLED
+from app.config import GOAL_BATTERY_ENABLED, GOAL_RECOGNITION_ENABLED, GOAL_TIMELINE_ENABLED
 from app.pipeline.triggers import _disabled_types
 
 logger = logging.getLogger("pipeline")
@@ -59,7 +59,15 @@ class StudentWorker:
         # Real-time goal recognition: one stream per student, fed every event
         # (rehydrate + ingest) so its run indices line up with the edit-distance
         # runs above. goal_written dedupes the per-run upsert into goal_profile.
-        self.gstream = GoalProfileStream(session_id=self.student_id) if GOAL_RECOGNITION_ENABLED else None
+        self.gstream = (
+            GoalProfileStream(
+                session_id=self.student_id,
+                include_timeline=GOAL_TIMELINE_ENABLED,
+                include_battery=GOAL_BATTERY_ENABLED,
+            )
+            if GOAL_RECOGNITION_ENABLED
+            else None
+        )
         self.goal_written = set()  # run indices already persisted to goal_profile
 
     def _feed_goal(self, evt):

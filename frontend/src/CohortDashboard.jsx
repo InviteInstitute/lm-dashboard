@@ -514,6 +514,132 @@ const GoalRunSummary = ({ run }) => {
   );
 };
 
+const goalSubLabel = {
+  fontFamily: HEADFONT,
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: 0.8,
+  textTransform: "uppercase",
+  color: T.sub,
+  margin: "6px 0 8px",
+};
+
+// The goal-progression timeline: each row is a moment a block moved a goal's
+// indicator from one rung to another (post-exit steps dimmed).
+const GoalTimeline = ({ timeline }) => {
+  const events = (timeline && timeline.events) || [];
+  const post = (timeline && timeline.post_exit_events) || [];
+  if (events.length === 0 && post.length === 0)
+    return (
+      <div style={{ color: T.faint, fontSize: 12 }}>No rung changes recorded on this run.</div>
+    );
+  const row = (e, i, faded) => (
+    <div
+      key={`${faded ? "p" : "e"}${i}`}
+      style={{
+        display: "flex",
+        gap: 8,
+        alignItems: "baseline",
+        flexWrap: "wrap",
+        fontFamily: MONO,
+        fontSize: 11.5,
+        opacity: faded ? 0.55 : 1,
+        marginBottom: 3,
+      }}
+    >
+      <span style={{ color: T.faint, minWidth: 30 }}>#{e.step}</span>
+      <span style={{ color: T.sub }}>
+        {_humanize(e.goal)}.{_humanize(e.indicator)}
+      </span>
+      <span style={{ color: T.ink }}>
+        {_humanize(e.from_rung) || "start"} &rarr; {_humanize(e.to_rung)}
+      </span>
+      {(e.flags || []).map((f) => (
+        <span key={f} style={goalFlagChip}>
+          {_humanize(f)}
+        </span>
+      ))}
+    </div>
+  );
+  return (
+    <div>
+      {events.map((e, i) => row(e, i, false))}
+      {post.length > 0 && <div style={goalSubLabel}>after leaving the island</div>}
+      {post.map((e, i) => row(e, i, true))}
+    </div>
+  );
+};
+
+// The sensor-test battery: pass / conditional / fail per check, per scenario.
+// Only eligible for programs that read a sensor.
+const goalCheckColor = (st) =>
+  st === "pass"
+    ? "var(--lmd-signal-green, #2f9e6b)"
+    : st === "fail"
+      ? "var(--lmd-signal-red, #c0392b)"
+      : "var(--lmd-signal-amber, #b7791f)";
+
+const GoalBattery = ({ battery }) => {
+  if (!battery) return null;
+  if (!battery.eligible)
+    return (
+      <div style={{ color: T.faint, fontSize: 12 }}>
+        Not applicable: this program reads no sensors.
+      </div>
+    );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ color: T.sub, fontSize: 11, fontFamily: MONO }}>
+        sensing: {(battery.qualifying_blocks || []).map(_humanize).join(", ")}
+      </div>
+      {(battery.scenarios || []).map((s, si) => (
+        <div
+          key={`${s.scenario_id}-${s.construct}-${si}`}
+          style={{
+            border: `1px solid ${T.border}`,
+            borderRadius: 8,
+            padding: "8px 10px",
+            background: T.track,
+          }}
+        >
+          <div style={{ fontFamily: MONO, fontSize: 11.5, color: T.ink, marginBottom: 6 }}>
+            {_humanize(s.scenario_id)} <span style={{ color: T.faint }}>· {_humanize(s.goal)}</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {(s.checks || []).map((c, ci) => (
+              <span
+                key={ci}
+                title={`${_humanize(c.name)}: ${c.status}${c.detail ? ` (${c.detail})` : ""}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontFamily: MONO,
+                  fontSize: 10.5,
+                  color: T.sub,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 6,
+                  padding: "1px 7px",
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: goalCheckColor(c.status),
+                  }}
+                />
+                {_humanize(c.name)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const GoalEvidence = ({ runs, enabled }) => {
   const list = runs || [];
   const [picked, setPicked] = React.useState(null);
@@ -566,13 +692,25 @@ const GoalEvidence = ({ runs, enabled }) => {
           display: "flex",
           flexDirection: "column",
           gap: 10,
-          maxHeight: 340,
+          maxHeight: 460,
           overflowY: "auto",
         }}
       >
         {(run.goals || []).map((g) => (
           <GoalCard key={g.goal} g={g} />
         ))}
+        {run.timeline && (
+          <div>
+            <div style={goalSubLabel}>Goal progression</div>
+            <GoalTimeline timeline={run.timeline} />
+          </div>
+        )}
+        {run.battery && (
+          <div>
+            <div style={goalSubLabel}>Sensor test battery</div>
+            <GoalBattery battery={run.battery} />
+          </div>
+        )}
       </div>
     </div>
   );

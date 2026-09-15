@@ -185,3 +185,8 @@ def test_detail_endpoint_returns_goal_runs(client):
     # every indicator carries a rung + uncertainty flags (evidence, not a score)
     inds = [i for g in gr0["goals"] for i in g["indicators"]]
     assert inds and all({"rung", "flags", "abstained"} <= set(i) for i in inds)
+    # run-level outputs are surfaced too (boundary, fidelity, telemetry, diagnostics)
+    assert isinstance(gr0["diagnostics"], list)
+    summ = gr0["summary"]
+    assert {"boundary_exceeded", "fidelity_verdict", "outcome_available"} <= set(summ)
+    assert summ["outcome_available"] is False  # no playgroundData in this run

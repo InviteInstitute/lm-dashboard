@@ -110,11 +110,32 @@ def _shape_goal_runs(student_id):
                 for ind in inds
             ]
             goals.append({"goal": g.get("goal"), "indicators": indicators})
+        # Run-level evidence the goals list doesn't carry: whether the robot left
+        # the island (a critical failure, not a goal), whether an outcome was
+        # associated, the sim-vs-GPS fidelity verdict, and the descriptive flags.
         runs.append({
             "index": p.get("index"),
             "playground": p.get("playground"),
             "status": p.get("status"),
+            "reason": p.get("reason"),
+            "diagnostics": p.get("diagnostics") or [],
             "goals": goals,
+            "summary": {
+                "boundary_exceeded": prof.get("boundary_exceeded"),
+                "boundary_exit_step": prof.get("boundary_exit_step"),
+                "boundary_exit_overridden": prof.get("boundary_exit_overridden"),
+                "outcome_available": prof.get("outcome_available"),
+                "fidelity_verdict": prof.get("fidelity_verdict"),
+                "sim_final_off_island": prof.get("sim_final_off_island"),
+                "gps_final_off_island": prof.get("gps_final_off_island"),
+                "off_island_agreement": prof.get("off_island_agreement"),
+                "gps_final_error_mm": prof.get("gps_final_error_mm"),
+                "gps_final_error_reason": prof.get("gps_final_error_reason"),
+                "gps_to_trajectory_mm": prof.get("gps_to_trajectory_mm"),
+                "orphan_block_count": prof.get("orphan_block_count"),
+                "fabricated_motion": prof.get("fabricated_motion"),
+                "edge_zone_traversed": prof.get("edge_zone_traversed"),
+            },
         })
     return runs
 

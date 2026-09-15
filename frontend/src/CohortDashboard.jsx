@@ -464,6 +464,56 @@ const GoalCard = ({ g }) => {
   );
 };
 
+// Run-level outcomes the per-goal rows don't carry: leaving the island is a
+// critical failure (not a goal), so it gets a filled chip -- the one place a
+// colour reads as a state, like the status badges. Everything else is a quiet note.
+const goalCriticalChip = {
+  fontFamily: MONO,
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#fff",
+  background: "var(--lmd-signal-red, #c0392b)",
+  borderRadius: 999,
+  padding: "2px 10px",
+  whiteSpace: "nowrap",
+};
+
+const GoalRunSummary = ({ run }) => {
+  const s = run.summary || {};
+  const notes = [];
+  if (s.outcome_available === false) notes.push("no telemetry associated yet");
+  if (s.fidelity_verdict && s.fidelity_verdict !== "not_applicable")
+    notes.push(`sim vs GPS: ${_humanize(s.fidelity_verdict)}`);
+  if (s.fabricated_motion) notes.push("fabricated motion");
+  if (s.orphan_block_count) notes.push(`${s.orphan_block_count} orphan blocks`);
+  // inherited_playground is routine bookkeeping, not worth showing here
+  const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
+  if (!s.boundary_exceeded && notes.length === 0 && diags.length === 0) return null;
+  return (
+    <div
+      style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12 }}
+    >
+      {s.boundary_exceeded && (
+        <span style={goalCriticalChip}>
+          left the island
+          {s.boundary_exit_step != null ? ` · step ${s.boundary_exit_step}` : ""}
+          {s.boundary_exit_overridden ? " (outcome override)" : ""}
+        </span>
+      )}
+      {notes.length > 0 && (
+        <span style={{ color: T.sub, fontSize: 11.5, fontFamily: MONO }}>
+          {notes.join("  ·  ")}
+        </span>
+      )}
+      {diags.map((d) => (
+        <span key={d} style={goalFlagChip} title="diagnostic">
+          {_humanize(d)}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 const GoalEvidence = ({ runs, enabled }) => {
   const list = runs || [];
   const [picked, setPicked] = React.useState(null);
@@ -510,6 +560,7 @@ const GoalEvidence = ({ runs, enabled }) => {
           RUN {run.index}
         </div>
       )}
+      <GoalRunSummary run={run} />
       <div
         style={{
           display: "flex",

@@ -341,8 +341,11 @@ const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 const _humanize = (s) => (s || "").replace(/_/g, " ");
 
 // Goal-evidence styling. Restrained on colour on purpose: this is evidence, not
-// a score, so a rung never reads as good/bad. Rungs are mono pills, abstentions
-// are dashed pills (no data), uncertainty is an amber flag chip.
+// a score. Each indicator is drawn as the rung ladder it climbed this run --
+// segments weaker (left) to stronger (right), filled up to the reached rung --
+// so a rung reads as a position on a scale, never as good/bad. Abstentions and
+// meaningful absences get an honest pill instead of a fake rung; uncertainty is
+// an amber flag chip, provenance a neutral one.
 const goalFlagChip = {
   fontFamily: MONO,
   fontSize: 10.5,
@@ -353,27 +356,48 @@ const goalFlagChip = {
   background: "transparent",
   whiteSpace: "nowrap",
 };
-const goalRungPill = (strong) => ({
+const goalProvenanceChip = {
   fontFamily: MONO,
-  fontSize: 11.5,
-  fontWeight: strong ? 700 : 600,
-  color: T.ink,
+  fontSize: 10.5,
+  color: T.sub,
   border: `1px solid ${T.border}`,
-  borderRadius: 6,
-  padding: "2px 9px",
-  background: strong ? T.panel : T.bg,
-  whiteSpace: "nowrap",
-});
-const goalAbstainPill = {
-  fontFamily: MONO,
-  fontSize: 11,
-  color: T.faint,
-  border: `1px dashed ${T.border}`,
-  borderRadius: 6,
-  padding: "2px 9px",
+  borderRadius: 999,
+  padding: "1px 8px",
   background: "transparent",
   whiteSpace: "nowrap",
 };
+// Uncertainty flags qualify the reading (amber); every other flag is provenance.
+const UNCERTAINTY_FLAGS = new Set(["sim_unverified", "fabricated_motion", "invalid_timestamp"]);
+
+// One rung on the ladder. reached = filled dark; climbed (rungs below the one
+// reached) = light fill; not-yet-reached = outline only.
+const goalRungSeg = (state) => ({
+  flex: 1,
+  minWidth: 0,
+  textAlign: "center",
+  fontFamily: MONO,
+  fontSize: 11,
+  fontWeight: state === "reached" ? 700 : state === "climbed" ? 600 : 500,
+  color: state === "reached" ? T.bg : state === "climbed" ? T.ink : T.sub,
+  background: state === "reached" ? T.ink : state === "climbed" ? T.track : "transparent",
+  border: `1px solid ${state === "reached" ? T.ink : T.border}`,
+  borderRadius: 6,
+  padding: "4px 6px",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+});
+// An indicator with no rung to place: an abstention (dashed, no reading) or a
+// meaningful absence (solid, the thing never happened). Never a fake rung.
+const goalNoReadingPill = (absent) => ({
+  fontFamily: MONO,
+  fontSize: 11,
+  color: absent ? T.sub : T.faint,
+  border: absent ? `1px solid ${T.border}` : `1px dashed ${T.border}`,
+  borderRadius: 6,
+  padding: "4px 10px",
+  background: absent ? T.track : "transparent",
+});
 const goalRoleLabel = {
   fontFamily: MONO,
   fontSize: 9.5,
@@ -396,29 +420,101 @@ const goalRunCell = (active) => ({
   border: `1px solid ${active ? T.ink : T.border}`,
 });
 
-const GoalIndicatorRow = ({ ind, strong }) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-    <span style={{ color: T.sub, fontSize: 12, minWidth: 170 }}>{_humanize(ind.name)}</span>
-    {ind.abstained ? (
-      <span
-        style={goalAbstainPill}
-        title={`abstained: ${_humanize(ind.abstain_reason) || "no data"}`}
-      >
-        {_humanize(ind.abstain_reason) || "abstained"}
-      </span>
-    ) : (
-      <span style={goalRungPill(strong)}>{_humanize(ind.rung) || "-"}</span>
-    )}
-    {(ind.flags || []).map((f) => (
-      <span key={f} style={goalFlagChip} title="uncertainty flag">
-        {_humanize(f)}
-      </span>
-    ))}
-  </div>
-);
+// Where an indicator's reading came from: observed (outcome, filled dot),
+// simulation (open dot), or authored from the code (open square).
+const ChannelMark = ({ channel }) => {
+  const base = { width: 9, height: 9, flexShrink: 0, display: "inline-block", boxSizing: "border-box" };
+  if (channel === "outcome")
+    return <span title="observed" style={{ ...base, borderRadius: "50%", background: T.ink }} />;
+  if (channel === "simulation")
+    return <span title="simulation" style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.sub}` }} />;
+  if (channel === "code")
+    return <span title="authored" style={{ ...base, border: `1.5px solid ${T.sub}` }} />;
+  return <span title="channel" style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.faint}` }} />;
+};
 
-// One goal, its outcome ("result", the attainment indicators) shown first and a
-// touch stronger, then what the code was reaching for ("intent").
+// The continuous value behind a rung, shown small beside the name: one decimal
+// at scale, a little more precision below 1, integers bare; categorical values
+// (e.g. "on_island") are humanized strings.
+const fmtGoalVal = (v) => {
+  if (v == null || typeof v === "boolean") return null;
+  if (typeof v === "string") return _humanize(v);
+  if (!Number.isFinite(v)) return null;
+  if (Number.isInteger(v)) return String(v);
+  return Math.abs(v) >= 1 ? v.toFixed(1) : v.toPrecision(1);
+};
+
+// One indicator: the channel mark + name + value/flags on top, then the rung
+// ladder it climbed (or an honest no-reading pill when there is no rung).
+const GoalIndicatorRow = ({ ind }) => {
+  const val = fmtGoalVal(ind.value);
+  // The ladder reads weaker -> stronger, left to right. For lower-is-better
+  // indicators the engine lists the strongest rung first, so flip for display.
+  const labels =
+    ind.direction === "lower_is_better"
+      ? [...(ind.rung_labels || [])].reverse()
+      : ind.rung_labels || [];
+  const reached = labels.indexOf(ind.rung);
+  const absent = ind.absent_label != null && ind.rung === ind.absent_label;
+  const showLadder = !ind.abstained && !absent && labels.length > 0 && reached !== -1;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+        <ChannelMark channel={ind.channel} />
+        <span style={{ color: T.sub, fontSize: 12.5 }}>{_humanize(ind.name)}</span>
+        <span
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}
+        >
+          {val != null && showLadder && (
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: 11,
+                color: T.faint,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {val}
+            </span>
+          )}
+          {(ind.flags || []).map((f) => (
+            <span
+              key={f}
+              style={UNCERTAINTY_FLAGS.has(f) ? goalFlagChip : goalProvenanceChip}
+              title={UNCERTAINTY_FLAGS.has(f) ? "uncertainty flag" : "provenance"}
+            >
+              {_humanize(f)}
+            </span>
+          ))}
+        </span>
+      </div>
+      {ind.abstained ? (
+        <div style={goalNoReadingPill(false)}>
+          no reading - {_humanize(ind.abstain_reason) || "no data"}
+        </div>
+      ) : absent ? (
+        <div style={goalNoReadingPill(true)}>{_humanize(ind.rung)} (not attempted)</div>
+      ) : showLadder ? (
+        <div style={{ display: "flex", gap: 6 }}>
+          {labels.map((label, i) => (
+            <div
+              key={label}
+              title={_humanize(label)}
+              style={goalRungSeg(i === reached ? "reached" : i < reached ? "climbed" : "todo")}
+            >
+              {_humanize(label)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={goalNoReadingPill(false)}>no reading</div>
+      )}
+    </div>
+  );
+};
+
+// One goal: what it "achieved" (the attainment indicators) shown first, then
+// what the code was "attempting" (the intent indicators).
 const GoalCard = ({ g }) => {
   const inds = g.indicators || [];
   const attainment = inds.filter((i) => i.role === "attainment");
@@ -446,15 +542,15 @@ const GoalCard = ({ g }) => {
       </div>
       {attainment.length > 0 && (
         <>
-          <div style={goalRoleLabel}>result</div>
+          <div style={goalRoleLabel}>achieved</div>
           {attainment.map((ind, i) => (
-            <GoalIndicatorRow key={i} ind={ind} strong />
+            <GoalIndicatorRow key={i} ind={ind} />
           ))}
         </>
       )}
       {intent.length > 0 && (
         <>
-          <div style={goalRoleLabel}>intent</div>
+          <div style={goalRoleLabel}>attempting</div>
           {intent.map((ind, i) => (
             <GoalIndicatorRow key={i} ind={ind} />
           ))}
@@ -483,7 +579,7 @@ const GoalRunSummary = ({ run }) => {
   const notes = [];
   if (s.outcome_available === false) notes.push("no telemetry associated yet");
   if (s.fidelity_verdict && s.fidelity_verdict !== "not_applicable")
-    notes.push(`sim vs GPS: ${_humanize(s.fidelity_verdict)}`);
+    notes.push(`sim vs GPS ${_humanize(s.fidelity_verdict)}`);
   if (s.fabricated_motion) notes.push("fabricated motion");
   if (s.orphan_block_count) notes.push(`${s.orphan_block_count} orphan blocks`);
   // inherited_playground is routine bookkeeping, not worth showing here
@@ -496,13 +592,17 @@ const GoalRunSummary = ({ run }) => {
       {s.boundary_exceeded && (
         <span style={goalCriticalChip}>
           left the island
-          {s.boundary_exit_step != null ? ` · step ${s.boundary_exit_step}` : ""}
+          {s.boundary_exit_step != null ? ` at step ${s.boundary_exit_step}` : ""}
           {s.boundary_exit_overridden ? " (outcome override)" : ""}
         </span>
       )}
       {notes.length > 0 && (
-        <span style={{ color: T.sub, fontSize: 11.5, fontFamily: MONO }}>
-          {notes.join("  ·  ")}
+        <span
+          style={{ color: T.sub, fontSize: 11.5, fontFamily: MONO, display: "flex", gap: 14, flexWrap: "wrap" }}
+        >
+          {notes.map((n) => (
+            <span key={n}>{n}</span>
+          ))}
         </span>
       )}
       {diags.map((d) => (
@@ -640,7 +740,52 @@ const GoalBattery = ({ battery }) => {
   );
 };
 
-const GoalEvidence = ({ runs, enabled }) => {
+// Legend for the panel: what each channel mark means, and how the ladder fills.
+const GoalLegend = () => {
+  const item = (mark, label) => (
+    <span
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.sub, fontFamily: MONO, fontSize: 10.5 }}
+    >
+      {mark}
+      {label}
+    </span>
+  );
+  const swatch = (reached) => (
+    <span
+      style={{
+        width: 16,
+        height: 11,
+        borderRadius: 3,
+        display: "inline-block",
+        background: reached ? T.ink : T.track,
+        border: `1px solid ${reached ? T.ink : T.border}`,
+      }}
+    />
+  );
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        flexWrap: "wrap",
+        marginBottom: 14,
+        paddingBottom: 12,
+        borderBottom: `1px solid ${T.border}`,
+      }}
+    >
+      {item(<ChannelMark channel="outcome" />, "observed")}
+      {item(<ChannelMark channel="simulation" />, "simulation")}
+      {item(<ChannelMark channel="code" />, "authored")}
+      <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>|</span>
+      {item(swatch(true), "reached rung")}
+      {item(swatch(false), "climbed")}
+      <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>weaker &rsaquo; stronger</span>
+    </div>
+  );
+};
+
+export const GoalEvidence = ({ runs, enabled }) => {
   const list = runs || [];
   const [picked, setPicked] = React.useState(null);
   if (enabled === false)
@@ -656,9 +801,11 @@ const GoalEvidence = ({ runs, enabled }) => {
   return (
     <div>
       <div style={{ color: T.sub, fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
-        The rung each goal reached on this run, with abstentions and uncertainty flags shown.
-        Evidence with explicit uncertainty, not a score.
+        Each goal's indicators drawn as the rung ladder they climbed on this run, filled to the
+        reached rung. Abstentions and uncertainty are shown, not hidden. This is evidence, not a
+        score.
       </div>
+      <GoalLegend />
       {list.length > 1 ? (
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
           {list.map((r) => (

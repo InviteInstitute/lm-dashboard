@@ -100,6 +100,9 @@ def _shape_goal_runs(student_id):
                     "role": role,
                     "channel": ind.get("channel"),
                     "rung": ind.get("rung"),
+                    "rung_labels": ind.get("rung_labels") or [],
+                    "direction": ind.get("direction"),
+                    "absent_label": ind.get("absent_label"),
                     "value": ind.get("value"),
                     "abstained": ind.get("abstained"),
                     "abstain_reason": ind.get("abstain_reason"),
@@ -358,7 +361,7 @@ def triggers(wsid: int = Depends(current_workspace_id)):
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
     feed = db.triggers_feed(cutoff, workspace_id=wsid)
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
-    # the card can say "last: Wheel-spinning · 10:24". One history fetch per
+    # the card can say "last: Wheel-spinning | 10:24". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
     history = {
         sid: db.trigger_history(sid, workspace_id=wsid) for sid in {t["studentID"] for t in feed}

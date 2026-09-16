@@ -12,8 +12,8 @@ finish - serving **every board at once** from one shared mirror.
 
 ```mermaid
 flowchart LR
-    a["1 · Live boards<br/>+ union roster"] --> b["2 · Backfill<br/>new students"] --> c["3 · Drain<br/>ingest"]
-    c --> d["4 · Recompute<br/>dirty workers"] --> e["5 · Evaluate<br/>triggers"] --> f["6 · Adaptive<br/>sleep"]
+    a["1. Live boards<br/>+ union roster"] --> b["2. Backfill<br/>new students"] --> c["3. Drain<br/>ingest"]
+    c --> d["4. Recompute<br/>dirty workers"] --> e["5. Evaluate<br/>triggers"] --> f["6. Adaptive<br/>sleep"]
     f -. "next tick" .-> a
 ```
 
@@ -119,7 +119,7 @@ Inference is a single deterministic number per run: the **edit distance** betwee
 flowchart LR
     run["runProject"] --> ast["Block AST"]
     ast --> ed["edit_distance (int)<br/>APTED vs previous run"]
-    ed --> track["Per-run track<br/>0 = no change · small = edit · large = rewrite"]
+    ed --> track["Per-run track<br/>0 = no change | small = edit | large = rewrite"]
 ```
 
 The first run has no predecessor, so its `edit_distance` is `null`. Every later run

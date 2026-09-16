@@ -5,15 +5,15 @@ start with the [Quickstart](quickstart.md).
 
 ```mermaid
 flowchart LR
-    subgraph prod["Reflecks production · read-only source"]
+    subgraph prod["Reflecks production | read-only source"]
         ev["VEX event stream"]
     end
 
-    subgraph write["WRITE side · daemon · single writer"]
+    subgraph write["WRITE side | daemon | single writer"]
         direction TB
         poll["Cursor poller<br/>idle backoff"]
         log[("vex_log<br/>append-only event log")]
-        workers["In-memory workers<br/>edit distances · episodes · prompt"]
+        workers["In-memory workers<br/>edit distances | episodes | prompt"]
         state[("student_state<br/>materialized view")]
         trig[("trigger_event")]
         poll --> log --> workers
@@ -21,7 +21,7 @@ flowchart LR
         workers --> trig
     end
 
-    subgraph read["READ side · API · N readers"]
+    subgraph read["READ side | API | N readers"]
         direction TB
         fastapi["FastAPI"]
         ui["React dashboard"]

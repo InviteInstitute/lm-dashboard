@@ -47,9 +47,9 @@ into three things you can actually act on:
 ```mermaid
 flowchart LR
     ev["One student's<br/>VEX event stream"] --> d{{"Local daemon<br/>read-only mirror"}}
-    d --> strat["Per-run edit distance<br/>0 = re-run · small = edit · large = rewrite"]
-    d --> epi["Episodes<br/>code · run · reset + pauses"]
-    d --> flags["Intervention flags<br/>wheel-spin · resilience · inactive · explorer · step-by-step"]
+    d --> strat["Per-run edit distance<br/>0 = re-run | small = edit | large = rewrite"]
+    d --> epi["Episodes<br/>code | run | reset + pauses"]
+    d --> flags["Intervention flags<br/>wheel-spin | resilience | inactive | explorer | step-by-step"]
 ```
 
 The whole thing runs as a small Docker stack (Postgres + the API + the daemon), and

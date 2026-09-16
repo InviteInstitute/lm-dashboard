@@ -185,6 +185,11 @@ def test_detail_endpoint_returns_goal_runs(client):
     # every indicator carries a rung + uncertainty flags (evidence, not a score)
     inds = [i for g in gr0["goals"] for i in g["indicators"]]
     assert inds and all({"rung", "flags", "abstained"} <= set(i) for i in inds)
+    # ...and the ordinal ladder the UI draws the climb from (labels + direction)
+    assert all({"rung_labels", "direction", "absent_label"} <= set(i) for i in inds)
+    weight = next(i for g in gr0["goals"] for i in g["indicators"] if i["name"] == "weight_cleared")
+    assert weight["rung_labels"] == ["none", "initial_goal", "med_goal", "high_goal", "advanced_goal"]
+    assert weight["direction"] == "higher_is_better"
     # run-level outputs are surfaced too (boundary, fidelity, telemetry, diagnostics)
     assert isinstance(gr0["diagnostics"], list)
     summ = gr0["summary"]

@@ -444,7 +444,10 @@ describe("CohortDashboard", () => {
                       {
                         name: "debris_zone_coverage",
                         role: "intent",
+                        channel: "code",
                         rung: "negligible",
+                        rung_labels: ["negligible", "some", "meaningful", "systematic"],
+                        direction: "higher_is_better",
                         abstained: false,
                         abstain_reason: null,
                         flags: [],
@@ -452,7 +455,10 @@ describe("CohortDashboard", () => {
                       {
                         name: "plow_proximity_execution",
                         role: "attainment",
+                        channel: "simulation",
                         rung: null,
+                        rung_labels: ["attach_estimated", "armed_never_close"],
+                        direction: "lower_is_better",
                         abstained: true,
                         abstain_reason: "no_simulation",
                         flags: ["sim_unverified"],
@@ -472,11 +478,15 @@ describe("CohortDashboard", () => {
     fireEvent.click(await screen.findByTitle("alice"));
     expect(await screen.findByText("Goal evidence (with uncertainty)")).toBeInTheDocument();
     expect(await screen.findByText("clear debris zone")).toBeInTheDocument();
+    // the rung ladder: the reached rung and an un-reached rung both render as segments
     expect(await screen.findByText("negligible")).toBeInTheDocument();
+    expect(await screen.findByText("systematic")).toBeInTheDocument();
+    // an abstained indicator states no reading (with the reason), never a rung
+    expect(await screen.findByText(/no reading - no simulation/)).toBeInTheDocument();
     expect(await screen.findByText("sim unverified")).toBeInTheDocument(); // an uncertainty flag chip
-    // result/intent grouping and the single-run label
-    expect(await screen.findByText("result")).toBeInTheDocument();
-    expect(await screen.findByText("intent")).toBeInTheDocument();
+    // achieved/attempting grouping and the single-run label
+    expect(await screen.findByText("achieved")).toBeInTheDocument();
+    expect(await screen.findByText("attempting")).toBeInTheDocument();
     expect(await screen.findByText("RUN 0")).toBeInTheDocument();
   });
 
@@ -502,7 +512,10 @@ describe("CohortDashboard", () => {
               {
                 name: "on_island_sim",
                 role: "attainment",
+                channel: "simulation",
                 rung: "off_island",
+                rung_labels: ["unknown", "off_island", "on_island"],
+                direction: null,
                 abstained: false,
                 abstain_reason: null,
                 flags: [],
@@ -531,7 +544,7 @@ describe("CohortDashboard", () => {
     fireEvent.click(await screen.findByTitle("alice"));
     const chip = await screen.findByText(/left the island/);
     expect(chip.textContent).toContain("step 3"); // critical failure surfaced with the exit step
-    expect(await screen.findByText(/sim vs GPS: agree/)).toBeInTheDocument();
+    expect(await screen.findByText(/sim vs GPS agree/)).toBeInTheDocument();
     expect(await screen.findByText("invalid timestamp")).toBeInTheDocument(); // a diagnostic chip
     expect(screen.queryByText("inherited playground")).toBeNull(); // routine bookkeeping, hidden
   });
@@ -551,7 +564,11 @@ describe("CohortDashboard", () => {
               {
                 name: "weight_cleared",
                 role: "attainment",
+                channel: "outcome",
                 rung: "med_goal",
+                rung_labels: ["none", "initial_goal", "med_goal", "high_goal", "advanced_goal"],
+                direction: "higher_is_better",
+                value: 1600,
                 abstained: false,
                 abstain_reason: null,
                 flags: [],
@@ -632,7 +649,11 @@ describe("CohortDashboard", () => {
               {
                 name: "weight_cleared",
                 role: "attainment",
+                channel: "outcome",
                 rung: "med_goal",
+                rung_labels: ["none", "initial_goal", "med_goal", "high_goal", "advanced_goal"],
+                direction: "higher_is_better",
+                value: 1600,
                 abstained: false,
                 abstain_reason: null,
                 flags: [],

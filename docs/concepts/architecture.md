@@ -25,7 +25,7 @@ flowchart LR
 
     subgraph WRITE["WRITE side: daemon (single writer)"]
         direction LR
-        poll["Cursor poller<br/>idle backoff"] --> log[("vex_log")] --> workers["In-memory workers<br/>edit distances · episodes · prompt"] --> proj[("student_state +<br/>trigger_event")]
+        poll["Cursor poller<br/>idle backoff"] --> log[("vex_log")] --> workers["In-memory workers<br/>edit distances | episodes | prompt"] --> proj[("student_state +<br/>trigger_event")]
     end
 
     subgraph READ["READ side: API (many readers)"]

@@ -66,7 +66,7 @@ has fired that hasn't yet resolved or been acknowledged. There are five:
 
 Each row shows the student ID, the trigger label and its value, and how long ago it
 fired, plus a faint **last:** line with the student's previous trigger and its
-wall-clock time (for example `last: Wheel-spinning · 10:24 AM (12m ago)`), so a first
+wall-clock time (for example `last: Wheel-spinning | 10:24 AM (12m ago)`), so a first
 flag reads differently from the fifth in ten minutes. Click a row to open that
 student's detail, hit the **✕** to dismiss the alert, or use **Notes** to jot an
 observation right against the alert.

@@ -15,11 +15,11 @@ stored as `text` (the fixed-width contract below) and the old SQLite booleans ar
 
 ```mermaid
 flowchart LR
-    subgraph truth["Event log · source of truth · append-only"]
+    subgraph truth["Event log | source of truth | append-only"]
         msg[("message")]
         vex[("vex_log")]
     end
-    subgraph cache["Read model · rebuildable cache"]
+    subgraph cache["Read model | rebuildable cache"]
         ss[("student_state")]
         te[("trigger_event")]
     end

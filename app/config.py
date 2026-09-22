@@ -20,6 +20,7 @@ load_dotenv(BASE_DIR / ".env.mirror")
 # every real run -- compose loads it from .env.mirror.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+
 # Goal recognition (agent-lm-packages goal_strategy) profiles each run in the
 # worker and stores per-run goal evidence with explicit uncertainty. On by
 # default; set GOAL_RECOGNITION_ENABLED=0 to disable the feed + storage entirely.
@@ -28,11 +29,18 @@ def _flag(name, default="1"):
 
 
 GOAL_RECOGNITION_ENABLED = _flag("GOAL_RECOGNITION_ENABLED")
-# The goal-progression timeline (cheap) and the sensor-test battery (runs 5 extra
+# The goal-progression timeline (cheap) and the sensor-test battery (runs 19 extra
 # simulations per eligible run) are extra goal_strategy outputs. On by default;
 # set GOAL_BATTERY_ENABLED=0 to shed the heavier one under load.
 GOAL_TIMELINE_ENABLED = _flag("GOAL_TIMELINE_ENABLED")
 GOAL_BATTERY_ENABLED = _flag("GOAL_BATTERY_ENABLED")
+# The two battery-fed rollups: the purpose-1 goal claims (each goal banded from
+# the battery, or derived from its indicators) and the PROVISIONAL purpose-2
+# execution rubric (six dimensions, still under human validation upstream, so
+# the UI labels it provisional). Both reuse the one battery run per program, so
+# enabling them adds no extra simulations on top of GOAL_BATTERY_ENABLED.
+GOAL_ROLLUP_ENABLED = _flag("GOAL_ROLLUP_ENABLED")
+GOAL_RUBRIC_ENABLED = _flag("GOAL_RUBRIC_ENABLED")
 
 # Secret used to sign the "this browser solved Turnstile" cookie (see
 # app/turnstile.py). Required in any real deployment -- set a long random value

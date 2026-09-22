@@ -423,14 +423,30 @@ const goalRunCell = (active) => ({
 // Where an indicator's reading came from: observed (outcome, filled dot),
 // simulation (open dot), or authored from the code (open square).
 const ChannelMark = ({ channel }) => {
-  const base = { width: 9, height: 9, flexShrink: 0, display: "inline-block", boxSizing: "border-box" };
+  const base = {
+    width: 9,
+    height: 9,
+    flexShrink: 0,
+    display: "inline-block",
+    boxSizing: "border-box",
+  };
   if (channel === "outcome")
     return <span title="observed" style={{ ...base, borderRadius: "50%", background: T.ink }} />;
   if (channel === "simulation")
-    return <span title="simulation" style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.sub}` }} />;
+    return (
+      <span
+        title="simulation"
+        style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.sub}` }}
+      />
+    );
   if (channel === "code")
     return <span title="authored" style={{ ...base, border: `1.5px solid ${T.sub}` }} />;
-  return <span title="channel" style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.faint}` }} />;
+  return (
+    <span
+      title="channel"
+      style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.faint}` }}
+    />
+  );
 };
 
 // The continuous value behind a rung, shown small beside the name: one decimal
@@ -441,8 +457,24 @@ const fmtGoalVal = (v) => {
   if (typeof v === "string") return _humanize(v);
   if (!Number.isFinite(v)) return null;
   if (Number.isInteger(v)) return String(v);
+  if (Math.abs(v) < 0.005) return "0"; // float noise from the simulator, not a reading
   return Math.abs(v) >= 1 ? v.toFixed(1) : v.toPrecision(1);
 };
+
+// A rung ladder: the labels weaker -> stronger, filled up to the reached one.
+const RungLadder = ({ labels, reached }) => (
+  <div style={{ display: "flex", gap: 6 }}>
+    {labels.map((label, i) => (
+      <div
+        key={label}
+        title={_humanize(label)}
+        style={goalRungSeg(i === reached ? "reached" : i < reached ? "climbed" : "todo")}
+      >
+        {_humanize(label)}
+      </div>
+    ))}
+  </div>
+);
 
 // One indicator: the channel mark + name + value/flags on top, then the rung
 // ladder it climbed (or an honest no-reading pill when there is no rung).
@@ -459,11 +491,19 @@ const GoalIndicatorRow = ({ ind }) => {
   const showLadder = !ind.abstained && !absent && labels.length > 0 && reached !== -1;
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}
+      >
         <ChannelMark channel={ind.channel} />
         <span style={{ color: T.sub, fontSize: 12.5 }}>{_humanize(ind.name)}</span>
         <span
-          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            flexWrap: "wrap",
+          }}
         >
           {val != null && showLadder && (
             <span
@@ -495,17 +535,7 @@ const GoalIndicatorRow = ({ ind }) => {
       ) : absent ? (
         <div style={goalNoReadingPill(true)}>{_humanize(ind.rung)} (not attempted)</div>
       ) : showLadder ? (
-        <div style={{ display: "flex", gap: 6 }}>
-          {labels.map((label, i) => (
-            <div
-              key={label}
-              title={_humanize(label)}
-              style={goalRungSeg(i === reached ? "reached" : i < reached ? "climbed" : "todo")}
-            >
-              {_humanize(label)}
-            </div>
-          ))}
-        </div>
+        <RungLadder labels={labels} reached={reached} />
       ) : (
         <div style={goalNoReadingPill(false)}>no reading</div>
       )}
@@ -579,7 +609,7 @@ const GoalRunSummary = ({ run }) => {
   const notes = [];
   if (s.outcome_available === false) notes.push("no telemetry associated yet");
   if (s.fidelity_verdict && s.fidelity_verdict !== "not_applicable")
-    notes.push(`sim vs GPS ${_humanize(s.fidelity_verdict)}`);
+    notes.push(`sim vs GPS ${_humanize(s.fidelity_verdict).toLowerCase()}`);
   if (s.fabricated_motion) notes.push("fabricated motion");
   if (s.orphan_block_count) notes.push(`${s.orphan_block_count} orphan blocks`);
   // inherited_playground is routine bookkeeping, not worth showing here
@@ -598,7 +628,14 @@ const GoalRunSummary = ({ run }) => {
       )}
       {notes.length > 0 && (
         <span
-          style={{ color: T.sub, fontSize: 11.5, fontFamily: MONO, display: "flex", gap: 14, flexWrap: "wrap" }}
+          style={{
+            color: T.sub,
+            fontSize: 11.5,
+            fontFamily: MONO,
+            display: "flex",
+            gap: 14,
+            flexWrap: "wrap",
+          }}
         >
           {notes.map((n) => (
             <span key={n}>{n}</span>
@@ -670,14 +707,132 @@ const GoalTimeline = ({ timeline }) => {
   );
 };
 
-// The sensor-test battery: pass / conditional / fail per check, per scenario.
-// Only eligible for programs that read a sensor.
+// The sensor-test battery: each scenario drops the program into a designed test
+// world and records per-check evidence. Pass/conditional/fail are verdicts;
+// "measured" checks carry a value instead (e.g. the share of pieces cleared);
+// "abstained" means the run never reached what the check tests. Scenarios are
+// grouped by family (t1 debris field, t2 boundary, ...). Only programs that read
+// a sensor are eligible.
+const GOAL_CHECK_VERDICTS = ["pass", "conditional", "fail"];
 const goalCheckColor = (st) =>
   st === "pass"
     ? "var(--lmd-signal-green, #2f9e6b)"
     : st === "fail"
       ? "var(--lmd-signal-red, #c0392b)"
-      : "var(--lmd-signal-amber, #b7791f)";
+      : st === "conditional"
+        ? "var(--lmd-signal-amber, #b7791f)"
+        : T.sub;
+const _checkState = (c) => (c.abstained || c.status === "abstained" ? "abstained" : c.status);
+const _pct = (v) => `${Math.round(v * 100)}%`;
+// "t2_boundary" -> "T2 boundary"
+const _familyLabel = (f) => {
+  const h = _humanize(f);
+  return h.charAt(0).toUpperCase() + h.slice(1);
+};
+
+// Card descriptions lead with the family and variant ("T2 boundary response --
+// direct -- head-on arrival, ..."), which the family header and scenario id
+// already show; keep just the part that says what is different about the world.
+const _scenarioBlurb = (sc) => {
+  const parts = (sc.description || "").split(/\s+\u2014\s+/);
+  const variant = _humanize((sc.scenario_id || "").replace(/^t\d+[a-z]?_/, "")).toLowerCase();
+  let i = 0;
+  while (
+    i < parts.length - 1 &&
+    !parts[i].includes("(") &&
+    (/^T\d/.test(parts[i]) || parts[i].toLowerCase() === variant)
+  )
+    i += 1;
+  let rest = parts.slice(i).join(" - ");
+  if (parts.length > 1 && i === parts.length - 1 && /^T\d/.test(parts[0])) {
+    // "T4 debris configuration -- dispersed." : nothing beyond the variant name
+    if (rest.replace(/\.$/, "").toLowerCase() === variant) rest = "";
+    // "near favorable (T4's world, tight clear rule)." : keep the aside
+    else if (rest.toLowerCase().startsWith(`${variant} (`))
+      rest = rest.slice(variant.length + 2).replace(/\)\.?$/, "");
+  }
+  return rest;
+};
+
+const CheckDot = ({ state }) => (
+  <span
+    style={{
+      width: 7,
+      height: 7,
+      flexShrink: 0,
+      borderRadius: "50%",
+      boxSizing: "border-box",
+      background:
+        state === "abstained" || state === "measured" ? "transparent" : goalCheckColor(state),
+      border:
+        state === "abstained"
+          ? `1px dashed ${T.faint}`
+          : state === "measured"
+            ? `1.5px solid ${T.sub}`
+            : "none",
+    }}
+  />
+);
+
+const BatteryCheck = ({ c }) => {
+  const state = _checkState(c);
+  const measured = state === "measured" && Number.isFinite(c.value);
+  const detail =
+    state === "abstained"
+      ? `abstained: ${_humanize(c.abstain_reason) || "not reached"}`
+      : `${state}${c.detail ? ` (${c.detail})` : ""}`;
+  return (
+    <span
+      title={`${_humanize(c.name)}: ${detail}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        fontFamily: MONO,
+        fontSize: 10.5,
+        color: state === "abstained" ? T.faint : T.sub,
+        border: `1px ${state === "abstained" ? "dashed" : "solid"} ${T.border}`,
+        borderRadius: 6,
+        padding: "1px 7px",
+      }}
+    >
+      <CheckDot state={state} />
+      {_humanize(c.name)}
+      {measured && (
+        <span style={{ color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+          {c.value >= 0 && c.value <= 1 ? _pct(c.value) : fmtGoalVal(c.value)}
+        </span>
+      )}
+      {c.capped && <span style={{ color: "var(--lmd-signal-amber, #b7791f)" }}>capped</span>}
+    </span>
+  );
+};
+
+// How a family's checks came out, as dot + count pairs (verdicts, then the rest).
+const BatteryTally = ({ scenarios }) => {
+  const n = {};
+  scenarios.forEach((sc) =>
+    (sc.checks || []).forEach((c) => {
+      const st = _checkState(c);
+      n[st] = (n[st] || 0) + 1;
+    }),
+  );
+  const order = [...GOAL_CHECK_VERDICTS, "measured", "abstained"].filter((st) => n[st]);
+  return (
+    <span style={{ display: "inline-flex", gap: 10, marginLeft: "auto", flexWrap: "wrap" }}>
+      {order.map((st) => (
+        <span
+          key={st}
+          title={`${n[st]} ${st}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 4, color: T.sub }}
+        >
+          <CheckDot state={st} />
+          {n[st]} {st}
+        </span>
+      ))}
+    </span>
+  );
+};
 
 const GoalBattery = ({ battery }) => {
   if (!battery) return null;
@@ -687,64 +842,281 @@ const GoalBattery = ({ battery }) => {
         Not applicable: this program reads no sensors.
       </div>
     );
+  const families = [];
+  (battery.scenarios || []).forEach((sc) => {
+    const key = sc.family || "other";
+    let fam = families.find((f) => f.key === key);
+    if (!fam) families.push((fam = { key, scenarios: [] }));
+    fam.scenarios.push(sc);
+  });
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ color: T.sub, fontSize: 11, fontFamily: MONO }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ color: T.sub, fontSize: 11, fontFamily: MONO, marginBottom: 2 }}>
         sensing: {(battery.qualifying_blocks || []).map(_humanize).join(", ")}
       </div>
-      {(battery.scenarios || []).map((s, si) => (
-        <div
-          key={`${s.scenario_id}-${s.construct}-${si}`}
+      {families.map((fam) => (
+        <details
+          key={fam.key}
           style={{
             border: `1px solid ${T.border}`,
             borderRadius: 8,
-            padding: "8px 10px",
             background: T.track,
           }}
         >
-          <div style={{ fontFamily: MONO, fontSize: 11.5, color: T.ink, marginBottom: 6 }}>
-            {_humanize(s.scenario_id)} <span style={{ color: T.faint }}>· {_humanize(s.goal)}</span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {(s.checks || []).map((c, ci) => (
-              <span
-                key={ci}
-                title={`${_humanize(c.name)}: ${c.status}${c.detail ? ` (${c.detail})` : ""}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontFamily: MONO,
-                  fontSize: 10.5,
-                  color: T.sub,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: 6,
-                  padding: "1px 7px",
-                }}
-              >
-                <span
+          <summary
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+              cursor: "pointer",
+              padding: "7px 10px",
+              fontFamily: MONO,
+              fontSize: 11,
+              listStyle: "none",
+            }}
+          >
+            <span style={{ color: T.faint }} aria-hidden="true" className="goal-fam-caret">
+              &#9656;
+            </span>
+            <span style={{ color: T.ink, fontWeight: 600 }}>{_familyLabel(fam.key)}</span>
+            <span style={{ color: T.faint }}>
+              {fam.scenarios.length} {fam.scenarios.length === 1 ? "scenario" : "scenarios"}
+            </span>
+            <BatteryTally scenarios={fam.scenarios} />
+          </summary>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: 9, padding: "2px 10px 10px" }}
+          >
+            {fam.scenarios.map((sc, si) => (
+              <div key={`${sc.scenario_id}-${sc.construct}-${si}`}>
+                <div
                   style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: "50%",
-                    background: goalCheckColor(c.status),
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "baseline",
+                    flexWrap: "wrap",
+                    marginBottom: 5,
                   }}
-                />
-                {_humanize(c.name)}
-              </span>
+                >
+                  <span style={{ fontFamily: MONO, fontSize: 11.5, color: T.ink }}>
+                    {_humanize(sc.scenario_id)}
+                  </span>
+                  {_scenarioBlurb(sc) && (
+                    <span style={{ color: T.faint, fontSize: 11.5 }} title={sc.description}>
+                      {_scenarioBlurb(sc)}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {(sc.checks || []).map((c, ci) => (
+                    <BatteryCheck key={ci} c={c} />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
-        </div>
+        </details>
       ))}
     </div>
   );
 };
 
+// Where a rollup claim or rubric level was read from, as a short source name.
+const _evidenceSource = (e) => {
+  const [src, ...rest] = (e || "").split(".");
+  const name = _humanize(rest.join(".")) || _humanize(src);
+  const where = { production: "code", battery: "tests" }[src] || src;
+  return rest.length ? `${where}: ${name}` : name;
+};
+
+// A mono caption line under a ladder: quiet key/value facts, space-separated.
+const GoalFacts = ({ facts }) => {
+  const shown = facts.filter(([, v]) => v != null && v !== "");
+  if (shown.length === 0) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 14,
+        flexWrap: "wrap",
+        marginTop: 5,
+        fontFamily: MONO,
+        fontSize: 10.5,
+        color: T.faint,
+      }}
+    >
+      {shown.map(([k, v]) => (
+        <span key={k}>
+          {k} <span style={{ color: T.sub }}>{v}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
+// One rolled-up goal claim (purpose 1): the goal, where the claim comes from,
+// the band/claim on its ladder, then the support behind it.
+const GoalClaimRow = ({ g }) => {
+  const labels = g.rungs || [];
+  const reached = labels.indexOf(g.rung);
+  const fromTests = g.source === "battery";
+  const reduced = fromTests && g.certainty && g.certainty !== "full";
+  // No battery test contributed at all: the program reads no sensors, so there
+  // was nothing to band. Say that rather than a bare "no evidence".
+  const noTests = fromTests && !g.n_valid && !g.n_abstained;
+  const d = g.debris || {};
+  const facts = fromTests
+    ? [
+        ["tests", noTests ? null : `${g.n_valid || 0} valid, ${g.n_abstained || 0} abstained`],
+        [
+          "pieces cleared",
+          Number.isFinite(d.proportion_cleared) ? _pct(d.proportion_cleared) : null,
+        ],
+        [
+          "zone coverage",
+          Number.isFinite(d.zone_coverage)
+            ? `${_pct(d.zone_coverage)}${d.zone_coverage_band ? ` (${_humanize(d.zone_coverage_band)})` : ""}`
+            : null,
+        ],
+        [
+          "weight cleared",
+          Number.isFinite(d.weight_cleared_kg)
+            ? `${Math.round(d.weight_cleared_kg)} kg${d.weight_cleared_band ? ` (${_humanize(d.weight_cleared_band)})` : ""}`
+            : null,
+        ],
+      ]
+    : Object.entries(g.basis || {}).map(([k, v]) => [
+        _humanize(k),
+        v == null ? "n/a" : _humanize(v),
+      ]);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}
+      >
+        <span
+          style={{
+            fontFamily: HEADFONT,
+            fontSize: 12.5,
+            fontWeight: 700,
+            color: T.ink,
+            textTransform: "capitalize",
+          }}
+        >
+          {_humanize(g.goal)}
+        </span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 7, flexWrap: "wrap" }}>
+          {reduced &&
+            (g.certainty_reasons.length ? g.certainty_reasons : [`${g.certainty} certainty`]).map(
+              (r) => (
+                <span key={r} style={goalFlagChip} title={`certainty ${g.certainty}`}>
+                  {_humanize(r)}
+                </span>
+              ),
+            )}
+          {(g.flags || []).map((f) => (
+            <span key={f} style={goalFlagChip} title="flag">
+              {_humanize(f)}
+            </span>
+          ))}
+          <span
+            style={goalProvenanceChip}
+            title={
+              fromTests
+                ? "banded from the sensor-test battery"
+                : "derived from this goal's indicator rungs (no battery channel by design)"
+            }
+          >
+            {fromTests ? "from tests" : "from indicators"}
+          </span>
+        </span>
+      </div>
+      {reached !== -1 ? (
+        <RungLadder labels={labels} reached={reached} />
+      ) : (
+        <div style={goalNoReadingPill(false)}>
+          no reading -{" "}
+          {noTests ? "no sensor tests ran" : _humanize(g.abstain_reason) || "no evidence"}
+        </div>
+      )}
+      <GoalFacts facts={facts} />
+    </div>
+  );
+};
+
+const GoalClaims = ({ rollup }) => (
+  <div>
+    {(rollup.goals || []).map((g) => (
+      <GoalClaimRow key={g.goal} g={g} />
+    ))}
+  </div>
+);
+
+// The purpose-2 execution rubric: six dimensions of HOW the program runs, each
+// a level on 0..max. Provisional upstream (still under human validation), so it
+// is labelled as such and never reads as a grade.
+const GoalRubric = ({ rubric }) => (
+  <div>
+    {(rubric.dimensions || []).map((d) => {
+      const labels = Array.from({ length: (d.max_level || 0) + 1 }, (_, i) => String(i));
+      return (
+        <div key={d.dimension} style={{ marginBottom: 10 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 5,
+            }}
+          >
+            <span style={{ color: T.sub, fontSize: 12.5 }}>{_humanize(d.dimension)}</span>
+            <span style={{ marginLeft: "auto", display: "flex", gap: 7, flexWrap: "wrap" }}>
+              {d.borderline && (
+                <span style={goalFlagChip} title="within the borderline margin of the next level">
+                  borderline
+                </span>
+              )}
+              {d.ceiling != null && d.ceiling < d.max_level && (
+                <span
+                  style={goalProvenanceChip}
+                  title="the highest level this program's code can show"
+                >
+                  code ceiling {d.ceiling}
+                </span>
+              )}
+            </span>
+          </div>
+          {d.level == null ? (
+            <div style={goalNoReadingPill(false)}>undetermined - {_humanize(d.u_reason)}</div>
+          ) : (
+            <RungLadder labels={labels} reached={d.level} />
+          )}
+          <GoalFacts
+            facts={[
+              ["evidence", (d.evidence || []).map(_evidenceSource).join(", ") || null],
+              ["against", (d.negatives || []).map(_evidenceSource).join(", ") || null],
+            ]}
+          />
+        </div>
+      );
+    })}
+  </div>
+);
+
 // Legend for the panel: what each channel mark means, and how the ladder fills.
 const GoalLegend = () => {
   const item = (mark, label) => (
     <span
-      style={{ display: "inline-flex", alignItems: "center", gap: 6, color: T.sub, fontFamily: MONO, fontSize: 10.5 }}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        color: T.sub,
+        fontFamily: MONO,
+        fontSize: 10.5,
+      }}
     >
       {mark}
       {label}
@@ -780,7 +1152,9 @@ const GoalLegend = () => {
       <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>|</span>
       {item(swatch(true), "reached rung")}
       {item(swatch(false), "climbed")}
-      <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>weaker &rsaquo; stronger</span>
+      <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>
+        weaker &rsaquo; stronger
+      </span>
     </div>
   );
 };
@@ -843,9 +1217,35 @@ export const GoalEvidence = ({ runs, enabled }) => {
           overflowY: "auto",
         }}
       >
+        {run.rollup && (run.rollup.goals || []).length > 0 && (
+          <div>
+            <div style={goalSubLabel}>Goal claims</div>
+            <GoalClaims rollup={run.rollup} />
+          </div>
+        )}
+        {(run.goals || []).length > 0 && <div style={goalSubLabel}>Indicators</div>}
         {(run.goals || []).map((g) => (
           <GoalCard key={g.goal} g={g} />
         ))}
+        {run.rubric && (run.rubric.dimensions || []).length > 0 && (
+          <div>
+            <div style={{ ...goalSubLabel, display: "flex", alignItems: "center", gap: 8 }}>
+              Execution rubric
+              <span
+                style={{
+                  ...goalFlagChip,
+                  textTransform: "none",
+                  letterSpacing: 0,
+                  fontWeight: 500,
+                }}
+                title={`still under human validation upstream (${run.rubric.status || "provisional"})`}
+              >
+                provisional
+              </span>
+            </div>
+            <GoalRubric rubric={run.rubric} />
+          </div>
+        )}
         {run.timeline && (
           <div>
             <div style={goalSubLabel}>Goal progression</div>

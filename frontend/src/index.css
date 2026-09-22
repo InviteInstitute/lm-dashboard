@@ -372,3 +372,15 @@ textarea::placeholder {
     flex-basis: 100%;
   }
 }
+
+/* Goal battery families: a native <details> with our own caret. */
+details > summary::-webkit-details-marker {
+  display: none;
+}
+.goal-fam-caret {
+  display: inline-block;
+  transition: transform 0.12s ease;
+}
+details[open] > summary .goal-fam-caret {
+  transform: rotate(90deg);
+}

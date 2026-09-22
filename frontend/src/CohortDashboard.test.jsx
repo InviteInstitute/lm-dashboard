@@ -549,7 +549,7 @@ describe("CohortDashboard", () => {
     expect(screen.queryByText("inherited playground")).toBeNull(); // routine bookkeeping, hidden
   });
 
-  it("renders the goal-progression timeline and sensor-test battery", async () => {
+  it("renders the goal claims, rubric, timeline and family-grouped battery", async () => {
     const runs = [
       {
         index: 0,
@@ -597,13 +597,74 @@ describe("CohortDashboard", () => {
           goal_mapping: {},
           scenarios: [
             {
-              scenario_id: "edge_handling",
-              goal: "clear_debris_zone",
+              scenario_id: "t2a_direct",
+              family: "t2_boundary",
+              description:
+                "T2 boundary response \u2014 direct \u2014 head-on arrival, block at the intersection.",
+              goal: "remain_on_island",
               construct: "static",
               checks: [
                 { name: "detects", status: "fail", facet: "object_detection", detail: "0mm" },
-                { name: "stays_on_island", status: "pass", facet: "edge_failure_handling" },
+                {
+                  name: "stays_on_island",
+                  status: "abstained",
+                  abstained: true,
+                  abstain_reason: "encounter_not_reached",
+                },
               ],
+            },
+            {
+              scenario_id: "t1_castle_wall",
+              family: "t1_debris_field",
+              goal: "clear_debris_zone",
+              construct: "static",
+              checks: [{ name: "proportion_cleared", status: "measured", value: 0.25 }],
+            },
+          ],
+        },
+        rollup: {
+          provisional: false,
+          goals: [
+            {
+              goal: "remain_on_island",
+              source: "battery",
+              rung: "boundary_safe",
+              rungs: ["boundary_unsafe", "condition_dependent", "boundary_safe"],
+              certainty: "reduced",
+              certainty_reasons: ["sparse_evidence"],
+              n_valid: 3,
+              n_abstained: 16,
+              flags: [],
+            },
+            {
+              goal: "engage_plow",
+              source: "profile_derived",
+              rung: "approached_not_armed",
+              rungs: ["not_pursued", "approached_not_armed", "armed_not_attached", "attached"],
+              basis: { plow_approach_intent: "near" },
+            },
+          ],
+        },
+        rubric: {
+          provisional: true,
+          status: "provisional_stage2E",
+          dimensions: [
+            {
+              dimension: "control_structure",
+              level: 2,
+              max_level: 3,
+              borderline: true,
+              ceiling: null,
+              evidence: ["production.coordination_relations"],
+              negatives: [],
+            },
+            {
+              dimension: "environmental_feedback",
+              level: null,
+              max_level: 2,
+              u_reason: "no_informative_variable",
+              evidence: [],
+              negatives: [],
             },
           ],
         },
@@ -630,10 +691,36 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("Goal progression")).toBeInTheDocument();
     const ev = await screen.findByText(/stationary/);
     expect(ev.textContent).toContain("moved");
-    // battery: eligible scenario with named checks
+    // battery: scenarios grouped by family, with named checks
     expect(await screen.findByText("Sensor test battery")).toBeInTheDocument();
-    expect(await screen.findByText("edge handling")).toBeInTheDocument();
+    expect(await screen.findByText("T2 boundary")).toBeInTheDocument();
+    expect(await screen.findByText("T1 debris field")).toBeInTheDocument();
+    expect(await screen.findByText("t2a direct")).toBeInTheDocument();
+    // the card's family/variant prefix is trimmed from the scenario blurb
+    expect(
+      await screen.findByText("head-on arrival, block at the intersection."),
+    ).toBeInTheDocument();
     expect(await screen.findByText("detects")).toBeInTheDocument();
+    // an abstained check says why; a measured check carries its value
+    expect(
+      await screen.findByTitle("stays on island: abstained: encounter not reached"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("25%")).toBeInTheDocument();
+    // goal claims: a banded goal on its ladder, with the certainty demotion shown
+    expect(await screen.findByText("Goal claims")).toBeInTheDocument();
+    expect(await screen.findByText("boundary safe")).toBeInTheDocument();
+    expect(await screen.findByText("sparse evidence")).toBeInTheDocument();
+    expect(await screen.findByText("3 valid, 16 abstained")).toBeInTheDocument();
+    // ...and a derived goal, read from a named indicator
+    expect(await screen.findByText("approached not armed")).toBeInTheDocument();
+    expect(await screen.findByText("from indicators")).toBeInTheDocument();
+    expect(await screen.findByText("plow approach intent")).toBeInTheDocument();
+    // rubric: labelled provisional, a level on its 0..max ladder, and a U reason
+    expect(await screen.findByText("Execution rubric")).toBeInTheDocument();
+    expect(await screen.findByText("provisional")).toBeInTheDocument();
+    expect(await screen.findByText("borderline")).toBeInTheDocument();
+    expect(await screen.findByText("code: coordination relations")).toBeInTheDocument();
+    expect(await screen.findByText("undetermined - no informative variable")).toBeInTheDocument();
   });
 
   it("clears the previous student's goal evidence when switching students", async () => {

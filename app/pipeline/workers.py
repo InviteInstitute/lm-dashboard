@@ -31,7 +31,13 @@ from learner_models import (
 from log_parser_delta_engine import generate_compact_prompt_from_project
 
 from app import db
-from app.config import GOAL_BATTERY_ENABLED, GOAL_RECOGNITION_ENABLED, GOAL_TIMELINE_ENABLED
+from app.config import (
+    GOAL_BATTERY_ENABLED,
+    GOAL_RECOGNITION_ENABLED,
+    GOAL_ROLLUP_ENABLED,
+    GOAL_RUBRIC_ENABLED,
+    GOAL_TIMELINE_ENABLED,
+)
 from app.pipeline.triggers import _disabled_types
 
 logger = logging.getLogger("pipeline")
@@ -64,6 +70,8 @@ class StudentWorker:
                 session_id=self.student_id,
                 include_timeline=GOAL_TIMELINE_ENABLED,
                 include_battery=GOAL_BATTERY_ENABLED,
+                include_rollup=GOAL_ROLLUP_ENABLED,
+                include_rubric=GOAL_RUBRIC_ENABLED,
             )
             if GOAL_RECOGNITION_ENABLED
             else None

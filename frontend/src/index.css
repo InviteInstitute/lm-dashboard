@@ -472,6 +472,11 @@ textarea::placeholder {
   max-height: 320px;
   overflow: auto;
 }
+.sd-code-note {
+  margin: -4px 0 8px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
 .sd-code-wrap {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

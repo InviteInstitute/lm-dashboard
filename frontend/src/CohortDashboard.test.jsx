@@ -416,7 +416,7 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // the card's id label
-    expect(await screen.findByText("Playground")).toBeInTheDocument();
+    expect(await screen.findByText("LLM prompt")).toBeInTheDocument();
     await waitFor(() => expect(api.get).toHaveBeenCalledWith("/api/student_states/alice/"));
   });
 
@@ -939,9 +939,9 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // open the modal
-    await screen.findByText("Playground");
+    await screen.findByText("LLM prompt");
     fireEvent.click(screen.getByTitle("Stop tracking")); // untrack the open student
-    await waitFor(() => expect(screen.queryByText("Playground")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("LLM prompt")).not.toBeInTheDocument());
   });
 
   it('falls back to "no activity" when the detail fetch fails', async () => {

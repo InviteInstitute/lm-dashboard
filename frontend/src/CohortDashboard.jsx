@@ -339,6 +339,11 @@ const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 // uncertainty flags. This is EVIDENCE with explicit abstentions, not a score or
 // an assessment of the student's ability -- the flags are the whole point.
 const _humanize = (s) => (s || "").replace(/_/g, " ");
+// "clear_debris_zone" -> "Clear debris zone": sentence case for goal names.
+const _sentence = (s) => {
+  const h = _humanize(s);
+  return h.charAt(0).toUpperCase() + h.slice(1);
+};
 
 // Goal-evidence styling. Restrained on colour on purpose: this is evidence, not
 // a score. Each indicator is drawn as the rung ladder it climbed this run --
@@ -349,8 +354,8 @@ const _humanize = (s) => (s || "").replace(/_/g, " ");
 const goalFlagChip = {
   fontFamily: MONO,
   fontSize: 10.5,
-  color: "var(--lmd-signal-amber, #b7791f)",
-  border: "1px solid var(--lmd-signal-amber, #b7791f)",
+  color: "var(--lmd-warning)",
+  border: "1px solid var(--lmd-warning)",
   borderRadius: 999,
   padding: "1px 8px",
   background: "transparent",
@@ -375,14 +380,13 @@ const goalRungSeg = (state) => ({
   flex: 1,
   minWidth: 0,
   textAlign: "center",
-  fontFamily: MONO,
-  fontSize: 11,
-  fontWeight: state === "reached" ? 700 : state === "climbed" ? 600 : 500,
+  fontSize: 12,
+  fontWeight: state === "reached" ? 600 : 400,
   color: state === "reached" ? T.bg : state === "climbed" ? T.ink : T.sub,
   background: state === "reached" ? T.ink : state === "climbed" ? T.track : "transparent",
   border: `1px solid ${state === "reached" ? T.ink : T.border}`,
   borderRadius: 6,
-  padding: "4px 6px",
+  padding: "3px 6px",
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -390,29 +394,20 @@ const goalRungSeg = (state) => ({
 // An indicator with no rung to place: an abstention (dashed, no reading) or a
 // meaningful absence (solid, the thing never happened). Never a fake rung.
 const goalNoReadingPill = (absent) => ({
-  fontFamily: MONO,
-  fontSize: 11,
+  fontSize: 12,
   color: absent ? T.sub : T.faint,
   border: absent ? `1px solid ${T.border}` : `1px dashed ${T.border}`,
   borderRadius: 6,
   padding: "4px 10px",
   background: absent ? T.track : "transparent",
 });
-const goalRoleLabel = {
-  fontFamily: MONO,
-  fontSize: 9.5,
-  letterSpacing: 1,
-  textTransform: "uppercase",
-  color: T.faint,
-  margin: "9px 0 4px",
-};
 const goalRunCell = (active) => ({
   fontFamily: MONO,
-  fontSize: 11.5,
-  fontWeight: active ? 700 : 500,
-  minWidth: 26,
-  height: 26,
-  padding: "0 7px",
+  fontSize: 12,
+  fontWeight: active ? 700 : 400,
+  minWidth: 32,
+  minHeight: 28,
+  padding: "0 8px",
   borderRadius: 6,
   cursor: "pointer",
   color: active ? T.ink : T.sub,
@@ -495,7 +490,7 @@ const GoalIndicatorRow = ({ ind }) => {
         style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}
       >
         <ChannelMark channel={ind.channel} />
-        <span style={{ color: T.sub, fontSize: 12.5 }}>{_humanize(ind.name)}</span>
+        <span style={{ color: T.ink, fontSize: 13 }}>{_humanize(ind.name)}</span>
         <span
           style={{
             marginLeft: "auto",
@@ -543,49 +538,27 @@ const GoalIndicatorRow = ({ ind }) => {
   );
 };
 
-// One goal: what it "achieved" (the attainment indicators) shown first, then
-// what the code was "attempting" (the intent indicators).
+// One goal: what it "achieved" (the attainment indicators) first, then what the
+// code was "attempting" (the intent indicators), each role named in a gutter.
 const GoalCard = ({ g }) => {
   const inds = g.indicators || [];
-  const attainment = inds.filter((i) => i.role === "attainment");
-  const intent = inds.filter((i) => i.role !== "attainment");
+  const roles = [
+    ["achieved", inds.filter((i) => i.role === "attainment")],
+    ["attempting", inds.filter((i) => i.role !== "attainment")],
+  ].filter(([, list]) => list.length > 0);
   return (
-    <div
-      style={{
-        border: `1px solid ${T.border}`,
-        borderRadius: 10,
-        padding: "11px 13px",
-        background: T.track,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: HEADFONT,
-          fontSize: 13,
-          fontWeight: 700,
-          color: T.ink,
-          letterSpacing: 0.2,
-          textTransform: "capitalize",
-        }}
-      >
-        {_humanize(g.goal)}
-      </div>
-      {attainment.length > 0 && (
-        <>
-          <div style={goalRoleLabel}>achieved</div>
-          {attainment.map((ind, i) => (
-            <GoalIndicatorRow key={i} ind={ind} />
-          ))}
-        </>
-      )}
-      {intent.length > 0 && (
-        <>
-          <div style={goalRoleLabel}>attempting</div>
-          {intent.map((ind, i) => (
-            <GoalIndicatorRow key={i} ind={ind} />
-          ))}
-        </>
-      )}
+    <div className="goal-block">
+      <h5>{_sentence(g.goal)}</h5>
+      {roles.map(([role, list]) => (
+        <div key={role} className="goal-role">
+          <span className="goal-role-label">{role}</span>
+          <div>
+            {list.map((ind, i) => (
+              <GoalIndicatorRow key={i} ind={ind} />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
@@ -597,8 +570,8 @@ const goalCriticalChip = {
   fontFamily: MONO,
   fontSize: 11,
   fontWeight: 700,
-  color: "#fff",
-  background: "var(--lmd-signal-red, #c0392b)",
+  color: T.panel,
+  background: "var(--lmd-signal-ef4444)",
   borderRadius: 999,
   padding: "2px 10px",
   whiteSpace: "nowrap",
@@ -651,15 +624,7 @@ const GoalRunSummary = ({ run }) => {
   );
 };
 
-const goalSubLabel = {
-  fontFamily: HEADFONT,
-  fontSize: 10.5,
-  fontWeight: 700,
-  letterSpacing: 0.8,
-  textTransform: "uppercase",
-  color: T.sub,
-  margin: "6px 0 8px",
-};
+const goalSubLabel = { fontSize: 13, fontWeight: 600, color: T.sub, margin: "12px 0 6px" };
 
 // The goal-progression timeline: each row is a moment a block moved a goal's
 // indicator from one rung to another (post-exit steps dimmed).
@@ -716,19 +681,16 @@ const GoalTimeline = ({ timeline }) => {
 const GOAL_CHECK_VERDICTS = ["pass", "conditional", "fail"];
 const goalCheckColor = (st) =>
   st === "pass"
-    ? "var(--lmd-signal-green, #2f9e6b)"
+    ? "var(--lmd-success)"
     : st === "fail"
-      ? "var(--lmd-signal-red, #c0392b)"
+      ? "var(--lmd-signal-ef4444)"
       : st === "conditional"
-        ? "var(--lmd-signal-amber, #b7791f)"
+        ? "var(--lmd-warning)"
         : T.sub;
 const _checkState = (c) => (c.abstained || c.status === "abstained" ? "abstained" : c.status);
 const _pct = (v) => `${Math.round(v * 100)}%`;
 // "t2_boundary" -> "T2 boundary"
-const _familyLabel = (f) => {
-  const h = _humanize(f);
-  return h.charAt(0).toUpperCase() + h.slice(1);
-};
+const _familyLabel = _sentence;
 
 // Card descriptions lead with the family and variant ("T2 boundary response --
 // direct -- head-on arrival, ..."), which the family header and scenario id
@@ -803,7 +765,7 @@ const BatteryCheck = ({ c }) => {
           {c.value >= 0 && c.value <= 1 ? _pct(c.value) : fmtGoalVal(c.value)}
         </span>
       )}
-      {c.capped && <span style={{ color: "var(--lmd-signal-amber, #b7791f)" }}>capped</span>}
+      {c.capped && <span style={{ color: "var(--lmd-warning)" }}>capped</span>}
     </span>
   );
 };
@@ -995,17 +957,7 @@ const GoalClaimRow = ({ g }) => {
       <div
         style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}
       >
-        <span
-          style={{
-            fontFamily: HEADFONT,
-            fontSize: 12.5,
-            fontWeight: 700,
-            color: T.ink,
-            textTransform: "capitalize",
-          }}
-        >
-          {_humanize(g.goal)}
-        </span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{_sentence(g.goal)}</span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 7, flexWrap: "wrap" }}>
           {reduced &&
             (g.certainty_reasons.length ? g.certainty_reasons : [`${g.certainty} certainty`]).map(
@@ -1071,7 +1023,7 @@ const GoalRubric = ({ rubric }) => (
               marginBottom: 5,
             }}
           >
-            <span style={{ color: T.sub, fontSize: 12.5 }}>{_humanize(d.dimension)}</span>
+            <span style={{ color: T.ink, fontSize: 13 }}>{_humanize(d.dimension)}</span>
             <span style={{ marginLeft: "auto", display: "flex", gap: 7, flexWrap: "wrap" }}>
               {d.borderline && (
                 <span style={goalFlagChip} title="within the borderline margin of the next level">
@@ -1141,15 +1093,12 @@ const GoalLegend = () => {
         alignItems: "center",
         gap: 14,
         flexWrap: "wrap",
-        marginBottom: 14,
-        paddingBottom: 12,
-        borderBottom: `1px solid ${T.border}`,
+        marginBottom: 12,
       }}
     >
       {item(<ChannelMark channel="outcome" />, "observed")}
       {item(<ChannelMark channel="simulation" />, "simulation")}
       {item(<ChannelMark channel="code" />, "authored")}
-      <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>|</span>
       {item(swatch(true), "reached rung")}
       {item(swatch(false), "climbed")}
       <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>
@@ -1159,262 +1108,307 @@ const GoalLegend = () => {
   );
 };
 
+// A sub-part of the goal-evidence section (claims, indicators, rubric, ...).
+const GoalPart = ({ title, aside, children }) => (
+  <div className="goal-part">
+    <h4>
+      {title}
+      {aside}
+    </h4>
+    {children}
+  </div>
+);
+
 export const GoalEvidence = ({ runs, enabled }) => {
   const list = runs || [];
   const [picked, setPicked] = React.useState(null);
   if (enabled === false)
-    return <div style={{ color: T.sub, fontSize: 13 }}>Goal recognition is switched off.</div>;
+    return (
+      <Section title="Goal evidence">
+        <p className="sd-empty">Goal recognition is switched off.</p>
+      </Section>
+    );
   if (list.length === 0)
     return (
-      <div style={{ color: T.sub, fontSize: 13 }}>
-        No Castle Crashers runs profiled yet (goal evidence is Castle Crashers only).
-      </div>
+      <Section title="Goal evidence">
+        <p className="sd-empty">
+          No Castle Crashers runs profiled yet (goal evidence is Castle Crashers only).
+        </p>
+      </Section>
     );
   // Focus one run (latest by default); honour a manual pick while it still exists.
   const run = list.find((r) => r.index === picked) || list[list.length - 1];
-  return (
-    <div>
-      <div style={{ color: T.sub, fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
-        Each goal's indicators drawn as the rung ladder they climbed on this run, filled to the
-        reached rung. Abstentions and uncertainty are shown, not hidden. This is evidence, not a
-        score.
-      </div>
-      <GoalLegend />
-      {list.length > 1 ? (
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
-          {list.map((r) => (
-            <button
-              key={r.index}
-              type="button"
-              onClick={() => setPicked(r.index)}
-              title={`Run ${r.index}`}
-              style={goalRunCell(r.index === run.index)}
-            >
-              {r.index}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div
-          style={{
-            fontFamily: MONO,
-            fontSize: 11,
-            color: T.sub,
-            letterSpacing: 0.5,
-            marginBottom: 10,
-          }}
-        >
-          RUN {run.index}
-        </div>
-      )}
-      <GoalRunSummary run={run} />
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          maxHeight: 460,
-          overflowY: "auto",
-        }}
-      >
-        {run.rollup && (run.rollup.goals || []).length > 0 && (
-          <div>
-            <div style={goalSubLabel}>Goal claims</div>
-            <GoalClaims rollup={run.rollup} />
-          </div>
-        )}
-        {(run.goals || []).length > 0 && <div style={goalSubLabel}>Indicators</div>}
-        {(run.goals || []).map((g) => (
-          <GoalCard key={g.goal} g={g} />
+  const latest = list[list.length - 1].index;
+  const picker =
+    list.length > 1 ? (
+      <div className="goal-runs" role="group" aria-label="Profiled run">
+        <span>Run</span>
+        {list.map((r) => (
+          <button
+            key={r.index}
+            type="button"
+            onClick={() => setPicked(r.index)}
+            aria-pressed={r.index === run.index}
+            title={r.index === latest ? `Run ${r.index} (latest)` : `Run ${r.index}`}
+            style={goalRunCell(r.index === run.index)}
+          >
+            {r.index}
+          </button>
         ))}
-        {run.rubric && (run.rubric.dimensions || []).length > 0 && (
-          <div>
-            <div style={{ ...goalSubLabel, display: "flex", alignItems: "center", gap: 8 }}>
-              Execution rubric
-              <span
-                style={{
-                  ...goalFlagChip,
-                  textTransform: "none",
-                  letterSpacing: 0,
-                  fontWeight: 500,
-                }}
-                title={`still under human validation upstream (${run.rubric.status || "provisional"})`}
-              >
-                provisional
-              </span>
-            </div>
-            <GoalRubric rubric={run.rubric} />
-          </div>
-        )}
-        {run.timeline && (
-          <div>
-            <div style={goalSubLabel}>Goal progression</div>
-            <GoalTimeline timeline={run.timeline} />
-          </div>
-        )}
-        {run.battery && (
-          <div>
-            <div style={goalSubLabel}>Sensor test battery</div>
-            <GoalBattery battery={run.battery} />
-          </div>
-        )}
       </div>
-    </div>
+    ) : (
+      <span className="sd-count">Run {run.index}</span>
+    );
+  return (
+    <Section title="Goal evidence" aside={picker}>
+      <p className="goal-intro">
+        Each indicator is drawn as the rung ladder it climbed on this run, weaker to stronger.
+        Abstentions and uncertainty stay visible. This is evidence, not a score.
+      </p>
+      <GoalLegend />
+      <GoalRunSummary run={run} />
+      {run.rollup && (run.rollup.goals || []).length > 0 && (
+        <GoalPart title="Goal claims">
+          <GoalClaims rollup={run.rollup} />
+        </GoalPart>
+      )}
+      {(run.goals || []).length > 0 && (
+        <GoalPart title="Indicators">
+          {run.goals.map((g) => (
+            <GoalCard key={g.goal} g={g} />
+          ))}
+        </GoalPart>
+      )}
+      {run.rubric && (run.rubric.dimensions || []).length > 0 && (
+        <GoalPart
+          title="Execution rubric"
+          aside={
+            <span
+              style={goalFlagChip}
+              title={`still under human validation upstream (${run.rubric.status || "provisional"})`}
+            >
+              provisional
+            </span>
+          }
+        >
+          <GoalRubric rubric={run.rubric} />
+        </GoalPart>
+      )}
+      {run.timeline && (
+        <GoalPart title="Goal progression">
+          <GoalTimeline timeline={run.timeline} />
+        </GoalPart>
+      )}
+      {run.battery && (
+        <GoalPart title="Sensor test battery">
+          <GoalBattery battery={run.battery} />
+        </GoalPart>
+      )}
+    </Section>
   );
 };
 
-// ---------------- detail (inside modal) ----------------
-// The body of the drill-down modal for one student: header + state badge, the
-// playground prompt, and full-size episode and strategy timelines.
-const Detail = ({ s, sid, status, history = [] }) => {
-  if (!s)
-    return (
-      <div style={{ color: T.sub, padding: 30 }}>
-        No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>.
-      </div>
-    );
-  const cur = status || STATUS_OK;
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <span style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700 }}>
-          {s.display || s.studentID}
-        </span>
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 7,
-            background: "var(--lmd-track)",
-            color: `var(--lmd-signal-${cur.c.slice(1)}, ${cur.c})`,
-            border: "1px solid var(--lmd-border)",
-            borderRadius: 6,
-            padding: "4px 11px",
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 0.5,
-            textTransform: "uppercase",
-          }}
-        >
-          <span
-            style={{ width: 7, height: 7, borderRadius: "50%", background: cur.c, flexShrink: 0 }}
-          />
-          {cur.label}
-        </span>
-        <span
-          style={{
-            marginLeft: "auto",
-            color: T.sub,
-            fontSize: 12.5,
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          runs <b style={{ color: T.ink }}>{s.run_count}</b> | events{" "}
-          <b style={{ color: T.ink }}>{s.event_count}</b>
-        </span>
-      </div>
-      <div style={lbl}>Program</div>
-      {s.block && s.block.readable ? (
-        <pre style={pre}>{s.block.readable}</pre>
-      ) : (
-        <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>No program yet</div>
-      )}
-      <div style={{ ...lbl, marginTop: 22 }}>Playground</div>
-      {s.block && s.block.llm_prompt ? (
-        <pre style={pre}>{s.block.llm_prompt}</pre>
-      ) : (
-        <div style={{ color: T.sub, fontSize: 13, marginBottom: 22 }}>
-          No playground yet due to no runs
-        </div>
-      )}
-      <div style={{ ...lbl, marginTop: 22 }}>Episode timeline</div>
-      <EpisodeTrack data={s.episodes} />
-      <div style={{ ...lbl, marginTop: 22 }}>Runs | edit distance per run</div>
-      <RunTrack data={s.runs} />
-      <div style={{ ...lbl, marginTop: 22 }}>Goal evidence (with uncertainty)</div>
-      {/* key by student so the run selector resets when the modal switches students */}
-      <GoalEvidence key={sid} runs={s.goal_runs} enabled={s.goal_recognition_enabled} />
-      <div style={{ ...lbl, marginTop: 22 }}>Trigger history</div>
-      {history.length === 0 ? (
-        <div style={{ color: T.sub, fontSize: 13 }}>No triggers yet this session</div>
-      ) : (
-        <div style={{ maxHeight: 200, overflowY: "auto" }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "auto auto 1fr auto",
-              gap: "5px 16px",
-              fontSize: 12.5,
-              fontFamily: MONO,
-              alignItems: "center",
-            }}
-          >
-            {["Time", "Trigger", "Value", "Status"].map((h) => (
-              <span
-                key={h}
-                style={{
-                  color: T.faint,
-                  fontSize: 10.5,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.6,
-                }}
-              >
-                {h}
-              </span>
-            ))}
-            {history.map((h) => {
-              const m = triggerMeta(h.trigger_type);
-              return (
-                <React.Fragment key={h.id}>
-                  <span style={{ color: T.sub }} title={h.started_at}>
-                    {clockTime(h.started_at)}
-                  </span>
-                  <span
-                    style={{
-                      color: `var(--lmd-signal-${m.c.slice(1)}, ${m.c})`,
-                      fontWeight: 700,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <Icon name={m.icon} size={14} />
-                    {h.label}
-                  </span>
-                  <span style={{ color: T.ink }}>{h.value || "-"}</span>
-                  <span style={{ color: h.status === "active" ? m.c : T.faint }}>{h.status}</span>
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-      )}
+// ---------------- detail (side sheet) ----------------
+// The drill-down for one student, opened as a sheet over the right of the board
+// so the cohort stays in view. Sticky header (id, status, counts, close), then
+// two columns: the evidence (activity strips, code, goal evidence) on the left,
+// and the researcher's own record (notes, trigger history) in a rail on the right.
+
+// A titled block of the sheet. `aside` sits at the right end of the heading row
+// (a tab switch, a run picker, a count).
+const Section = ({ title, aside, children }) => (
+  <section className="sd-section">
+    <div className="sd-section-head">
+      <h3>{title}</h3>
+      {aside}
     </div>
+    {children}
+  </section>
+);
+
+const StatusBadge = ({ status }) => (
+  <span
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 7,
+      color: `var(--lmd-signal-${status.c.slice(1)}, ${status.c})`,
+      border: "1px solid currentColor",
+      borderRadius: 6,
+      padding: "3px 10px",
+      fontSize: 13,
+      fontWeight: 600,
+      whiteSpace: "nowrap",
+    }}
+  >
+    <span
+      style={{ width: 7, height: 7, borderRadius: "50%", background: status.c, flexShrink: 0 }}
+    />
+    {status.label}
+  </span>
+);
+
+// The readable program and the playground prompt share one pane behind a
+// two-way switch: they are two views of the same code, rarely read together.
+const CODE_VIEWS = [
+  ["program", "Program", "readable", "No program yet."],
+  [
+    "playground",
+    "Playground",
+    "llm_prompt",
+    "No playground yet: the student has not run anything.",
+  ],
+];
+const CodePane = ({ block }) => {
+  const [view, setView] = React.useState("program");
+  const [, , field, empty] = CODE_VIEWS.find(([k]) => k === view);
+  const text = block && block[field];
+  return (
+    <Section
+      title="Code"
+      aside={
+        <div className="sd-switch" role="tablist" aria-label="Code view">
+          {CODE_VIEWS.map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={view === k}
+              onClick={() => setView(k)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {text ? (
+        // the program keeps its indentation (scrolls sideways); the prompt is one long line, so wrap it
+        <pre className={view === "program" ? "sd-code" : "sd-code sd-code-wrap"}>{text}</pre>
+      ) : (
+        <p className="sd-empty">{empty}</p>
+      )}
+    </Section>
   );
 };
-const lbl = {
-  fontFamily: HEADFONT,
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: 1,
-  color: T.sub,
-  textTransform: "uppercase",
-  marginBottom: 10,
-};
-const pre = {
-  margin: 0,
-  padding: 14,
-  background: T.track,
-  border: `1px solid ${T.border}`,
-  borderRadius: 10,
-  fontFamily: MONO,
-  fontSize: 12.5,
-  lineHeight: 1.5,
-  whiteSpace: "pre-wrap",
-  color: T.code,
-  maxHeight: 280,
-  overflow: "auto",
-  marginBottom: 4,
+
+// Newest trigger first; the label keeps its trigger colour, everything else is quiet.
+const TriggerHistory = ({ history }) => (
+  <Section
+    title="Trigger history"
+    aside={history.length > 0 && <span className="sd-count">{history.length}</span>}
+  >
+    {history.length === 0 ? (
+      <p className="sd-empty">No triggers yet this session.</p>
+    ) : (
+      <ol className="sd-history">
+        {history.map((h) => {
+          const m = triggerMeta(h.trigger_type);
+          const active = h.status === "active";
+          return (
+            <li key={h.id}>
+              <span
+                className="sd-history-label"
+                style={{ color: `var(--lmd-signal-${m.c.slice(1)}, ${m.c})` }}
+              >
+                <Icon name={m.icon} size={14} />
+                {h.label}
+              </span>
+              <time dateTime={h.started_at} title={h.started_at}>
+                {clockTime(h.started_at)}
+              </time>
+              <span className="sd-history-value">{h.value || "-"}</span>
+              <span
+                className="sd-history-status"
+                style={active ? { color: `var(--lmd-signal-${m.c.slice(1)}, ${m.c})` } : null}
+              >
+                {h.status}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    )}
+  </Section>
+);
+
+const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, onClose }) => {
+  const cur = status || STATUS_OK;
+  return (
+    <>
+      <header className="sd-head">
+        <div className="sd-who">
+          <h2 id="sd-title">{(s && s.display) || sid}</h2>
+          {s && <StatusBadge status={cur} />}
+        </div>
+        {s && (
+          <dl className="sd-facts">
+            <div>
+              <dt>runs</dt>
+              <dd>{s.run_count ?? 0}</dd>
+            </div>
+            <div>
+              <dt>events</dt>
+              <dd>{s.event_count ?? 0}</dd>
+            </div>
+            {s.classCode && (
+              <div>
+                <dt>class</dt>
+                <dd>{s.classCode}</dd>
+              </div>
+            )}
+          </dl>
+        )}
+        <button
+          type="button"
+          className="sd-close"
+          aria-label="Close student details"
+          autoFocus
+          onClick={onClose}
+        >
+          <Icon name="close" size={18} />
+        </button>
+      </header>
+      <div className="sd-body">
+        <div className="sd-main">
+          {!s ? (
+            <p className="sd-empty sd-empty-lead">
+              {loading ? (
+                "Loading activity..."
+              ) : (
+                <>
+                  No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>. Notes can still be
+                  added.
+                </>
+              )}
+            </p>
+          ) : (
+            <>
+              <Section title="Activity">
+                <div className="sd-strips">
+                  <span className="sd-strip-label">Episodes</span>
+                  <div>
+                    <EpisodeTrack data={s.episodes} />
+                  </div>
+                  <span className="sd-strip-label">Runs</span>
+                  <div>
+                    <RunTrack data={s.runs} />
+                  </div>
+                </div>
+              </Section>
+              {/* key by student so the code view and run pick reset when the sheet switches students */}
+              <CodePane key={`code-${sid}`} block={s.block} />
+              <GoalEvidence key={sid} runs={s.goal_runs} enabled={s.goal_recognition_enabled} />
+            </>
+          )}
+        </div>
+        <aside className="sd-rail">
+          <NotesPanel key={sid} notes={notes} onAdd={onAddNote} />
+          <TriggerHistory history={history} />
+        </aside>
+      </div>
+    </>
+  );
 };
 
 // ---------------- layout ----------------
@@ -1649,9 +1643,6 @@ const S = {
     cursor: "pointer",
     fontFamily: FONT,
   },
-  notesPanel: { marginTop: 18, borderTop: `1px solid ${T.border}`, paddingTop: 14 },
-  notesItem: { padding: "8px 0", borderBottom: `1px solid ${T.border}` },
-  notesMeta: { fontSize: 11, color: T.faint, display: "flex", gap: 8, marginBottom: 3 },
   rosterBar: {
     display: "flex",
     alignItems: "center",
@@ -1880,34 +1871,10 @@ const S = {
   },
 
   empty: { color: T.sub, fontSize: 14, textAlign: "center", marginTop: 60 },
-  modal: {
-    background: T.bg,
-    border: `1px solid ${T.border}`,
-    borderRadius: 16,
-    width: "min(860px, 96vw)",
-    maxHeight: "88vh",
-    overflow: "auto",
-    padding: 26,
-    position: "relative",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-  },
-  modalX: {
-    position: "absolute",
-    top: 14,
-    right: 16,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: 6,
-    background: "transparent",
-    color: T.sub,
-    cursor: "pointer",
-  },
 };
 
-// The notes list plus a composer, shown at the bottom of the detail modal.
+// The researcher's notes on this student: the composer first (it is the reason
+// most people open the sheet), then the saved notes, newest first.
 const NotesPanel = ({ notes, onAdd }) => {
   const [draft, setDraft] = React.useState("");
   const save = () => {
@@ -1917,34 +1884,46 @@ const NotesPanel = ({ notes, onAdd }) => {
     setDraft("");
   };
   return (
-    <div style={S.notesPanel}>
-      <div style={S.miniLbl}>Notes &amp; observations ({notes.length})</div>
-      {notes.length === 0 && (
-        <div style={{ color: T.faint, fontSize: 12.5, padding: "6px 0" }}>No notes yet.</div>
-      )}
-      {notes.map((n) => (
-        <div key={n.id} style={S.notesItem}>
-          <div style={S.notesMeta}>
-            <span>{n.ts}</span>
-            {n.trigger_type && (
-              <span style={{ color: "var(--lmd-accent)" }}>| during {n.trigger_type}</span>
-            )}
-          </div>
-          <div style={{ fontSize: 13, color: T.ink, whiteSpace: "pre-wrap" }}>{n.text}</div>
-        </div>
-      ))}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+    <Section
+      title="Notes"
+      aside={notes.length > 0 && <span className="sd-count">{notes.length}</span>}
+    >
+      <div className="sd-composer">
         <textarea
-          style={S.noteArea}
+          aria-label="New note"
           value={draft}
-          placeholder="Add a manual note..."
+          placeholder="What did you see or hear?"
           onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              save();
+            }
+          }}
         />
-        <button style={S.noteSave} onClick={save}>
-          Add Notes
-        </button>
+        <div className="sd-composer-foot">
+          <span>Ctrl+Enter to save</span>
+          <button type="button" onClick={save} disabled={!draft.trim()}>
+            Save note
+          </button>
+        </div>
       </div>
-    </div>
+      {notes.length === 0 ? (
+        <p className="sd-empty">No notes on this student yet.</p>
+      ) : (
+        <ol className="sd-notes">
+          {[...notes].reverse().map((n) => (
+            <li key={n.id}>
+              <div className="sd-note-meta">
+                <span>{n.ts}</span>
+                {n.trigger_type && <span>during {triggerMeta(n.trigger_type).label}</span>}
+              </div>
+              <p>{n.text}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </Section>
   );
 };
 
@@ -1955,6 +1934,7 @@ const CohortDashboard = () => {
   const detailDialog = React.useRef(null);
   const [states, setStates] = React.useState({}); // studentID -> light payload (grid)
   const [detailFull, setDetailFull] = React.useState(null); // heavy payload for the open student
+  const [detailFor, setDetailFor] = React.useState(null); // student whose detail fetch last settled
   const [roster, setRoster] = React.useState([]);
   const [triggers, setTriggers] = React.useState([]); // backend-fired alerts
   const [switches, setSwitches] = React.useState([]); // identity-switch feed
@@ -2324,6 +2304,7 @@ const CohortDashboard = () => {
       } catch {
         if (alive) setDetailFull(null);
       }
+      if (alive) setDetailFor(selected);
     })();
     return () => {
       alive = false;
@@ -3006,28 +2987,23 @@ const CohortDashboard = () => {
         <dialog
           ref={detailDialog}
           className="student-dialog"
-          aria-label={`Student details: ${selected}`}
+          aria-labelledby="sd-title"
           onCancel={() => setSelected(null)}
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelected(null);
           }}
         >
-          <div className="student-detail" style={S.modal}>
-            <button
-              aria-label="Close student details"
-              autoFocus
-              style={S.modalX}
-              onClick={() => setSelected(null)}
-            >
-              <Icon name="close" size={18} />
-            </button>
+          <div className="student-detail">
             <Detail
               s={detail}
               sid={selected}
               status={statusMeta(statusBy[selected], !!detail)}
+              loading={!detail && detailFor !== selected}
               history={history}
+              notes={notes}
+              onAddNote={(text) => addNote(selected, text, null)}
+              onClose={() => setSelected(null)}
             />
-            <NotesPanel notes={notes} onAdd={(text) => addNote(selected, text, null)} />
           </div>
         </dialog>
       )}

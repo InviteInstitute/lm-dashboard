@@ -476,8 +476,8 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
-    expect(await screen.findByText("Goal evidence (with uncertainty)")).toBeInTheDocument();
-    expect(await screen.findByText("clear debris zone")).toBeInTheDocument();
+    expect(await screen.findByText("Goal evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Clear debris zone")).toBeInTheDocument();
     // the rung ladder: the reached rung and an un-reached rung both render as segments
     expect(await screen.findByText("negligible")).toBeInTheDocument();
     expect(await screen.findByText("systematic")).toBeInTheDocument();
@@ -487,7 +487,7 @@ describe("CohortDashboard", () => {
     // achieved/attempting grouping and the single-run label
     expect(await screen.findByText("achieved")).toBeInTheDocument();
     expect(await screen.findByText("attempting")).toBeInTheDocument();
-    expect(await screen.findByText("RUN 0")).toBeInTheDocument();
+    expect(await screen.findByText("Run 0")).toBeInTheDocument();
   });
 
   it("surfaces run-level outputs: left-the-island, fidelity, diagnostics", async () => {
@@ -791,11 +791,11 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
-    expect(await screen.findByText("clear debris zone")).toBeInTheDocument();
+    expect(await screen.findByText("Clear debris zone")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle("bob")); // switch students
     // alice's goal must clear out, and bob's empty state must show
-    await waitFor(() => expect(screen.queryByText("clear debris zone")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Clear debris zone")).toBeNull());
     expect(await screen.findByText(/No Castle Crashers runs profiled yet/)).toBeInTheDocument();
   });
 

@@ -21,10 +21,13 @@ describe("fmtDur", () => {
   it("shows a dash for null", () => {
     expect(fmtDur(null)).toBe("-");
   });
-  it("formats seconds, minutes, hours with one decimal", () => {
-    expect(fmtDur(5)).toBe("5.0s");
-    expect(fmtDur(90)).toBe("1.5m");
-    expect(fmtDur(5400)).toBe("1.5h");
+  it("formats whole units, largest first", () => {
+    expect(fmtDur(5)).toBe("5s");
+    expect(fmtDur(40.4)).toBe("40s");
+    expect(fmtDur(90)).toBe("1m 30s");
+    expect(fmtDur(120)).toBe("2m");
+    expect(fmtDur(5400)).toBe("1h 30m");
+    expect(fmtDur(7200)).toBe("2h");
   });
 });
 

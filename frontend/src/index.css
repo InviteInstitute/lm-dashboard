@@ -264,19 +264,393 @@ textarea::placeholder {
   line-height: 1.6;
   margin: 0 0 24px;
 }
+/* Student detail: a sheet over the right edge of the board, so the cohort stays
+   in view behind it. The dialog is the frame; .student-detail is the one scroll
+   container (the header sticks inside it). */
 .student-dialog {
+  margin: 0 0 0 auto;
   padding: 0;
   border: 0;
-  background: transparent;
+  border-left: 1px solid var(--lmd-border);
+  width: min(1080px, calc(100vw - 48px));
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  background: var(--lmd-panel);
   color: var(--lmd-ink);
-  max-width: calc(100vw - 32px);
-  max-height: 90dvh;
+  box-shadow: -16px 0 40px -8px rgb(3 5 9 / 28%);
+  overflow: hidden;
+}
+.student-dialog[open] {
+  animation: sheetIn 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .student-dialog::backdrop {
-  background: rgb(3 5 9 / 65%);
+  background: rgb(3 5 9 / 45%);
+}
+.student-dialog[open]::backdrop {
+  animation: scrimIn 240ms ease-out;
+}
+@keyframes sheetIn {
+  from {
+    transform: translateX(48px);
+    opacity: 0;
+  }
+}
+@keyframes scrimIn {
+  from {
+    opacity: 0;
+  }
 }
 .student-detail {
-  max-width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sd-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px 28px;
+  flex-wrap: wrap;
+  padding: 16px 20px 16px 32px;
+  background: var(--lmd-panel);
+  border-bottom: 1px solid var(--lmd-border);
+}
+.sd-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-right: auto;
+}
+.sd-who h2 {
+  margin: 0;
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.sd-facts {
+  display: flex;
+  gap: 24px;
+  margin: 0;
+}
+.sd-facts div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+.sd-facts dt {
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.sd-facts dd {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.student-dialog .sd-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lmd-sub);
+  cursor: pointer;
+}
+.student-dialog .sd-close:hover {
+  filter: none;
+  background: var(--lmd-track);
+  color: var(--lmd-ink);
+}
+.sd-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: calc(100% - 73px);
+}
+.sd-main {
+  padding: 8px 32px 48px;
+  min-width: 0;
+}
+.sd-rail {
+  padding: 8px 24px 48px;
+  background: var(--lmd-bg);
+  border-left: 1px solid var(--lmd-border);
+  min-width: 0;
+}
+.sd-section {
+  padding: 24px 0 8px;
+}
+.sd-section + .sd-section {
+  border-top: 1px solid var(--lmd-border);
+  margin-top: 16px;
+}
+.sd-section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 32px;
+  margin-bottom: 12px;
+}
+.sd-section-head h3 {
+  margin: 0 auto 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.sd-count {
+  color: var(--lmd-sub);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sd-empty {
+  margin: 0;
+  color: var(--lmd-sub);
+  font-size: 14px;
+}
+.sd-empty-lead {
+  padding: 32px 0;
+  font-size: 15px;
+}
+.sd-strips {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 16px 12px;
+  align-items: start;
+}
+.sd-strip-label {
+  font-size: 13px;
+  color: var(--lmd-sub);
+  line-height: 28px;
+}
+/* Program / Playground switch */
+.sd-switch {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--lmd-track);
+  border: 1px solid var(--lmd-border);
+}
+.student-dialog .sd-switch button {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lmd-sub);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.student-dialog .sd-switch button[aria-selected="true"] {
+  background: var(--lmd-panel);
+  color: var(--lmd-ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(3 5 9 / 12%);
+}
+.sd-code {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--lmd-track);
+  border: 1px solid var(--lmd-border);
+  border-radius: 8px;
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+  color: var(--lmd-code);
+  max-height: 320px;
+  overflow: auto;
+}
+.sd-code-wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Goal evidence */
+.goal-intro {
+  margin: 0 0 12px;
+  max-width: 68ch;
+  color: var(--lmd-sub);
+  font-size: 13px;
+}
+.goal-runs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.goal-runs > span {
+  margin-right: 6px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.student-dialog .goal-runs button {
+  min-height: 28px;
+}
+.goal-part {
+  margin-top: 24px;
+}
+.goal-part h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--lmd-border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.goal-block + .goal-block {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--lmd-border);
+}
+.goal-block h5 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.goal-role {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+}
+.goal-role-label {
+  font-size: 12px;
+  color: var(--lmd-faint);
+  line-height: 20px;
+}
+/* Rail: notes and trigger history */
+.sd-composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--lmd-border);
+  border-radius: 8px;
+  background: var(--lmd-panel);
+}
+.sd-composer:focus-within {
+  border-color: var(--lmd-accent);
+}
+.sd-composer textarea {
+  min-height: 88px;
+  resize: vertical;
+  padding: 12px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--lmd-ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.student-dialog .sd-composer textarea:focus-visible {
+  outline: none;
+}
+.sd-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  font-size: 12px;
+  color: var(--lmd-faint);
+}
+.student-dialog .sd-composer-foot button {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--lmd-ink);
+  border-radius: 6px;
+  background: var(--lmd-ink);
+  color: var(--lmd-panel);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.student-dialog .sd-composer-foot button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.sd-notes,
+.sd-history {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+.sd-notes li {
+  padding: 12px 0;
+  border-top: 1px solid var(--lmd-border);
+}
+.sd-note-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.sd-note-meta span + span::before {
+  content: "- ";
+}
+.sd-notes p {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sd-history {
+  margin-top: 0;
+}
+.sd-history li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--lmd-border);
+  font-size: 13px;
+}
+.sd-history li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.sd-history-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.sd-history time,
+.sd-history-status {
+  justify-self: end;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.sd-history-value {
+  color: var(--lmd-ink);
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+@media (max-width: 1000px) {
+  .sd-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sd-rail {
+    border-left: 0;
+    border-top: 1px solid var(--lmd-border);
+  }
 }
 @media (max-width: 1100px) {
   .dashboard-header h1 {
@@ -344,12 +718,37 @@ textarea::placeholder {
   .intervention-feed button {
     min-height: 44px;
   }
-  .student-detail {
-    padding: 24px 16px !important;
+  .student-dialog {
+    width: 100vw;
+    border-left: 0;
+  }
+  .sd-head {
+    padding: 12px 8px 12px 16px;
+    gap: 8px 20px;
+  }
+  .sd-facts {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .sd-main,
+  .sd-rail {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .goal-role {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .student-dialog .sd-switch button,
+  .student-dialog .goal-runs button,
+  .student-dialog .sd-composer-foot button {
+    min-height: 40px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .dashboard *,
+  .student-dialog,
+  .student-dialog::backdrop,
   .student-dialog * {
     animation: none !important;
     transition: none !important;

@@ -1248,45 +1248,54 @@ const StatusBadge = ({ status }) => (
   </span>
 );
 
-// The readable program and the playground prompt share one pane behind a
-// two-way switch: they are two views of the same code, rarely read together.
+// The student's latest program, in two renderings of the same blocks behind a
+// switch: a readable listing, and the compact prompt text handed to an LLM
+// (context only; the triggers do not use an LLM).
 const CODE_VIEWS = [
-  ["program", "Program", "readable", "No program yet."],
-  [
-    "playground",
-    "Playground",
-    "llm_prompt",
-    "No playground yet: the student has not run anything.",
-  ],
+  {
+    key: "readable",
+    label: "Readable",
+    field: "readable",
+    note: "Every block with its parameters spelled out.",
+    empty: "No program yet.",
+  },
+  {
+    key: "prompt",
+    label: "LLM prompt",
+    field: "llm_prompt",
+    note: "The same program, flattened into the compact text given to an LLM as context.",
+    empty: "No prompt yet: it is built once the student runs their program.",
+  },
 ];
 const CodePane = ({ block }) => {
-  const [view, setView] = React.useState("program");
-  const [, , field, empty] = CODE_VIEWS.find(([k]) => k === view);
-  const text = block && block[field];
+  const [view, setView] = React.useState("readable");
+  const cur = CODE_VIEWS.find((v) => v.key === view);
+  const text = block && block[cur.field];
   return (
     <Section
-      title="Code"
+      title="Latest program"
       aside={
-        <div className="sd-switch" role="tablist" aria-label="Code view">
-          {CODE_VIEWS.map(([k, label]) => (
+        <div className="sd-switch" role="tablist" aria-label="Program view">
+          {CODE_VIEWS.map((v) => (
             <button
-              key={k}
+              key={v.key}
               type="button"
               role="tab"
-              aria-selected={view === k}
-              onClick={() => setView(k)}
+              aria-selected={view === v.key}
+              onClick={() => setView(v.key)}
             >
-              {label}
+              {v.label}
             </button>
           ))}
         </div>
       }
     >
+      <p className="sd-code-note">{cur.note}</p>
       {text ? (
-        // the program keeps its indentation (scrolls sideways); the prompt is one long line, so wrap it
-        <pre className={view === "program" ? "sd-code" : "sd-code sd-code-wrap"}>{text}</pre>
+        // the listing keeps its indentation (scrolls sideways); the prompt is one long line, so wrap it
+        <pre className={view === "readable" ? "sd-code" : "sd-code sd-code-wrap"}>{text}</pre>
       ) : (
-        <p className="sd-empty">{empty}</p>
+        <p className="sd-empty">{cur.empty}</p>
       )}
     </Section>
   );

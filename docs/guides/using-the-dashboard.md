@@ -127,10 +127,12 @@ daemon itself.
 
 Click any card to open the full detail:
 
-- The **Program**, their latest blocks rendered as a readable listing with every
-  parameter spelled out, including the numbers: `drive for forward, mm, amount 200`,
-  and nested conditions inline like `if (not (object distance < 200))`.
-- The **playground prompt**, the same code described in plain language for an LLM.
+- The **Latest program**, with a switch between two renderings of the same blocks:
+  - **Readable**: every block with its parameters spelled out, including the
+    numbers: `drive for forward, mm, amount 200`, and nested conditions inline
+    like `if (not (object distance < 200))`.
+  - **LLM prompt**: the same program flattened into the compact text given to an
+    LLM as context.
 - Full-size **run** and **episode** timelines.
 - The **trigger history grid**: every trigger fired for this student this session
   (Time, Trigger, Value, Status), newest first, including resolved and dismissed

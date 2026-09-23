@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 
 // Mock the shared axios instance so the component talks to canned data, not a
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
@@ -166,7 +166,7 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     const blocks = await screen.findAllByTitle(/^CODE \| /);
     expect(blocks).toHaveLength(1); // one block, not per-event
-    expect(blocks[0].getAttribute("title")).toBe("CODE | 4 events | 45.0s");
+    expect(blocks[0].getAttribute("title")).toBe("CODE | 4 events | 45s");
   });
 
   it("surfaces a backend alert in the intervention column", async () => {
@@ -281,8 +281,9 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    // The alert-card button reads exactly 'Picked'; the roster one reads 'Mark picked'.
-    fireEvent.click(await screen.findByText("Picked"));
+    // Both the card and the alert say "Mark picked"; click the one in the alert feed.
+    const feed = await screen.findByRole("complementary", { name: "Needs intervention" });
+    fireEvent.click(await within(feed).findByText("Mark picked"));
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/picked/", {
         studentID: "alice",
@@ -1000,8 +1001,8 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText("Notes")); // open the editor
-    const box = await screen.findByPlaceholderText(/Observation during/);
+    fireEvent.click(await screen.findByText("Add note")); // open the editor
+    const box = await screen.findByPlaceholderText(/What did you see during this alert/);
     fireEvent.change(box, { target: { value: "looks stuck on the loop" } });
     fireEvent.click(screen.getByText("Save note"));
     await waitFor(() =>
@@ -1041,7 +1042,7 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     expect(await screen.findByText(/Identity switches/)).toBeInTheDocument();
-    expect(await screen.findByText(/new class \| FPFVDH -> AFURRR/)).toBeInTheDocument();
+    expect(await screen.findByText("FPFVDH -> AFURRR")).toBeInTheDocument();
     fireEvent.click(await screen.findByTitle("Dismiss switch"));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/switches/ack/", { id: 5 }));
   });
@@ -1075,7 +1076,7 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    expect(await screen.findByText(/last:.*Wheel-spinning/)).toBeInTheDocument();
+    expect(await screen.findByText(/Before this: Wheel-spinning/)).toBeInTheDocument();
   });
 
   it("renders the trigger-history grid in the detail modal", async () => {

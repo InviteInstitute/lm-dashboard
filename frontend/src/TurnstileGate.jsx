@@ -80,7 +80,7 @@ export default function TurnstileGate() {
     >
       <p>Verifying you're not a bot&hellip;</p>
       <div ref={elRef} />
-      {error && <p style={{ color: "#ef4444" }}>Verification failed. Please try again.</p>}
+      {error && <p style={{ color: "#d0433c" }}>Verification failed. Please try again.</p>}
     </div>
   );
 }

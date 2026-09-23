@@ -16,18 +16,18 @@ export const T = {
   track: "var(--lmd-track)",
   code: "var(--lmd-code)",
 };
-export const FONT =
-  "'Source Sans Pro',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
-export const HEADFONT =
-  "'Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
-export const MONO = "'SF Mono','JetBrains Mono',ui-monospace,monospace";
+// One family for the whole tool: IBM Plex Sans for UI and headings, Plex Mono
+// for student IDs, code and measurements. Defined once as CSS vars in index.css.
+export const FONT = "var(--lmd-font)";
+export const HEADFONT = FONT;
+export const MONO = "var(--lmd-mono)";
 
 // ----- per-run edit_distance buckets (the run track colours) -----
 // 0 = identical re-run, 1..12 = incremental edit, >=13 = a big change (explorer).
 export const EXPLORER_ED = 13;
-export const ED_ZERO = "#6b7280"; // grey: no change
-export const ED_SMALL = "#3b82f6"; // blue: incremental edit
-export const ED_BIG = "#a855f7"; // purple: large change
+export const ED_ZERO = "#7c8794"; // grey: no change
+export const ED_SMALL = "#3a6ea5"; // blue: incremental edit
+export const ED_BIG = "#8a5cc0"; // purple: large change
 export function edColor(d) {
   if (d == null) return T.faint; // first run, no predecessor
   if (d === 0) return ED_ZERO;
@@ -35,14 +35,14 @@ export function edColor(d) {
 }
 
 // ----- episodes -----
-export const EP = { CODE: "#3b82f6", RUN: "#22c55e", RESET: "#a855f7" };
+export const EP = { CODE: "#3a6ea5", RUN: "#2f9467", RESET: "#8a5cc0" };
 export const SOFT_COLOR = "#3a4150"; // greyed sub-tile for absorbed soft (UI) events
 
 // Hatched fills for the two pause kinds, plus the legend rows that render them.
 export const HATCH_RED =
-  "repeating-linear-gradient(45deg,#ef4444 0 4px,var(--lmd-hatch-red-bg) 4px 8px)";
+  "repeating-linear-gradient(45deg,#d0433c 0 4px,var(--lmd-hatch-red-bg) 4px 8px)";
 export const HATCH_AMBER =
-  "repeating-linear-gradient(45deg,#f59e0b 0 4px,var(--lmd-hatch-amber-bg) 4px 8px)";
+  "repeating-linear-gradient(45deg,#d38b12 0 4px,var(--lmd-hatch-amber-bg) 4px 8px)";
 export const PAUSE_FILL = { INACTIVE_PAUSE: HATCH_RED, POST_RUN_PAUSE: HATCH_AMBER };
 export const PAUSE_LEGEND = [
   ["INACTIVE", HATCH_RED],
@@ -51,13 +51,13 @@ export const PAUSE_LEGEND = [
 
 // ----- triggers (intervention alerts) -----
 export const TRIGGERS = {
-  wheel_spin: { c: "#ef4444", icon: "wheelSpin", label: "Wheel-spinning" },
-  resilience: { c: "#22c55e", icon: "resilience", label: "Resilience" },
-  inactive: { c: "#f59e0b", icon: "inactive", label: "Inactive" },
-  explorer: { c: "#a855f7", icon: "explorer", label: "Explorer" },
-  iterative: { c: "#3b82f6", icon: "iterative", label: "Step-by-Step" },
+  wheel_spin: { c: "#d0433c", icon: "wheelSpin", label: "Wheel-spinning" },
+  resilience: { c: "#2f9467", icon: "resilience", label: "Resilience" },
+  inactive: { c: "#d38b12", icon: "inactive", label: "Inactive" },
+  explorer: { c: "#8a5cc0", icon: "explorer", label: "Explorer" },
+  iterative: { c: "#3a6ea5", icon: "iterative", label: "Step-by-Step" },
 };
-export const TRIGGER_FALLBACK = { c: "#6b7280", icon: "trigger", label: "Trigger" };
+export const TRIGGER_FALLBACK = { c: "#7c8794", icon: "trigger", label: "Trigger" };
 export const TRIGGER_ROWS = [
   ["wheel_spin", "Wheel-spinning"],
   ["resilience", "Resilience"],
@@ -68,7 +68,7 @@ export const TRIGGER_ROWS = [
 // Headline-status precedence when a student has several active triggers at once
 // (only wheel_spin > resilience is load-bearing).
 export const TRIGGER_PRIORITY = ["wheel_spin", "inactive", "resilience", "explorer", "iterative"];
-export const STATUS_OK = { c: "#22c55e", label: "OK" };
+export const STATUS_OK = { c: "#2f9467", label: "OK" };
 
 // ----- misc -----
 export const POLL_MS = 1500;

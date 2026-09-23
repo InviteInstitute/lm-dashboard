@@ -47,11 +47,14 @@ export function relTime(iso) {
   if (s < 86400) return `${Math.round(s / 3600)}h`;
   return `${Math.round(s / 86400)}d`;
 }
+// A duration as whole units, largest first: "45s", "1m 12s", "2h 5m".
 export function fmtDur(s) {
   if (s == null) return "-";
-  if (s < 60) return `${s.toFixed(1)}s`;
-  if (s < 3600) return `${(s / 60).toFixed(1)}m`;
-  return `${(s / 3600).toFixed(1)}h`;
+  const t = Math.max(0, Math.round(s));
+  if (t < 60) return `${t}s`;
+  if (t < 3600) return t % 60 ? `${Math.floor(t / 60)}m ${t % 60}s` : `${t / 60}m`;
+  const m = Math.floor((t % 3600) / 60);
+  return m ? `${Math.floor(t / 3600)}h ${m}m` : `${Math.floor(t / 3600)}h`;
 }
 // Wall-clock time for "at what time did that fire" readouts (alert prev-line,
 // trigger-history grid). Locale-aware, e.g. "10:24 AM".
@@ -142,6 +145,13 @@ function usePageVisible() {
 // A student's headline status is derived from their active triggers (highest
 // priority wins; wheel_spin > resilience is the only load-bearing rule). No
 // active trigger with data -> "OK"; no materialized state yet -> "No data".
+// A tinted surface for something in an alert state: the fill colour (for
+// backgrounds and borders) and its contrast-safe text variant.
+const toneVars = (c) => ({
+  "--tone": c,
+  "--tone-text": `var(--lmd-signal-${c.slice(1)}, ${c})`,
+});
+
 export function statusMeta(triggerType, hasData) {
   if (triggerType) return TRIGGERS[triggerType] || TRIGGER_FALLBACK;
   if (!hasData) return { c: "#2a2d3a", label: "No data" };
@@ -571,7 +581,7 @@ const goalCriticalChip = {
   fontSize: 11,
   fontWeight: 700,
   color: T.panel,
-  background: "var(--lmd-signal-ef4444)",
+  background: "var(--lmd-signal-d0433c)",
   borderRadius: 999,
   padding: "2px 10px",
   whiteSpace: "nowrap",
@@ -683,7 +693,7 @@ const goalCheckColor = (st) =>
   st === "pass"
     ? "var(--lmd-success)"
     : st === "fail"
-      ? "var(--lmd-signal-ef4444)"
+      ? "var(--lmd-signal-d0433c)"
       : st === "conditional"
         ? "var(--lmd-warning)"
         : T.sub;
@@ -1432,149 +1442,6 @@ const S = {
     fontFamily: FONT,
     color: T.ink,
   },
-  bar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    padding: "16px 28px",
-    borderBottom: `1px solid ${T.border}`,
-    flexWrap: "wrap",
-    flexShrink: 0,
-  },
-  title: {
-    fontFamily: HEADFONT,
-    fontSize: 18,
-    fontWeight: 700,
-    letterSpacing: 0.4,
-    display: "flex",
-    alignItems: "center",
-    gap: 9,
-  },
-  input: {
-    background: T.panel,
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    color: T.ink,
-    padding: "9px 16px",
-    fontSize: 14,
-    fontFamily: FONT,
-    width: 220,
-  },
-  export: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
-    background: "var(--lmd-panel)",
-    color: "var(--lmd-sub)",
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "9px 14px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    whiteSpace: "nowrap",
-  },
-  reset: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
-    background: "var(--lmd-panel)",
-    color: "var(--lmd-sub)",
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "9px 14px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    whiteSpace: "nowrap",
-  },
-  pollPause: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
-    background: "var(--lmd-panel)",
-    color: "var(--lmd-sub)",
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "9px 14px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    whiteSpace: "nowrap",
-  },
-  pollResume: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
-    background: "var(--lmd-panel)",
-    color: "var(--lmd-ink)",
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "9px 14px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    whiteSpace: "nowrap",
-  },
-  toggleRow: { display: "flex", gap: 6, marginTop: 10 },
-  tgBtn: {
-    flex: 1,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderRadius: 8,
-    padding: "6px 8px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    background: "transparent",
-    color: T.sub,
-    border: `1px solid ${T.border}`,
-  },
-  presDot: (on) => ({
-    width: 7,
-    height: 7,
-    borderRadius: "50%",
-    flexShrink: 0,
-    background: on ? "currentColor" : "transparent",
-    border: on ? "none" : "1.5px solid currentColor",
-  }),
-  triggersBtn: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
-    background: T.panel,
-    color: T.ink,
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "9px 14px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-    whiteSpace: "nowrap",
-  },
-  themeToggle: {
-    background: T.panel,
-    color: T.ink,
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    width: 38,
-    height: 38,
-    fontSize: 15,
-    cursor: "pointer",
-    fontFamily: FONT,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
   popOverlay: { position: "fixed", inset: 0, background: "transparent", zIndex: 40 },
   popPanel: {
     position: "fixed",
@@ -1585,15 +1452,13 @@ const S = {
     border: `1px solid ${T.border}`,
     borderRadius: 12,
     padding: 12,
-    boxShadow: "0 10px 30px #0008",
+    boxShadow: "0 12px 32px -8px rgb(3 5 9 / 30%)",
     zIndex: 41,
   },
   popTitle: {
-    fontSize: 12,
-    fontWeight: 800,
-    color: T.sub,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: 600,
+    color: T.ink,
     marginBottom: 8,
   },
   popRow: {
@@ -1626,213 +1491,17 @@ const S = {
     cursor: "pointer",
     fontFamily: FONT,
   },
-  noteEditor: { marginTop: 8, display: "flex", flexDirection: "column", gap: 6 },
-  noteArea: {
-    width: "100%",
-    minHeight: 54,
-    resize: "vertical",
-    background: T.panel,
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    color: T.ink,
-    padding: "7px 9px",
-    fontSize: 12.5,
-    fontFamily: FONT,
-    boxSizing: "border-box",
-  },
-  noteSave: {
-    alignSelf: "flex-end",
-    background: "var(--lmd-ink)",
-    color: "var(--lmd-panel)",
-    border: "1px solid var(--lmd-ink)",
-    borderRadius: 8,
-    padding: "7px 14px",
-    fontSize: 12.5,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
-  rosterBar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 28px",
-    borderBottom: `1px solid ${T.border}`,
-    flexWrap: "wrap",
-    background: T.panel,
-    flexShrink: 0,
-  },
-  rchip: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 7,
-    background: T.bg,
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "5px 6px 5px 11px",
-    fontSize: 12.5,
-    fontFamily: MONO,
-    color: T.ink,
-    cursor: "pointer",
-  },
-  rx: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    border: "none",
-    background: "transparent",
-    color: T.faint,
-    cursor: "pointer",
-    lineHeight: 1,
-    padding: "0 2px",
-  },
-
   main: { display: "flex", flex: 1, minHeight: 0 }, // two-pane shell
   board: { flex: 1, minWidth: 0 },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
-    gap: 14,
-    alignContent: "start",
-  },
-
-  box: (accent) => ({
-    background: T.panel,
-    border: `1px solid ${T.border}`,
-    borderRadius: 12,
-    padding: "18px",
-    cursor: "pointer",
-    position: "relative",
-    transition: "transform .08s, border-color .12s",
-  }),
-  boxHead: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 },
-  sid: {
-    fontFamily: MONO,
-    fontSize: 15,
-    fontWeight: 700,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  stateBadge: (c) => ({
-    marginLeft: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    background: "var(--lmd-track)",
-    color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
-    border: "1px solid var(--lmd-border)",
-    borderRadius: 6,
-    padding: "3px 9px",
-    fontSize: 10.5,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    whiteSpace: "nowrap",
-  }),
-  stateDot: (c) => ({ width: 6, height: 6, borderRadius: "50%", background: c, flexShrink: 0 }),
-  miniLbl: {
-    fontFamily: HEADFONT,
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: 1,
-    color: T.faint,
-    textTransform: "uppercase",
-    margin: "11px 0 5px",
-  },
-  metaRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    marginTop: 12,
-    fontSize: 12,
-    color: T.sub,
-    fontVariantNumeric: "tabular-nums",
-  },
-
-  col: {
-    flexShrink: 0,
-    borderLeft: `1px solid ${T.border}`,
-    background: T.panel,
-    overflow: "auto",
-  },
-  colHead: {
-    fontFamily: HEADFONT,
-    fontSize: 12.5,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    color: T.ink,
-    textTransform: "uppercase",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 16,
-  },
-  colCount: (c) => ({
-    marginLeft: "auto",
-    background: "var(--lmd-track)",
-    color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
-    border: "1px solid var(--lmd-border)",
-    borderRadius: 6,
-    padding: "1px 8px",
-    fontSize: 12,
-    fontWeight: 700,
-    fontVariantNumeric: "tabular-nums",
-  }),
-  colItem: (c) => ({
-    background: T.bg,
-    border: `1px solid ${c}40`,
-    borderRadius: 10,
-    padding: "11px 13px",
-    marginBottom: 10,
-    cursor: "pointer",
-    position: "relative",
-  }),
-  colSid: { fontFamily: MONO, fontWeight: 700, fontSize: 14 },
-  colSub: (c) => ({
-    fontSize: 12,
-    color: `var(--lmd-signal-${c.slice(1)}, ${c})`,
-    marginTop: 4,
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-  }),
-  colEmpty: { color: T.sub, fontSize: 13, lineHeight: 1.5 },
-  ackBtn: {
-    marginLeft: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "transparent",
-    border: `1px solid ${T.border}`,
-    color: T.faint,
-    borderRadius: 8,
-    padding: "5px",
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
-  switchHead: {
-    fontFamily: HEADFONT,
-    fontSize: 12.5,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    color: T.ink,
-    textTransform: "uppercase",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    margin: "24px 0 14px",
-    paddingTop: 18,
-    borderTop: `1px solid ${T.border}`,
-  },
   toastWrap: {
     position: "fixed",
-    top: 72,
+    bottom: 24,
     right: 24,
     display: "flex",
-    flexDirection: "column",
     gap: 10,
     zIndex: 60,
     alignItems: "flex-end",
+    flexDirection: "column-reverse",
     pointerEvents: "none",
   },
   toast: {
@@ -2471,39 +2140,25 @@ const CohortDashboard = () => {
     if (cur == null || TRIGGER_PRIORITY.indexOf(t.trigger_type) < TRIGGER_PRIORITY.indexOf(cur))
       statusBy[t.studentID] = t.trigger_type;
   });
-  const headColor = TRIGGERS.wheel_spin.c;
   const unackedSwitches = switches.filter((s) => !s.acknowledged);
   const detail = detailFull; // heavy payload fetched per-open student
 
   return (
     <div className="dashboard" style={S.page}>
-      <header className="dashboard-header" style={S.bar}>
-        <h1 style={{ ...S.title, margin: 0 }}>
+      <header className="dashboard-header">
+        <div className="brand">
+          <h1>Learner Modeling Dashboard</h1>
           <span
-            aria-hidden="true"
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              flexShrink: 0,
-              background: pollingOn ? "var(--lmd-success)" : "var(--lmd-warning)",
-            }}
-          />
-          Learner Modeling Dashboard
-          {!pollingOn && (
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: 0.5,
-                textTransform: "uppercase",
-                color: "var(--lmd-warning)",
-              }}
-            >
-              Daemon paused
-            </span>
-          )}
-        </h1>
+            className={pollingOn ? "live-state" : "live-state is-paused"}
+            title={
+              pollingOn
+                ? "Fetching new activity from production"
+                : "The daemon is making no requests to production"
+            }
+          >
+            {pollingOn ? "Live" : "Polling paused"}
+          </span>
+        </div>
         <form
           className="track-form"
           onSubmit={(e) => {
@@ -2513,7 +2168,6 @@ const CohortDashboard = () => {
         >
           <input
             aria-label="Track student IDs"
-            style={S.input}
             placeholder="Track student IDs"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -2524,7 +2178,7 @@ const CohortDashboard = () => {
         </form>
         <div className="dashboard-actions">
           <button
-            style={pollingOn ? S.pollPause : S.pollResume}
+            className="hdr-btn"
             onClick={togglePolling}
             title={
               pollingOn
@@ -2532,39 +2186,12 @@ const CohortDashboard = () => {
                 : "Polling is paused. The daemon is making no requests to production. Click to resume fetching new events."
             }
           >
-            {pollingOn ? (
-              <>
-                <Icon name="pause" />
-                <span>Pause polling</span>
-              </>
-            ) : (
-              <>
-                <Icon name="play" />
-                <span>Resume polling</span>
-              </>
-            )}
+            <Icon name={pollingOn ? "pause" : "play"} />
+            <span>{pollingOn ? "Pause polling" : "Resume polling"}</span>
           </button>
           <button
-            className="secondary-action reset-action"
-            style={S.reset}
-            onClick={resetAll}
-            title="Wipe all student data with NO backup. Export first if you want a copy."
-          >
-            <Icon name="reset" />
-            <span>Reset</span>
-          </button>
-          <button
-            className="secondary-action"
-            style={S.export}
-            onClick={exportData}
-            title="Download a zip of CSV snapshots of all data"
-          >
-            <Icon name="download" />
-            <span>Export</span>
-          </button>
-          <button
+            className="hdr-btn"
             aria-expanded={triggerPanel}
-            style={S.triggersBtn}
             onClick={() => setTriggerPanel((p) => !p)}
             title="Turn trigger types on or off"
           >
@@ -2572,9 +2199,27 @@ const CohortDashboard = () => {
             <span>Triggers</span>
           </button>
           <button
-            style={S.themeToggle}
+            className="hdr-btn"
+            onClick={exportData}
+            title="Download a zip of CSV snapshots of all data"
+          >
+            <Icon name="download" />
+            <span>Export</span>
+          </button>
+          <button
+            className="hdr-btn hdr-danger"
+            onClick={resetAll}
+            title="Clear this board's session data. A CSV backup is saved first."
+          >
+            <Icon name="reset" />
+            <span>Reset</span>
+          </button>
+          <span className="hdr-sep" aria-hidden="true" />
+          <button
+            className="hdr-btn hdr-icon"
             onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
             title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
           </button>
@@ -2600,46 +2245,6 @@ const CohortDashboard = () => {
         </div>
       )}
 
-      <div className="roster-bar" style={S.rosterBar}>
-        <span style={{ fontSize: 12, color: T.sub, fontWeight: 700 }}>
-          Tracking {roster.length}:
-        </span>
-        {roster.length === 0 && (
-          <span style={{ fontSize: 12.5, color: T.faint }}>Add Student ID to Start Tracking</span>
-        )}
-        {roster.map((r) => (
-          <span
-            key={r.studentID}
-            style={S.rchip}
-            onClick={() => setSelected(r.studentID)}
-            title="Open"
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                flexShrink: 0,
-                background: r.has_data ? "var(--lmd-success)" : "var(--lmd-warning)",
-              }}
-            />
-            <button className="student-open" onClick={() => setSelected(r.studentID)}>
-              {r.display || r.studentID}
-            </button>
-            <button
-              style={S.rx}
-              title="Stop tracking"
-              onClick={(e) => {
-                e.stopPropagation();
-                removeTracked(r.studentID);
-              }}
-            >
-              <Icon name="close" size={15} />
-            </button>
-          </span>
-        ))}
-      </div>
-
       <main className="dashboard-main" style={S.main}>
         {/* left: a box per tracked student */}
         <section className="student-board" aria-label="Students" style={S.board}>
@@ -2649,7 +2254,7 @@ const CohortDashboard = () => {
               View alerts ({alerts.length})
             </a>
             <span>
-              {boxes.filter((b) => b.present).length} present |{" "}
+              {boxes.length} tracked, {boxes.filter((b) => b.present).length} present,{" "}
               {boxes.filter((b) => b.picked).length} picked
             </span>
           </div>
@@ -2665,61 +2270,58 @@ const CohortDashboard = () => {
               </button>
             </div>
           ) : (
-            <div style={S.grid}>
+            <div className="student-grid">
               {boxes.map((b) => {
-                const sm = statusMeta(statusBy[b.studentID], !!b.st);
-                const accent = sm.c;
+                const trig = statusBy[b.studentID];
+                const sm = statusMeta(trig, !!b.st);
                 return (
-                  <div
+                  <article
                     key={b.studentID}
-                    className="student-card"
-                    style={{ ...S.box(accent), opacity: b.present ? 1 : 0.5 }}
+                    className={`student-card${trig ? " is-alert" : ""}${b.present ? "" : " is-absent"}`}
+                    style={trig ? toneVars(sm.c) : undefined}
                     onClick={() => setSelected(b.studentID)}
                   >
-                    <div style={S.boxHead}>
+                    <div className="card-head">
                       <button
-                        className="student-open"
-                        style={S.sid}
+                        className="student-open card-id"
                         title={b.display}
                         onClick={() => setSelected(b.studentID)}
                       >
                         {b.display}
                       </button>
-                      <span style={S.stateBadge(accent)}>
-                        <span style={S.stateDot(accent)} />
+                      <span className="card-status">
+                        {trig && <Icon name={triggerMeta(trig).icon} size={14} />}
                         {sm.label}
                       </span>
                     </div>
                     {b.st ? (
                       <>
-                        <div style={S.miniLbl}>Runs</div>
-                        <RunTrack data={b.st.runs} compact />
-                        <div style={S.miniLbl}>Episodes</div>
-                        <EpisodeTrack data={b.st.episodes} compact />
-                        <div style={S.metaRow}>
+                        <div className="card-strips">
+                          <span>Runs</span>
+                          <RunTrack data={b.st.runs} compact />
+                          <span>Episodes</span>
+                          <EpisodeTrack data={b.st.episodes} compact />
+                        </div>
+                        <div className="card-meta">
                           <span>
-                            {b.st.run_count} runs | {b.st.event_count} events
+                            {b.st.run_count} runs, {b.st.event_count} events
                           </span>
-                          <span>{relTime(b.st.last_seen)}</span>
+                          {b.st.last_seen && (
+                            <span title={`Last activity ${clockTime(b.st.last_seen)}`}>
+                              {relTime(b.st.last_seen)} ago
+                            </span>
+                          )}
                         </div>
                       </>
                     ) : (
-                      <div style={{ color: T.faint, fontSize: 12.5, padding: "16px 0 8px" }}>
+                      <p className="card-wait">
                         {b.has_data ? "Loading..." : "Waiting for activity..."}
-                      </div>
+                      </p>
                     )}
-                    <div style={S.toggleRow}>
+                    <div className="card-actions">
                       <button
+                        className="chip-btn"
                         aria-pressed={b.present}
-                        style={
-                          b.present
-                            ? {
-                                ...S.tgBtn,
-                                background: "var(--lmd-track)",
-                                color: "var(--lmd-success)",
-                              }
-                            : S.tgBtn
-                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           setPresence(b.studentID, !b.present);
@@ -2728,20 +2330,11 @@ const CohortDashboard = () => {
                           b.present ? "Mark absent (drops to the bottom, dimmed)" : "Mark present"
                         }
                       >
-                        <span style={S.presDot(b.present)} />
-                        <span>{b.present ? "Present" : "Absent"}</span>
+                        {b.present ? "Present" : "Absent"}
                       </button>
                       <button
+                        className="chip-btn is-pick"
                         aria-pressed={b.picked}
-                        style={
-                          b.picked
-                            ? {
-                                ...S.tgBtn,
-                                background: "var(--lmd-track)",
-                                color: "var(--lmd-purple)",
-                              }
-                            : S.tgBtn
-                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           setPicked(b.studentID, !b.picked, "roster");
@@ -2755,8 +2348,19 @@ const CohortDashboard = () => {
                         {b.picked && <Icon name="check" size={14} />}
                         <span>{b.picked ? "Picked" : "Mark picked"}</span>
                       </button>
+                      <button
+                        className="icon-btn"
+                        title="Stop tracking"
+                        aria-label={`Stop tracking ${b.display}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeTracked(b.studentID);
+                        }}
+                      >
+                        <Icon name="close" size={15} />
+                      </button>
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -2764,182 +2368,160 @@ const CohortDashboard = () => {
         </section>
 
         {/* right: backend-fired alerts (the five edit-distance / idle triggers) */}
-        <aside
-          id="interventions"
-          className="intervention-feed"
-          aria-label="Needs intervention"
-          style={S.col}
-        >
-          <div style={S.colHead}>
-            <Icon
-              name={TRIGGERS.wheel_spin.icon}
-              size={16}
-              style={{ color: `var(--lmd-signal-${headColor.slice(1)}, ${headColor})` }}
-            />{" "}
-            Needs intervention
-            <span style={S.colCount(headColor)}>{alerts.length}</span>
+        <aside id="interventions" className="intervention-feed" aria-label="Needs intervention">
+          <div className="feed-head">
+            <h2>Needs intervention</h2>
+            <span className="feed-count">{alerts.length}</span>
           </div>
           {alerts.length === 0 ? (
-            <div style={S.colEmpty}>No active alerts right now.</div>
+            <p className="feed-empty">No active alerts right now.</p>
           ) : (
-            alerts.map((t) => {
-              const meta = triggerMeta(t.trigger_type);
-              return (
-                <div key={t.id} style={S.colItem(meta.c)} onClick={() => setSelected(t.studentID)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button
-                      className="student-open"
-                      style={S.colSid}
-                      onClick={() => setSelected(t.studentID)}
-                    >
-                      {displayFor(t.studentID)}
-                    </button>
-                    {(() => {
-                      const picked = !!(roster.find((r) => r.studentID === t.studentID) || {})
-                        .picked;
-                      return (
-                        <button
-                          style={
-                            picked
-                              ? {
-                                  ...S.tgBtn,
-                                  background: "var(--lmd-track)",
-                                  color: "var(--lmd-purple)",
-                                }
-                              : S.tgBtn
-                          }
-                          title={
-                            picked
-                              ? "Picked / interviewed - click to unmark"
-                              : "Mark as picked / interviewed"
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPicked(t.studentID, !picked, "intervention", t);
-                          }}
-                        >
-                          {picked && <Icon name="check" size={14} />}
-                          <span>Picked</span>
-                        </button>
-                      );
-                    })()}
-                    <button
-                      style={{ ...S.tgBtn, color: "var(--lmd-accent)" }}
-                      title="Add a note for this learner"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setNoteText("");
-                        setNoteOpen(noteOpen === t.id ? null : t.id);
-                      }}
-                    >
-                      Notes
-                    </button>
-                    <button
-                      style={S.ackBtn}
-                      title="Dismiss alert (also closes the note box)"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        ackTrigger(t.id);
-                      }}
-                    >
-                      <Icon name="close" size={15} />
-                    </button>
-                  </div>
-                  {noteOpen === t.id && (
-                    <div style={S.noteEditor} onClick={(e) => e.stopPropagation()}>
-                      <textarea
-                        style={S.noteArea}
-                        value={noteText}
-                        autoFocus
-                        placeholder="Observation during this alert..."
-                        onChange={(e) => setNoteText(e.target.value)}
-                      />
+            <ul className="feed-list">
+              {alerts.map((t) => {
+                const meta = triggerMeta(t.trigger_type);
+                const picked = !!(roster.find((r) => r.studentID === t.studentID) || {}).picked;
+                return (
+                  <li
+                    key={t.id}
+                    className="feed-item"
+                    style={toneVars(meta.c)}
+                    onClick={() => setSelected(t.studentID)}
+                  >
+                    <div className="feed-row">
                       <button
-                        style={S.noteSave}
-                        onClick={() => {
-                          addNote(t.studentID, noteText, t);
-                          setNoteOpen(null);
-                          setNoteText("");
+                        className="student-open feed-id"
+                        onClick={() => setSelected(t.studentID)}
+                      >
+                        {displayFor(t.studentID)}
+                      </button>
+                      <span className="feed-age" title="How long this alert has been active">
+                        {t.age_seconds != null ? fmtDur(t.age_seconds) : "-"}
+                      </span>
+                    </div>
+                    <div className="feed-what">
+                      <Icon name={meta.icon} size={14} />
+                      <strong>{t.label || meta.label}</strong>
+                      {t.value && <span>{t.value}</span>}
+                    </div>
+                    {t.prev && (
+                      <div className="feed-prev">
+                        Before this: {t.prev.label} at {clockTime(t.prev.at)} ({relTime(t.prev.at)}{" "}
+                        ago)
+                      </div>
+                    )}
+                    <div className="feed-actions">
+                      <button
+                        className="chip-btn is-pick"
+                        aria-pressed={picked}
+                        title={
+                          picked
+                            ? "Picked / interviewed - click to unmark"
+                            : "Mark as picked / interviewed"
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPicked(t.studentID, !picked, "intervention", t);
                         }}
                       >
-                        Save note
+                        {picked && <Icon name="check" size={14} />}
+                        <span>{picked ? "Picked" : "Mark picked"}</span>
+                      </button>
+                      <button
+                        className="chip-btn"
+                        aria-expanded={noteOpen === t.id}
+                        title="Add a note for this learner"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNoteText("");
+                          setNoteOpen(noteOpen === t.id ? null : t.id);
+                        }}
+                      >
+                        Add note
+                      </button>
+                      <button
+                        className="icon-btn"
+                        title="Dismiss alert (also closes the note box)"
+                        aria-label={`Dismiss alert for ${displayFor(t.studentID)}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          ackTrigger(t.id);
+                        }}
+                      >
+                        <Icon name="close" size={15} />
                       </button>
                     </div>
-                  )}
-                  <div style={S.colSub(meta.c)}>
-                    <Icon name={meta.icon} size={14} />
-                    <span>
-                      {t.label || meta.label}
-                      {t.value ? ` | ${t.value}` : ""}
-                    </span>
-                    <span
-                      style={{
-                        marginLeft: "auto",
-                        color: T.faint,
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {t.age_seconds != null ? fmtDur(t.age_seconds) : "-"}
-                    </span>
-                  </div>
-                  {t.prev && (
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>
-                      last:{" "}
-                      <Icon
-                        name={triggerMeta(t.prev.trigger_type).icon}
-                        size={12}
-                        style={{ display: "inline-block", verticalAlign: "-2px" }}
-                      />{" "}
-                      {t.prev.label}
-                      {" | "}
-                      {clockTime(t.prev.at)} ({relTime(t.prev.at)} ago)
-                    </div>
-                  )}
-                </div>
-              );
-            })
+                    {noteOpen === t.id && (
+                      <div className="feed-note" onClick={(e) => e.stopPropagation()}>
+                        <textarea
+                          aria-label={`Note on ${displayFor(t.studentID)}`}
+                          value={noteText}
+                          autoFocus
+                          placeholder="What did you see during this alert?"
+                          onChange={(e) => setNoteText(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          disabled={!noteText.trim()}
+                          onClick={() => {
+                            addNote(t.studentID, noteText, t);
+                            setNoteOpen(null);
+                            setNoteText("");
+                          }}
+                        >
+                          Save note
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           )}
 
           {unackedSwitches.length > 0 && (
             <>
-              <div style={S.switchHead}>
-                <Icon name="swap" size={16} style={{ color: "var(--lmd-warning)" }} />
-                Identity switches
-                <span style={S.colCount("#f59e0b")}>{unackedSwitches.length}</span>
+              <div className="feed-head feed-head-sub">
+                <h2>Identity switches</h2>
+                <span className="feed-count">{unackedSwitches.length}</span>
               </div>
-              {unackedSwitches.map((s) => (
-                <div
-                  key={s.id}
-                  style={S.colItem("#eab308")}
-                  onClick={() => setSelected(s.studentID)}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button
-                      className="student-open"
-                      style={S.colSid}
-                      onClick={() => setSelected(s.studentID)}
-                    >
-                      {displayFor(s.studentID)}
-                    </button>
-                    <button
-                      style={S.ackBtn}
-                      title="Dismiss switch"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        ackSwitch(s.id);
-                      }}
-                    >
-                      <Icon name="close" size={15} />
-                    </button>
-                  </div>
-                  <div style={S.colSub("#eab308")}>
-                    {s.kind === "casing"
-                      ? `casing | ${s.from} -> ${s.to}`
-                      : `new class | ${s.from || "-"} -> ${s.to}`}
-                    <span style={{ marginLeft: "auto", color: T.faint }}>{relTime(s.ts)}</span>
-                  </div>
-                </div>
-              ))}
+              <ul className="feed-list">
+                {unackedSwitches.map((s) => (
+                  <li
+                    key={s.id}
+                    className="feed-item"
+                    style={toneVars(TRIGGERS.inactive.c)}
+                    onClick={() => setSelected(s.studentID)}
+                  >
+                    <div className="feed-row">
+                      <button
+                        className="student-open feed-id"
+                        onClick={() => setSelected(s.studentID)}
+                      >
+                        {displayFor(s.studentID)}
+                      </button>
+                      <span className="feed-age">{relTime(s.ts)} ago</span>
+                      <button
+                        className="icon-btn"
+                        title="Dismiss switch"
+                        aria-label={`Dismiss switch for ${displayFor(s.studentID)}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          ackSwitch(s.id);
+                        }}
+                      >
+                        <Icon name="close" size={15} />
+                      </button>
+                    </div>
+                    <div className="feed-what">
+                      <Icon name="swap" size={14} />
+                      <strong>{s.kind === "casing" ? "casing changed" : "new class"}</strong>
+                      <span>
+                        {s.kind === "casing" ? s.from : s.from || "-"} -&gt; {s.to}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </>
           )}
         </aside>
@@ -2953,17 +2535,17 @@ const CohortDashboard = () => {
             // sticky -- an error that vanishes on its own isn't loud.
             <div
               key={t.id}
-              style={t.error ? { ...S.toast, borderColor: "var(--lmd-signal-ef4444)" } : S.toast}
+              style={t.error ? { ...S.toast, borderColor: "var(--lmd-signal-d0433c)" } : S.toast}
             >
               <div
                 style={
-                  t.error ? { ...S.toastIcon, color: "var(--lmd-signal-ef4444)" } : S.toastIcon
+                  t.error ? { ...S.toastIcon, color: "var(--lmd-signal-d0433c)" } : S.toastIcon
                 }
               >
                 <Icon name={t.error ? "alert" : "swap"} size={16} />
               </div>
               <div style={S.toastBody}>
-                <span style={t.error ? { ...S.toastTitle, color: "#ef4444" } : S.toastTitle}>
+                <span style={t.error ? { ...S.toastTitle, color: "#d0433c" } : S.toastTitle}>
                   {t.title}
                 </span>
                 <span style={S.toastSub}>
@@ -2975,7 +2557,7 @@ const CohortDashboard = () => {
                       {"  "}
                       <span style={{ ...S.toastArrow, color: T.faint }}>{t.from}</span>
                       <span style={S.toastArrow}>{" -> "}</span>
-                      <span style={{ ...S.toastArrow, color: "#eab308" }}>{t.to}</span>
+                      <span style={{ ...S.toastArrow, color: "#d38b12" }}>{t.to}</span>
                     </>
                   )}
                 </span>

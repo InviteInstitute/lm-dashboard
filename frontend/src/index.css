@@ -3,6 +3,9 @@
    a theme switch has to do -- every style in CohortDashboard.jsx reads these
    through T (see constants.js), so nothing else needs to react. */
 :root {
+  --lmd-font:
+    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --lmd-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --lmd-bg: #f4f6f8;
   --lmd-panel: #ffffff;
   --lmd-border: #e3e8ec;
@@ -29,28 +32,21 @@
 
 body {
   margin: 0;
-  font-family:
-    "Source Sans Pro",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Helvetica,
-    Arial,
-    sans-serif;
+  font-family: var(--lmd-font);
   background: var(--lmd-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-family: var(--lmd-mono);
 }
 
-/* Switch-notification toast: slide down + fade in on arrival. */
+/* Switch-notification toast: slide up + fade in on arrival. */
 @keyframes toastIn {
   from {
     opacity: 0;
-    transform: translateY(-12px) scale(0.96);
+    transform: translateY(12px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -66,11 +62,11 @@ code {
   --lmd-warning: #916000;
   --lmd-purple: #8040b5;
   --lmd-accent: #354bb5;
-  --lmd-signal-22c55e: #187544;
-  --lmd-signal-ef4444: #c12d35;
-  --lmd-signal-f59e0b: #916000;
-  --lmd-signal-a855f7: #8040b5;
-  --lmd-signal-3b82f6: #2463b9;
+  --lmd-signal-2f9467: #187544;
+  --lmd-signal-d0433c: #c12d35;
+  --lmd-signal-d38b12: #916000;
+  --lmd-signal-8a5cc0: #8040b5;
+  --lmd-signal-3a6ea5: #2463b9;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -80,11 +76,11 @@ code {
   --lmd-warning: #f6bf58;
   --lmd-purple: #cf9bf6;
   --lmd-accent: #a5b4fc;
-  --lmd-signal-22c55e: #65d895;
-  --lmd-signal-ef4444: #ff858b;
-  --lmd-signal-f59e0b: #f6bf58;
-  --lmd-signal-a855f7: #cf9bf6;
-  --lmd-signal-3b82f6: #80b5ff;
+  --lmd-signal-2f9467: #65d895;
+  --lmd-signal-d0433c: #ff858b;
+  --lmd-signal-d38b12: #f6bf58;
+  --lmd-signal-8a5cc0: #cf9bf6;
+  --lmd-signal-3a6ea5: #80b5ff;
 }
 .dashboard *,
 .student-dialog,
@@ -153,19 +149,66 @@ textarea::placeholder {
 .student-dialog *::-webkit-scrollbar-thumb:hover {
   background: var(--lmd-faint);
 }
+/* ---- header ---- */
 .dashboard-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 14px 28px;
   background: var(--lmd-panel);
+  border-bottom: 1px solid var(--lmd-border);
+  flex-shrink: 0;
 }
-.dashboard-header h1 {
-  flex: 1 1 340px;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-right: auto;
+}
+.brand h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--lmd-ink);
+}
+/* The one status dot on the page: it reports whether the daemon is polling. */
+.live-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--lmd-success);
+}
+.live-state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.live-state.is-paused {
+  color: var(--lmd-warning);
 }
 .track-form {
   display: flex;
-  gap: 8px;
 }
 .track-form input {
+  width: 220px;
   min-width: 0;
-  border-radius: 8px !important;
+  padding: 0 12px;
+  border: 1px solid var(--lmd-border);
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  background: var(--lmd-panel);
+  color: var(--lmd-ink);
+  font: inherit;
+  font-size: 14px;
+}
+.track-form input:focus-visible {
+  outline: 2px solid var(--lmd-accent);
+  outline-offset: -1px;
 }
 .track-submit,
 .empty-action {
@@ -173,32 +216,70 @@ textarea::placeholder {
   border-radius: 8px;
   background: var(--lmd-ink);
   color: var(--lmd-panel);
-  padding: 9px 16px;
+  padding: 0 16px;
   font: inherit;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+.track-form .track-submit {
+  border-radius: 0 8px 8px 0;
+}
+.dashboard .track-submit:disabled {
+  opacity: 1;
+  background: var(--lmd-track);
+  border-color: var(--lmd-border);
+  color: var(--lmd-faint);
+}
+.empty-action {
+  min-height: 40px;
 }
 .dashboard-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
 }
-.dashboard-actions button {
-  border-radius: 8px !important;
+.hdr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lmd-sub);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.dashboard-actions .secondary-action {
-  color: var(--lmd-sub) !important;
-  background: var(--lmd-panel) !important;
-  border-color: var(--lmd-border) !important;
+.dashboard .hdr-btn:hover {
+  filter: none;
+  background: var(--lmd-track);
+  color: var(--lmd-ink);
 }
-.dashboard-actions .reset-action:hover {
-  color: var(--lmd-signal-ef4444) !important;
+.hdr-btn[aria-expanded="true"] {
+  background: var(--lmd-track);
+  color: var(--lmd-ink);
 }
-.roster-bar {
-  max-height: 145px;
-  overflow-y: auto;
+.dashboard .hdr-danger:hover {
+  color: var(--lmd-signal-d0433c);
 }
+.hdr-icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+.hdr-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--lmd-border);
+}
+
+/* ---- board ---- */
 .student-board {
   padding: 24px 28px;
   overflow: auto;
@@ -208,20 +289,154 @@ textarea::placeholder {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 .board-heading h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 650;
+  font-size: 18px;
+  font-weight: 600;
 }
 .board-heading > span {
   color: var(--lmd-sub);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
+.student-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 272px), 1fr));
+  gap: 12px;
+  align-content: start;
+}
+/* A card only changes colour when the student is in an alert state: the tint
+   is the trigger's own colour, so the board reads by colour at a glance. */
+.student-card {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--lmd-border);
+  border-radius: 10px;
+  background: var(--lmd-panel);
+  cursor: pointer;
+  transition: border-color 160ms ease;
+}
 .student-card:hover {
-  border-color: var(--lmd-sub) !important;
+  border-color: var(--lmd-faint);
+}
+.student-card.is-alert {
+  background: color-mix(in srgb, var(--tone) 7%, var(--lmd-panel));
+  border-color: color-mix(in srgb, var(--tone) 45%, var(--lmd-border));
+}
+.student-card.is-alert:hover {
+  border-color: var(--tone);
+}
+.student-card.is-absent {
+  opacity: 0.55;
+}
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.student-open.card-id {
+  font-family: var(--lmd-mono);
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--lmd-faint);
+  white-space: nowrap;
+}
+.is-alert .card-status {
+  color: var(--tone-text);
+  font-weight: 600;
+  align-self: center;
+}
+.card-strips {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.card-wait {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--lmd-faint);
+}
+.card-actions,
+.feed-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--lmd-border);
+  border-radius: 6px;
+  background: var(--lmd-panel);
+  color: var(--lmd-sub);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.dashboard .chip-btn {
+  min-height: 30px;
+}
+.dashboard .chip-btn:hover {
+  filter: none;
+  border-color: var(--lmd-faint);
+  color: var(--lmd-ink);
+}
+/* Present is everyone's default, so it stays quiet (the label says it); a pick
+   is the researcher's own mark, so it is the one toggle that lights up. */
+.chip-btn.is-pick[aria-pressed="true"] {
+  color: var(--lmd-purple);
+  font-weight: 500;
+  background: var(--lmd-track);
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lmd-faint);
+  cursor: pointer;
+}
+.dashboard .icon-btn {
+  min-height: 30px;
+}
+.dashboard .icon-btn:hover {
+  filter: none;
+  background: var(--lmd-track);
+  color: var(--lmd-ink);
 }
 .student-open {
   appearance: none;
@@ -235,19 +450,12 @@ textarea::placeholder {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.dashboard .student-open {
+  min-height: 0;
+}
 .student-open:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
-}
-.roster-bar .student-open {
-  min-height: 24px;
-}
-.intervention-feed {
-  width: 370px;
-  padding: 27px 22px;
-}
-.intervention-feed .student-open {
-  flex: 1;
 }
 .board-empty {
   padding: 40px 20px;
@@ -255,15 +463,146 @@ textarea::placeholder {
   max-width: 480px;
 }
 .board-empty h3 {
-  font-size: 22px;
+  font-size: 20px;
+  font-weight: 600;
   color: var(--lmd-ink);
   margin: 0 0 12px;
 }
 .board-empty p {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.6;
   margin: 0 0 24px;
 }
+
+/* ---- alert feed ---- */
+.intervention-feed {
+  width: 360px;
+  flex-shrink: 0;
+  padding: 24px 20px;
+  border-left: 1px solid var(--lmd-border);
+  background: var(--lmd-panel);
+  overflow: auto;
+}
+.feed-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.feed-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.feed-head-sub {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--lmd-border);
+}
+.feed-count {
+  font-size: 14px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.feed-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--lmd-sub);
+}
+.feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.feed-item {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--lmd-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tone) 6%, var(--lmd-panel));
+  cursor: pointer;
+}
+.feed-item:hover {
+  border-color: var(--tone);
+}
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.student-open.feed-id {
+  font-family: var(--lmd-mono);
+  font-size: 15px;
+  font-weight: 600;
+}
+.feed-age {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.feed-row .icon-btn {
+  margin-left: 0;
+}
+.feed-what {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--lmd-ink);
+}
+.feed-what svg,
+.feed-what strong {
+  color: var(--tone-text);
+}
+.feed-what strong {
+  font-weight: 600;
+}
+.feed-prev {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.feed-actions {
+  margin-top: 10px;
+}
+.feed-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.feed-note textarea {
+  min-height: 64px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--lmd-border);
+  border-radius: 8px;
+  background: var(--lmd-panel);
+  color: var(--lmd-ink);
+  font: inherit;
+  font-size: 14px;
+}
+.feed-note button {
+  align-self: flex-end;
+  padding: 0 14px;
+  border: 1px solid var(--lmd-ink);
+  border-radius: 6px;
+  background: var(--lmd-ink);
+  color: var(--lmd-panel);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dashboard .feed-note button {
+  min-height: 32px;
+}
+
 /* Student detail: a sheet over the right edge of the board, so the cohort stays
    in view behind it. The dialog is the frame; .student-detail is the one scroll
    container (the header sticks inside it). */
@@ -329,7 +668,7 @@ textarea::placeholder {
 }
 .sd-who h2 {
   margin: 0;
-  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--lmd-mono);
   font-size: 20px;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -464,7 +803,7 @@ textarea::placeholder {
   background: var(--lmd-track);
   border: 1px solid var(--lmd-border);
   border-radius: 8px;
-  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--lmd-mono);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre;
@@ -645,7 +984,7 @@ textarea::placeholder {
 }
 .sd-history-value {
   color: var(--lmd-ink);
-  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--lmd-mono);
   font-size: 12px;
 }
 @media (max-width: 1000px) {
@@ -658,14 +997,8 @@ textarea::placeholder {
   }
 }
 @media (max-width: 1100px) {
-  .dashboard-header h1 {
-    flex-basis: 100%;
-  }
-  .dashboard-actions {
-    margin-left: auto;
-  }
   .intervention-feed {
-    width: 330px;
+    width: 320px;
     padding: 24px 16px;
   }
   .student-board {
@@ -677,31 +1010,40 @@ textarea::placeholder {
     height: auto;
   }
   .dashboard-header {
-    padding: 20px 16px !important;
-    gap: 16px !important;
+    padding: 14px 16px;
   }
-  .dashboard-header h1 {
-    font-size: 17px !important;
-    letter-spacing: 0 !important;
+  .brand h1 {
+    font-size: 16px;
   }
   .track-form {
     width: 100%;
   }
   .track-form input {
     flex: 1;
-    width: auto !important;
-    font-size: 16px !important;
+    width: auto;
+    font-size: 16px;
   }
   .dashboard-actions {
-    margin: 0;
-    gap: 8px;
+    width: 100%;
   }
   .dashboard-actions button {
     min-height: 44px;
   }
-  .roster-bar {
-    padding: 12px 16px !important;
-    max-height: 132px;
+  .dashboard-actions {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 0;
+  }
+  .hdr-btn {
+    padding: 0 8px;
+    font-size: 13px;
+  }
+  .hdr-sep {
+    display: none;
+  }
+  /* Icon sets display inline; on a phone the labels alone fit one row. */
+  .hdr-btn:not(.hdr-icon) svg {
+    display: none !important;
   }
   .dashboard-main {
     flex-direction: column;
@@ -710,18 +1052,19 @@ textarea::placeholder {
     padding: 24px 16px;
     overflow: visible;
   }
-  .student-card button {
+  .dashboard .chip-btn,
+  .dashboard .icon-btn {
     min-height: 44px;
+  }
+  .dashboard .icon-btn {
+    width: 44px;
   }
   .intervention-feed {
     width: 100%;
     padding: 24px 16px;
-    border-left: 0 !important;
+    border-left: 0;
     border-top: 1px solid var(--lmd-border);
-    overflow: visible !important;
-  }
-  .intervention-feed button {
-    min-height: 44px;
+    overflow: visible;
   }
   .student-dialog {
     width: 100vw;

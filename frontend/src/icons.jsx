@@ -61,6 +61,7 @@ const PATHS = {
   swap: <path d="M7 4L3 8l4 4M3 8h13M17 20l4-4-4-4M21 16H8" />,
   alert: <path d="M12 4l9 16H3z M12 10v4 M12 17.5h.01" />,
   check: <path d="M20 6L9 17l-5-5" />,
+  chevron: <path d="M9 6l6 6-6 6" />,
 };
 
 export function Icon({ name, size = 16, style, ...rest }) {

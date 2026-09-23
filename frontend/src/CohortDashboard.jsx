@@ -356,73 +356,43 @@ const _sentence = (s) => {
 };
 
 // Goal-evidence styling. Restrained on colour on purpose: this is evidence, not
-// a score. Each indicator is drawn as the rung ladder it climbed this run --
-// segments weaker (left) to stronger (right), filled up to the reached rung --
-// so a rung reads as a position on a scale, never as good/bad. Abstentions and
-// meaningful absences get an honest pill instead of a fake rung; uncertainty is
-// an amber flag chip, provenance a neutral one.
-const goalFlagChip = {
-  fontFamily: MONO,
-  fontSize: 10.5,
-  color: "var(--lmd-warning)",
-  border: "1px solid var(--lmd-warning)",
-  borderRadius: 999,
-  padding: "1px 8px",
-  background: "transparent",
+// a score. Each indicator is drawn as the rung ladder it climbed this run: a
+// segmented bar, weaker (left) to stronger (right), filled up to the reached
+// rung, with the rung names underneath. A rung reads as a position on a scale,
+// never as good/bad. Abstentions and meaningful absences get an honest note
+// instead of a fake rung; uncertainty is an amber flag, provenance a quiet one.
+const goalChip = {
+  display: "inline-flex",
+  alignItems: "center",
+  fontSize: 12,
+  lineHeight: "18px",
+  borderRadius: 6,
+  padding: "0 7px",
   whiteSpace: "nowrap",
 };
+const goalFlagChip = {
+  ...goalChip,
+  color: "var(--lmd-warning)",
+  border: "1px solid color-mix(in srgb, var(--lmd-warning) 45%, transparent)",
+  background: "color-mix(in srgb, var(--lmd-warning) 8%, transparent)",
+};
 const goalProvenanceChip = {
-  fontFamily: MONO,
-  fontSize: 10.5,
+  ...goalChip,
   color: T.sub,
   border: `1px solid ${T.border}`,
-  borderRadius: 999,
-  padding: "1px 8px",
-  background: "transparent",
-  whiteSpace: "nowrap",
 };
 // Uncertainty flags qualify the reading (amber); every other flag is provenance.
 const UNCERTAINTY_FLAGS = new Set(["sim_unverified", "fabricated_motion", "invalid_timestamp"]);
 
-// One rung on the ladder. reached = filled dark; climbed (rungs below the one
-// reached) = light fill; not-yet-reached = outline only.
-const goalRungSeg = (state) => ({
-  flex: 1,
-  minWidth: 0,
-  textAlign: "center",
-  fontSize: 12,
-  fontWeight: state === "reached" ? 600 : 400,
-  color: state === "reached" ? T.bg : state === "climbed" ? T.ink : T.sub,
-  background: state === "reached" ? T.ink : state === "climbed" ? T.track : "transparent",
-  border: `1px solid ${state === "reached" ? T.ink : T.border}`,
-  borderRadius: 6,
-  padding: "3px 6px",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-});
 // An indicator with no rung to place: an abstention (dashed, no reading) or a
 // meaningful absence (solid, the thing never happened). Never a fake rung.
 const goalNoReadingPill = (absent) => ({
-  fontSize: 12,
+  fontSize: 13,
   color: absent ? T.sub : T.faint,
   border: absent ? `1px solid ${T.border}` : `1px dashed ${T.border}`,
   borderRadius: 6,
-  padding: "4px 10px",
+  padding: "3px 10px",
   background: absent ? T.track : "transparent",
-});
-const goalRunCell = (active) => ({
-  fontFamily: MONO,
-  fontSize: 12,
-  fontWeight: active ? 700 : 400,
-  minWidth: 32,
-  minHeight: 28,
-  padding: "0 8px",
-  borderRadius: 6,
-  cursor: "pointer",
-  color: active ? T.ink : T.sub,
-  background: active ? T.panel : T.track,
-  border: `1px solid ${active ? T.ink : T.border}`,
 });
 
 // Where an indicator's reading came from: observed (outcome, filled dot),
@@ -466,19 +436,21 @@ const fmtGoalVal = (v) => {
   return Math.abs(v) >= 1 ? v.toFixed(1) : v.toPrecision(1);
 };
 
-// A rung ladder: the labels weaker -> stronger, filled up to the reached one.
+// A rung ladder: a segmented bar weaker -> stronger, filled up to the reached
+// rung (the reached segment solid, the ones below it lighter), names underneath.
 const RungLadder = ({ labels, reached }) => (
-  <div style={{ display: "flex", gap: 6 }}>
+  <ol className="rungs" style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>
     {labels.map((label, i) => (
-      <div
+      <li
         key={label}
+        className={i === reached ? "is-reached" : i < reached ? "is-climbed" : undefined}
+        aria-current={i === reached ? "true" : undefined}
         title={_humanize(label)}
-        style={goalRungSeg(i === reached ? "reached" : i < reached ? "climbed" : "todo")}
       >
         {_humanize(label)}
-      </div>
+      </li>
     ))}
-  </div>
+  </ol>
 );
 
 // One indicator: the channel mark + name + value/flags on top, then the rung
@@ -573,20 +545,9 @@ const GoalCard = ({ g }) => {
   );
 };
 
-// Run-level outcomes the per-goal rows don't carry: leaving the island is a
-// critical failure (not a goal), so it gets a filled chip -- the one place a
-// colour reads as a state, like the status badges. Everything else is a quiet note.
-const goalCriticalChip = {
-  fontFamily: MONO,
-  fontSize: 11,
-  fontWeight: 700,
-  color: T.panel,
-  background: "var(--lmd-signal-d0433c)",
-  borderRadius: 999,
-  padding: "2px 10px",
-  whiteSpace: "nowrap",
-};
-
+// Run-level outcomes the per-goal rows don't carry. Leaving the island is a
+// critical failure (not a goal), so it gets the same red tint an alerted card
+// does; everything else is a quiet line of notes.
 const GoalRunSummary = ({ run }) => {
   const s = run.summary || {};
   const notes = [];
@@ -599,71 +560,47 @@ const GoalRunSummary = ({ run }) => {
   const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
   if (!s.boundary_exceeded && notes.length === 0 && diags.length === 0) return null;
   return (
-    <div
-      style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 12 }}
-    >
+    <div className="goal-summary">
       {s.boundary_exceeded && (
-        <span style={goalCriticalChip}>
-          left the island
-          {s.boundary_exit_step != null ? ` at step ${s.boundary_exit_step}` : ""}
-          {s.boundary_exit_overridden ? " (outcome override)" : ""}
-        </span>
+        <p className="goal-critical" style={toneVars(TRIGGERS.wheel_spin.c)}>
+          <Icon name="alert" size={15} />
+          <span>
+            Left the island
+            {s.boundary_exit_step != null ? ` at step ${s.boundary_exit_step}` : ""}
+            {s.boundary_exit_overridden ? " (outcome override)" : ""}
+          </span>
+        </p>
       )}
-      {notes.length > 0 && (
-        <span
-          style={{
-            color: T.sub,
-            fontSize: 11.5,
-            fontFamily: MONO,
-            display: "flex",
-            gap: 14,
-            flexWrap: "wrap",
-          }}
-        >
+      {(notes.length > 0 || diags.length > 0) && (
+        <p className="goal-notes">
           {notes.map((n) => (
             <span key={n}>{n}</span>
           ))}
-        </span>
+          {diags.map((d) => (
+            <span key={d} style={goalFlagChip} title="diagnostic">
+              {_humanize(d)}
+            </span>
+          ))}
+        </p>
       )}
-      {diags.map((d) => (
-        <span key={d} style={goalFlagChip} title="diagnostic">
-          {_humanize(d)}
-        </span>
-      ))}
     </div>
   );
 };
 
-const goalSubLabel = { fontSize: 13, fontWeight: 600, color: T.sub, margin: "12px 0 6px" };
-
 // The goal-progression timeline: each row is a moment a block moved a goal's
-// indicator from one rung to another (post-exit steps dimmed).
+// indicator from one rung to another (steps after leaving the island dimmed).
 const GoalTimeline = ({ timeline }) => {
   const events = (timeline && timeline.events) || [];
   const post = (timeline && timeline.post_exit_events) || [];
   if (events.length === 0 && post.length === 0)
-    return (
-      <div style={{ color: T.faint, fontSize: 12 }}>No rung changes recorded on this run.</div>
-    );
+    return <p className="sd-empty">No rung changes recorded on this run.</p>;
   const row = (e, i, faded) => (
-    <div
-      key={`${faded ? "p" : "e"}${i}`}
-      style={{
-        display: "flex",
-        gap: 8,
-        alignItems: "baseline",
-        flexWrap: "wrap",
-        fontFamily: MONO,
-        fontSize: 11.5,
-        opacity: faded ? 0.55 : 1,
-        marginBottom: 3,
-      }}
-    >
-      <span style={{ color: T.faint, minWidth: 30 }}>#{e.step}</span>
-      <span style={{ color: T.sub }}>
-        {_humanize(e.goal)}.{_humanize(e.indicator)}
+    <li key={`${faded ? "p" : "e"}${i}`} className={faded ? "is-faded" : undefined}>
+      <span className="tl-step">step {e.step}</span>
+      <span className="tl-what">
+        {_sentence(e.goal)}, {_humanize(e.indicator)}
       </span>
-      <span style={{ color: T.ink }}>
+      <span className="tl-change">
         {_humanize(e.from_rung) || "start"} &rarr; {_humanize(e.to_rung)}
       </span>
       {(e.flags || []).map((f) => (
@@ -671,14 +608,18 @@ const GoalTimeline = ({ timeline }) => {
           {_humanize(f)}
         </span>
       ))}
-    </div>
+    </li>
   );
   return (
-    <div>
-      {events.map((e, i) => row(e, i, false))}
-      {post.length > 0 && <div style={goalSubLabel}>after leaving the island</div>}
-      {post.map((e, i) => row(e, i, true))}
-    </div>
+    <>
+      <ol className="goal-timeline">{events.map((e, i) => row(e, i, false))}</ol>
+      {post.length > 0 && (
+        <>
+          <p className="goal-timeline-sub">After leaving the island</p>
+          <ol className="goal-timeline">{post.map((e, i) => row(e, i, true))}</ol>
+        </>
+      )}
+    </>
   );
 };
 
@@ -754,26 +695,13 @@ const BatteryCheck = ({ c }) => {
       ? `abstained: ${_humanize(c.abstain_reason) || "not reached"}`
       : `${state}${c.detail ? ` (${c.detail})` : ""}`;
   return (
-    <span
-      title={`${_humanize(c.name)}: ${detail}`}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        fontFamily: MONO,
-        fontSize: 10.5,
-        color: state === "abstained" ? T.faint : T.sub,
-        border: `1px ${state === "abstained" ? "dashed" : "solid"} ${T.border}`,
-        borderRadius: 6,
-        padding: "1px 7px",
-      }}
-    >
+    <span className={`battery-check is-${state}`} title={`${_humanize(c.name)}: ${detail}`}>
       <CheckDot state={state} />
       {_humanize(c.name)}
       {measured && (
-        <span style={{ color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+        <b className="battery-value">
           {c.value >= 0 && c.value <= 1 ? _pct(c.value) : fmtGoalVal(c.value)}
-        </span>
+        </b>
       )}
       {c.capped && <span style={{ color: "var(--lmd-warning)" }}>capped</span>}
     </span>
@@ -791,13 +719,9 @@ const BatteryTally = ({ scenarios }) => {
   );
   const order = [...GOAL_CHECK_VERDICTS, "measured", "abstained"].filter((st) => n[st]);
   return (
-    <span style={{ display: "inline-flex", gap: 10, marginLeft: "auto", flexWrap: "wrap" }}>
+    <span className="battery-tally">
       {order.map((st) => (
-        <span
-          key={st}
-          title={`${n[st]} ${st}`}
-          style={{ display: "inline-flex", alignItems: "center", gap: 4, color: T.sub }}
-        >
+        <span key={st} title={`${n[st]} ${st}`}>
           <CheckDot state={st} />
           {n[st]} {st}
         </span>
@@ -809,11 +733,7 @@ const BatteryTally = ({ scenarios }) => {
 const GoalBattery = ({ battery }) => {
   if (!battery) return null;
   if (!battery.eligible)
-    return (
-      <div style={{ color: T.faint, fontSize: 12 }}>
-        Not applicable: this program reads no sensors.
-      </div>
-    );
+    return <p className="sd-empty">Not applicable: this program reads no sensors.</p>;
   const families = [];
   (battery.scenarios || []).forEach((sc) => {
     const key = sc.family || "other";
@@ -821,73 +741,39 @@ const GoalBattery = ({ battery }) => {
     if (!fam) families.push((fam = { key, scenarios: [] }));
     fam.scenarios.push(sc);
   });
+  const sensors = (battery.qualifying_blocks || []).map((b) =>
+    _humanize(b.replace(/^pg_(sensing_)?/, "")),
+  );
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ color: T.sub, fontSize: 11, fontFamily: MONO, marginBottom: 2 }}>
-        sensing: {(battery.qualifying_blocks || []).map(_humanize).join(", ")}
-      </div>
+    <div className="battery">
+      {sensors.length > 0 && <p className="battery-reads">Sensor blocks: {sensors.join(", ")}</p>}
       {families.map((fam) => (
-        <details
-          key={fam.key}
-          style={{
-            border: `1px solid ${T.border}`,
-            borderRadius: 8,
-            background: T.track,
-          }}
-        >
-          <summary
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-              cursor: "pointer",
-              padding: "7px 10px",
-              fontFamily: MONO,
-              fontSize: 11,
-              listStyle: "none",
-            }}
-          >
-            <span style={{ color: T.faint }} aria-hidden="true" className="goal-fam-caret">
-              &#9656;
+        <details key={fam.key} className="battery-family">
+          <summary>
+            <span aria-hidden="true" className="goal-fam-caret">
+              <Icon name="chevron" size={14} />
             </span>
-            <span style={{ color: T.ink, fontWeight: 600 }}>{_familyLabel(fam.key)}</span>
-            <span style={{ color: T.faint }}>
+            <span className="battery-family-name">{_familyLabel(fam.key)}</span>
+            <span className="battery-family-count">
               {fam.scenarios.length} {fam.scenarios.length === 1 ? "scenario" : "scenarios"}
             </span>
             <BatteryTally scenarios={fam.scenarios} />
           </summary>
-          <div
-            style={{ display: "flex", flexDirection: "column", gap: 9, padding: "2px 10px 10px" }}
-          >
+          <ul className="battery-scenarios">
             {fam.scenarios.map((sc, si) => (
-              <div key={`${sc.scenario_id}-${sc.construct}-${si}`}>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    alignItems: "baseline",
-                    flexWrap: "wrap",
-                    marginBottom: 5,
-                  }}
-                >
-                  <span style={{ fontFamily: MONO, fontSize: 11.5, color: T.ink }}>
-                    {_humanize(sc.scenario_id)}
-                  </span>
-                  {_scenarioBlurb(sc) && (
-                    <span style={{ color: T.faint, fontSize: 11.5 }} title={sc.description}>
-                      {_scenarioBlurb(sc)}
-                    </span>
-                  )}
+              <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
+                <div className="battery-scenario-head">
+                  <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
+                  {_scenarioBlurb(sc) && <span title={sc.description}>{_scenarioBlurb(sc)}</span>}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div className="battery-checks">
                   {(sc.checks || []).map((c, ci) => (
                     <BatteryCheck key={ci} c={c} />
                   ))}
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </details>
       ))}
     </div>
@@ -902,28 +788,21 @@ const _evidenceSource = (e) => {
   return rest.length ? `${where}: ${name}` : name;
 };
 
-// A mono caption line under a ladder: quiet key/value facts, space-separated.
-const GoalFacts = ({ facts }) => {
+// A caption line under a ladder: quiet key/value facts. `lead` (where the claim
+// comes from) opens the line.
+const GoalFacts = ({ facts, lead }) => {
   const shown = facts.filter(([, v]) => v != null && v !== "");
-  if (shown.length === 0) return null;
+  if (shown.length === 0 && !lead) return null;
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 14,
-        flexWrap: "wrap",
-        marginTop: 5,
-        fontFamily: MONO,
-        fontSize: 10.5,
-        color: T.faint,
-      }}
-    >
+    <p className="goal-facts">
+      {lead}
       {shown.map(([k, v]) => (
-        <span key={k}>
-          {k} <span style={{ color: T.sub }}>{v}</span>
+        <span key={k || "value"}>
+          {k && `${k} `}
+          <b>{v}</b>
         </span>
       ))}
-    </div>
+    </p>
   );
 };
 
@@ -940,7 +819,7 @@ const GoalClaimRow = ({ g }) => {
   const d = g.debris || {};
   const facts = fromTests
     ? [
-        ["tests", noTests ? null : `${g.n_valid || 0} valid, ${g.n_abstained || 0} abstained`],
+        ["", noTests ? null : `${g.n_valid || 0} valid, ${g.n_abstained || 0} abstained`],
         [
           "pieces cleared",
           Number.isFinite(d.proportion_cleared) ? _pct(d.proportion_cleared) : null,
@@ -982,16 +861,6 @@ const GoalClaimRow = ({ g }) => {
               {_humanize(f)}
             </span>
           ))}
-          <span
-            style={goalProvenanceChip}
-            title={
-              fromTests
-                ? "banded from the sensor-test battery"
-                : "derived from this goal's indicator rungs (no battery channel by design)"
-            }
-          >
-            {fromTests ? "from tests" : "from indicators"}
-          </span>
         </span>
       </div>
       {reached !== -1 ? (
@@ -1002,7 +871,21 @@ const GoalClaimRow = ({ g }) => {
           {noTests ? "no sensor tests ran" : _humanize(g.abstain_reason) || "no evidence"}
         </div>
       )}
-      <GoalFacts facts={facts} />
+      <GoalFacts
+        facts={facts}
+        lead={
+          <span
+            className="goal-source"
+            title={
+              fromTests
+                ? "banded from the sensor-test battery"
+                : "derived from this goal's indicator rungs (no battery channel by design)"
+            }
+          >
+            {fromTests ? "from tests" : "from indicators"}
+          </span>
+        }
+      />
     </div>
   );
 };
@@ -1068,55 +951,30 @@ const GoalRubric = ({ rubric }) => (
 );
 
 // Legend for the panel: what each channel mark means, and how the ladder fills.
-const GoalLegend = () => {
-  const item = (mark, label) => (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        color: T.sub,
-        fontFamily: MONO,
-        fontSize: 10.5,
-      }}
-    >
-      {mark}
-      {label}
-    </span>
-  );
-  const swatch = (reached) => (
-    <span
-      style={{
-        width: 16,
-        height: 11,
-        borderRadius: 3,
-        display: "inline-block",
-        background: reached ? T.ink : T.track,
-        border: `1px solid ${reached ? T.ink : T.border}`,
-      }}
-    />
-  );
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        flexWrap: "wrap",
-        marginBottom: 12,
-      }}
-    >
-      {item(<ChannelMark channel="outcome" />, "observed")}
-      {item(<ChannelMark channel="simulation" />, "simulation")}
-      {item(<ChannelMark channel="code" />, "authored")}
-      {item(swatch(true), "reached rung")}
-      {item(swatch(false), "climbed")}
-      <span style={{ color: T.faint, fontFamily: MONO, fontSize: 10.5 }}>
-        weaker &rsaquo; stronger
-      </span>
-    </div>
-  );
-};
+const GoalLegend = () => (
+  <ul className="goal-legend">
+    <li>
+      <ChannelMark channel="outcome" />
+      observed
+    </li>
+    <li>
+      <ChannelMark channel="simulation" />
+      simulation
+    </li>
+    <li>
+      <ChannelMark channel="code" />
+      authored from the code
+    </li>
+    <li>
+      <span className="legend-bar is-reached" />
+      reached rung
+    </li>
+    <li>
+      <span className="legend-bar is-climbed" />
+      climbed past
+    </li>
+  </ul>
+);
 
 // A sub-part of the goal-evidence section (claims, indicators, rubric, ...).
 const GoalPart = ({ title, aside, children }) => (
@@ -1158,9 +1016,9 @@ export const GoalEvidence = ({ runs, enabled }) => {
             key={r.index}
             type="button"
             onClick={() => setPicked(r.index)}
+            className="chip-btn goal-run"
             aria-pressed={r.index === run.index}
             title={r.index === latest ? `Run ${r.index} (latest)` : `Run ${r.index}`}
-            style={goalRunCell(r.index === run.index)}
           >
             {r.index}
           </button>

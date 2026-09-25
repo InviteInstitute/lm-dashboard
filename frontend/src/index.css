@@ -846,7 +846,7 @@ textarea::placeholder {
 .goal-part {
   margin-top: 24px;
 }
-.goal-part h4 {
+.goal-part > h4 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -956,163 +956,188 @@ button.flag-chip {
   color: var(--lmd-ink);
 }
 
-/* Goal trajectory: where each goal's claim landed on every run. One hue
-   (ink), ordinal: the bar's fill height is the rung's place on its ladder. */
-.traj {
-  overflow-x: auto;
-  margin: 4px 0 16px;
-  padding-bottom: 4px;
+/* Goal board: one row per goal (or rubric dimension). Name | reading | trend. */
+.goal-cols,
+.goal-row {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) auto;
+  column-gap: 20px;
+  align-items: start;
 }
-.traj table {
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 13px;
-}
-.traj th[scope="row"] {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  padding: 0 16px 0 0;
-  background: var(--lmd-panel);
-  font-weight: 500;
-  color: var(--lmd-ink);
-  text-align: left;
-  white-space: nowrap;
-}
-.traj-corner {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  background: var(--lmd-panel);
-  padding-right: 16px;
-  text-align: left;
+.goal-cols {
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--lmd-border);
   font-size: 12px;
-  font-weight: 400;
   color: var(--lmd-sub);
 }
-.traj thead th {
-  padding-bottom: 6px;
-  font-weight: 400;
+.goal-cols span:last-child {
+  text-align: right;
 }
-.traj thead th button {
-  width: 32px;
-  min-height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--lmd-sub);
-  font: inherit;
-  font-family: var(--lmd-mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
+.goal-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
-.student-dialog .traj thead th button {
-  min-height: 26px;
-}
-.traj thead th button:hover {
-  filter: none;
-  background: var(--lmd-track);
+.goal-name h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
   color: var(--lmd-ink);
 }
-.traj thead th button[aria-pressed="true"] {
-  background: var(--lmd-ink);
-  color: var(--lmd-panel);
+.goal-reading {
+  min-width: 0;
+}
+.goal-now {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  min-height: 22px;
+  font-size: 14px;
+  color: var(--lmd-ink);
+}
+.goal-now strong {
   font-weight: 600;
 }
-.traj td {
-  width: 36px;
-  height: 32px;
-  padding: 0 2px;
-  text-align: center;
-  vertical-align: middle;
-  cursor: pointer;
+.goal-of {
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
 }
-.traj td.is-current,
-.traj th.is-current {
-  background: var(--lmd-track);
+.goal-none {
+  font-size: 13px;
+  color: var(--lmd-sub);
 }
-.traj tbody tr:first-child td.is-current {
-  border-radius: 6px 6px 0 0;
+.goal-next {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--lmd-sub);
 }
-.traj tbody tr:last-child td.is-current {
-  border-radius: 0 0 6px 6px;
+.goal-next b {
+  font-weight: 500;
+  color: var(--lmd-ink);
 }
-/* The mark: an 8px-wide track with the rung level filled from the bottom. */
-.traj-bar {
-  display: inline-block;
-  position: relative;
-  width: 8px;
-  height: 22px;
+.goal-now .flag-chip {
+  margin-left: auto;
+}
+/* The ladder as pips: reached solid ink, climbed-past a lighter ink, ahead empty. */
+.pips {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.pips i {
+  width: 14px;
+  height: 8px;
   border-radius: 2px;
   background: var(--lmd-track);
   box-shadow: inset 0 0 0 1px var(--lmd-border);
-  vertical-align: middle;
-  overflow: hidden;
 }
-.traj td.is-current .traj-bar {
-  background: var(--lmd-panel);
+.pips i.is-climbed {
+  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
+  box-shadow: none;
 }
-.traj-bar::after {
+.pips i.is-reached {
+  background: var(--lmd-ink);
+  box-shadow: none;
+}
+.pips.is-none i {
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed var(--lmd-faint);
+}
+/* A row's claim across recent runs: bar height = the rung's place on its ladder. */
+.goal-trend {
+  display: flex;
+  justify-content: flex-end;
+}
+.trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.trend li {
+  display: flex;
+  height: 100%;
+}
+.student-dialog .trend button {
+  position: relative;
+  width: 10px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lmd-track) 70%, transparent);
+  cursor: pointer;
+}
+.trend button::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   height: max(3px, calc(var(--lvl) * 100%));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
+}
+.trend button:hover::after {
+  background: color-mix(in srgb, var(--lmd-ink) 60%, var(--lmd-track));
+}
+.trend button[aria-pressed="true"]::after {
   background: var(--lmd-ink);
 }
-.traj-none {
-  display: inline-block;
-  width: 8px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--lmd-border);
-  vertical-align: middle;
-}
-.traj-none.is-abstained {
-  height: 22px;
+.trend button.is-none::after {
+  height: 100%;
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--lmd-faint);
-  border-radius: 2px;
   -webkit-mask: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
   mask: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
 }
-.traj-exit th[scope="row"] {
-  font-weight: 400;
-  color: var(--lmd-sub);
+.trend button.is-empty::after {
+  height: 2px;
+  background: var(--lmd-border);
 }
-.traj-exit td {
-  height: 26px;
-  color: var(--lmd-signal-d0433c);
+.trend button[aria-pressed="true"]::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--lmd-ink);
 }
-.traj-exit td svg {
-  margin: 0 auto;
-}
-/* The selected run's rung, written out: the one direct label per row. */
-.traj .traj-now {
-  width: auto;
-  padding: 0 0 0 16px;
-  text-align: left;
-  white-space: nowrap;
-  cursor: default;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--lmd-ink);
-}
-.traj thead .traj-now {
+.trend-empty {
   font-size: 12px;
-  font-weight: 400;
-  color: var(--lmd-sub);
-}
-.traj .traj-now i {
-  font-style: normal;
-  font-weight: 400;
   color: var(--lmd-faint);
+  line-height: 22px;
 }
-.traj-exit .traj-now {
-  color: var(--lmd-signal-d0433c);
+@media (max-width: 640px) {
+  .goal-cols {
+    display: none;
+  }
+  .goal-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name trend" "reading reading";
+    row-gap: 8px;
+  }
+  .goal-name {
+    grid-area: name;
+  }
+  .goal-reading {
+    grid-area: reading;
+  }
+  .goal-trend {
+    grid-area: trend;
+  }
 }
 /* One goal on the selected run. */
 .goals {
@@ -1120,24 +1145,23 @@ button.flag-chip {
   flex-direction: column;
 }
 .goal {
-  padding: 16px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--lmd-border);
 }
-.goal-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  margin-bottom: 10px;
+.goal-cols + .goal {
+  border-top: 0;
 }
-.goal-head h4 {
-  margin: 0 auto 0 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--lmd-ink);
+/* Facts and evidence hang under the reading column. */
+@media (min-width: 641px) {
+  .goal > .goal-facts,
+  .goal > .goal-evidence,
+  .goal > .flag-list {
+    margin-left: 196px;
+  }
 }
 .goal-noclaim {
   margin: 0;
+  line-height: 22px;
   font-size: 13px;
   color: var(--lmd-sub);
 }
@@ -1177,20 +1201,6 @@ button.flag-chip {
 .battery-family-tag {
   font-size: 12px;
   color: var(--lmd-faint);
-}
-.goal-run-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--lmd-sub);
-}
-.goal-run-meta:empty {
-  display: none;
-}
-.goal-legend {
-  margin-top: 16px;
 }
 
 /* Rung ladder: a segmented bar filled up to the reached rung, names below. */
@@ -1247,7 +1257,7 @@ button.flag-chip {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: 0;
+  margin: 20px 0 0;
   padding: 0;
   list-style: none;
   font-size: 12px;
@@ -1258,20 +1268,25 @@ button.flag-chip {
   align-items: center;
   gap: 6px;
 }
-.legend-bar {
-  width: 18px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--lmd-ink);
-}
-.legend-bar.is-climbed {
-  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
-}
 .dashboard .chip-btn.goal-run {
   min-width: 36px;
   justify-content: center;
   font-family: var(--lmd-mono);
   font-variant-numeric: tabular-nums;
+}
+.chip-btn.goal-run.is-exit {
+  position: relative;
+}
+/* A run that left the island: a red tick under its number. */
+.chip-btn.goal-run.is-exit::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--lmd-signal-d0433c);
 }
 .chip-btn.goal-run[aria-pressed="true"] {
   background: var(--lmd-ink);
@@ -1283,7 +1298,7 @@ button.flag-chip {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 8px;
+  margin: 12px 0 20px;
 }
 .goal-critical {
   display: flex;

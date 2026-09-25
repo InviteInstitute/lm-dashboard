@@ -707,17 +707,18 @@ describe("CohortDashboard", () => {
       await screen.findByTitle("stays on island: abstained: encounter not reached"),
     ).toBeInTheDocument();
     expect(await screen.findByText("25%")).toBeInTheDocument();
-    // the trajectory table has a row per claimed goal; the claim sits on its ladder,
-    // with the certainty demotion shown
-    expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(await screen.findByRole("rowheader", { name: "Remain on Island" })).toBeInTheDocument();
-    // on the ladder, in the trajectory cell for this run, and its direct label
-    expect(await screen.findAllByText("boundary safe")).toHaveLength(3);
+    // the goal board has a row per goal; the claim is written out beside its pips,
+    // with the certainty demotion shown, and its trend picks runs
+    expect(await screen.findByRole("heading", { name: "Remain on Island" })).toBeInTheDocument();
+    expect(await screen.findAllByText("boundary safe")).toHaveLength(1);
+    expect(await screen.findByText("Top of the ladder")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Run 0: boundary safe" })).toBeInTheDocument();
     expect(await screen.findByText("sparse evidence")).toBeInTheDocument();
     expect(await screen.findByText("3 valid, 16 abstained")).toBeInTheDocument();
     // ...and a derived goal, read from a named indicator
-    expect(await screen.findAllByText("approached not armed")).toHaveLength(3);
-    expect(await screen.findByText("from indicators")).toBeInTheDocument();
+    expect(await screen.findAllByText("approached not armed")).toHaveLength(1);
+    expect(await screen.findByText("armed not attached")).toBeInTheDocument(); // the next rung
+    expect(await screen.findByText("From Indicators")).toBeInTheDocument();
     expect(await screen.findByText("plow approach intent")).toBeInTheDocument();
     // rubric: labelled provisional, a level on its 0..max ladder, and a U reason
     expect(await screen.findByText("Execution Rubric")).toBeInTheDocument();

@@ -857,17 +857,6 @@ textarea::placeholder {
   font-weight: 600;
   color: var(--lmd-ink);
 }
-.goal-block + .goal-block {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--lmd-border);
-}
-.goal-block h5 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--lmd-ink);
-}
 .goal-role {
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
@@ -878,6 +867,267 @@ textarea::placeholder {
   color: var(--lmd-faint);
   line-height: 20px;
 }
+/* Screen-reader-only text: the values behind purely visual marks. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+h1,
+h2,
+h3,
+h4,
+h5 {
+  text-wrap: balance;
+}
+.dashboard p,
+.student-dialog p {
+  text-wrap: pretty;
+}
+
+/* Goal trajectory: where each goal's claim landed on every run. One hue
+   (ink), ordinal: the bar's fill height is the rung's place on its ladder. */
+.traj {
+  overflow-x: auto;
+  margin: 4px 0 16px;
+  padding-bottom: 4px;
+}
+.traj table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.traj th[scope="row"] {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 16px 0 0;
+  background: var(--lmd-panel);
+  font-weight: 500;
+  color: var(--lmd-ink);
+  text-align: left;
+  white-space: nowrap;
+}
+.traj-corner {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--lmd-panel);
+  padding-right: 16px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj thead th {
+  padding-bottom: 6px;
+  font-weight: 400;
+}
+.traj thead th button {
+  width: 32px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lmd-sub);
+  font: inherit;
+  font-family: var(--lmd-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.student-dialog .traj thead th button {
+  min-height: 26px;
+}
+.traj thead th button:hover {
+  filter: none;
+  background: var(--lmd-track);
+  color: var(--lmd-ink);
+}
+.traj thead th button[aria-pressed="true"] {
+  background: var(--lmd-ink);
+  color: var(--lmd-panel);
+  font-weight: 600;
+}
+.traj td {
+  width: 36px;
+  height: 32px;
+  padding: 0 2px;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.traj td.is-current,
+.traj th.is-current {
+  background: var(--lmd-track);
+}
+.traj tbody tr:first-child td.is-current {
+  border-radius: 6px 6px 0 0;
+}
+.traj tbody tr:last-child td.is-current {
+  border-radius: 0 0 6px 6px;
+}
+/* The mark: an 8px-wide track with the rung level filled from the bottom. */
+.traj-bar {
+  display: inline-block;
+  position: relative;
+  width: 8px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--lmd-track);
+  box-shadow: inset 0 0 0 1px var(--lmd-border);
+  vertical-align: middle;
+  overflow: hidden;
+}
+.traj td.is-current .traj-bar {
+  background: var(--lmd-panel);
+}
+.traj-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: max(3px, calc(var(--lvl) * 100%));
+  background: var(--lmd-ink);
+}
+.traj-none {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--lmd-border);
+  vertical-align: middle;
+}
+.traj-none.is-abstained {
+  height: 22px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--lmd-faint);
+  border-radius: 2px;
+  -webkit-mask: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
+  mask: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
+}
+.traj-exit th[scope="row"] {
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj-exit td {
+  height: 26px;
+  color: var(--lmd-signal-d0433c);
+}
+.traj-exit td svg {
+  margin: 0 auto;
+}
+/* The selected run's rung, written out: the one direct label per row. */
+.traj .traj-now {
+  width: auto;
+  padding: 0 0 0 16px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lmd-ink);
+}
+.traj thead .traj-now {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj .traj-now i {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--lmd-faint);
+}
+.traj-exit .traj-now {
+  color: var(--lmd-signal-d0433c);
+}
+/* One goal on the selected run. */
+.goals {
+  display: flex;
+  flex-direction: column;
+}
+.goal {
+  padding: 16px 0;
+  border-top: 1px solid var(--lmd-border);
+}
+.goal-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-bottom: 10px;
+}
+.goal-head h4 {
+  margin: 0 auto 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.goal-noclaim {
+  margin: 0;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-evidence {
+  margin-top: 10px;
+}
+.goal-evidence summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lmd-ink);
+}
+.goal-evidence summary:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.goal-evidence-count {
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.goal-evidence-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px 0 4px 20px;
+  border-left: 1px solid var(--lmd-border);
+}
+.goal-evidence-body .battery-scenarios {
+  padding: 0;
+}
+.battery-family-tag {
+  font-size: 12px;
+  color: var(--lmd-faint);
+}
+.goal-run-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-run-meta:empty {
+  display: none;
+}
+.goal-legend {
+  margin-top: 16px;
+}
+
 /* Rung ladder: a segmented bar filled up to the reached rung, names below. */
 .rungs {
   display: grid;
@@ -932,7 +1182,7 @@ textarea::placeholder {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: 0 0 16px;
+  margin: 0;
   padding: 0;
   list-style: none;
   font-size: 12px;
@@ -1350,6 +1600,10 @@ textarea::placeholder {
   .goal-role {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
+  }
+  /* the goal blocks below write each rung out; the table keeps just the bars */
+  .traj .traj-now {
+    display: none;
   }
   .student-dialog .sd-switch button,
   .student-dialog .goal-runs button,

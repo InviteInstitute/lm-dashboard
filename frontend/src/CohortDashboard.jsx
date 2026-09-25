@@ -460,6 +460,27 @@ const UNCERTAIN_FLAG =
 // inline below the row, so nothing is hover-only and nothing wraps into a
 // second line of chips. `allUncertain` for lists that are hedges by definition
 // (a claim's certainty reasons, run diagnostics).
+// Engine flag names in plain words, for readers who don't know the engine. The
+// raw name stays in the tooltip; anything not listed is just de-underscored.
+const FLAG_TEXT = {
+  sparse_evidence: "little evidence",
+  sim_unverified: "simulation not confirmed",
+  simulated_fallback: "simulated, not seen",
+  simulated_attainment: "reached in simulation only",
+  gps_invalid: "GPS data unusable",
+  invalid_timestamp: "bad timestamps",
+  loop_capped: "loop cut short",
+  duration_imputed: "timing estimated",
+  early_stop_outcome: "run stopped early",
+  evidence_post_sim_exit: "after leaving the island",
+  band_model_disagreement: "methods disagree",
+  attachment_boundary_marginal: "attachment borderline",
+  unknown_reporter: "unrecognized block",
+  foreign_playground_block: "block from another playground",
+  fabricated_motion: "motion filled in",
+};
+const _flagText = (f) => FLAG_TEXT[f] || _humanize(f);
+
 function useFlags(flags, allUncertain = false) {
   const [open, setOpen] = React.useState(false);
   const all = [...new Set(flags || [])];
@@ -470,21 +491,24 @@ function useFlags(flags, allUncertain = false) {
   const cls = `flag-chip${unc.length ? " is-uncertain" : ""}`;
   const chip =
     ordered.length === 1 ? (
-      <span className={cls} title={unc.length ? "uncertainty flag" : "provenance"}>
-        <span className="flag-name">{_humanize(ordered[0])}</span>
+      <span
+        className={cls}
+        title={`${unc.length ? "Uncertain" : "Where this came from"} (${ordered[0]})`}
+      >
+        <span className="flag-name">{_flagText(ordered[0])}</span>
       </span>
     ) : (
       <button
         type="button"
         className={cls}
         aria-expanded={open}
-        title={open ? "Hide flags" : `All flags: ${ordered.map(_humanize).join(", ")}`}
+        title={open ? "Hide flags" : `All flags: ${ordered.map(_flagText).join(", ")}`}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
       >
-        <span className="flag-name">{_humanize(ordered[0])}</span>
+        <span className="flag-name">{_flagText(ordered[0])}</span>
         <span className="flag-more">+{ordered.length - 1}</span>
       </button>
     );
@@ -493,13 +517,13 @@ function useFlags(flags, allUncertain = false) {
       {unc.length > 0 && (
         <div>
           <dt>Uncertain</dt>
-          <dd>{unc.map(_humanize).join(", ")}</dd>
+          <dd>{unc.map(_flagText).join(", ")}</dd>
         </div>
       )}
       {prov.length > 0 && (
         <div>
-          <dt>Provenance</dt>
-          <dd>{prov.map(_humanize).join(", ")}</dd>
+          <dt>Source</dt>
+          <dd>{prov.map(_flagText).join(", ")}</dd>
         </div>
       )}
     </dl>
@@ -664,7 +688,7 @@ const GoalRunSummary = ({ run, sensors = [], noSensors = false }) => {
       `${_count(s.orphan_block_count, "block isn't", "blocks aren't")} attached to the program.`,
     );
   if (sensors.length > 0) notes.push(`Uses the ${_andList(sensors.map(_sensorName))}.`);
-  if (noSensors) notes.push("Uses no sensors, so there are no sensor tests.");
+  if (noSensors) notes.push("Uses no sensors, so there are no test worlds to run.");
   // inherited_playground is routine bookkeeping, not worth showing here
   const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
   const diagFlags = useFlags(diags, true);
@@ -716,7 +740,7 @@ const GoalTimeline = ({ timeline, showGoal = true }) => {
   const events = (timeline && timeline.events) || [];
   const post = (timeline && timeline.post_exit_events) || [];
   if (events.length === 0 && post.length === 0)
-    return <p className="sd-empty">No rung changes recorded on this run.</p>;
+    return <p className="sd-empty">No step changes on this run.</p>;
   return (
     <>
       <ol className="goal-timeline">
@@ -754,6 +778,8 @@ const goalCheckColor = (st) =>
         ? "var(--lmd-warning)"
         : T.sub;
 const _checkState = (c) => (c.abstained || c.status === "abstained" ? "abstained" : c.status);
+// "abstained" is engine vocabulary; readers know it as inconclusive.
+const _checkWord = (st) => (st === "abstained" ? "inconclusive" : st);
 const _pct = (v) => `${Math.round(v * 100)}%`;
 // "t2_boundary" -> "T2 boundary"
 const _familyLabel = _sentence;
@@ -807,7 +833,7 @@ const BatteryCheck = ({ c }) => {
   const measured = state === "measured" && Number.isFinite(c.value);
   const detail =
     state === "abstained"
-      ? `abstained: ${_humanize(c.abstain_reason) || "not reached"}`
+      ? `inconclusive: ${_humanize(c.abstain_reason) || "not reached"}`
       : `${state}${c.detail ? ` (${c.detail})` : ""}`;
   return (
     <span className={`battery-check is-${state}`} title={`${_humanize(c.name)}: ${detail}`}>
@@ -836,9 +862,9 @@ const BatteryTally = ({ scenarios }) => {
   return (
     <span className="battery-tally">
       {order.map((st) => (
-        <span key={st} title={`${n[st]} ${st}`}>
+        <span key={st} title={`${n[st]} ${_checkWord(st)}`}>
           <CheckDot state={st} />
-          {n[st]} {st}
+          {n[st]} {_checkWord(st)}
         </span>
       ))}
     </span>
@@ -848,7 +874,7 @@ const BatteryTally = ({ scenarios }) => {
 const GoalBattery = ({ battery }) => {
   if (!battery) return null;
   if (!battery.eligible)
-    return <p className="sd-empty">Not applicable: this program reads no sensors.</p>;
+    return <p className="sd-empty">Not applicable: this program uses no sensors.</p>;
   const families = [];
   (battery.scenarios || []).forEach((sc) => {
     const key = sc.family || "other";
@@ -870,7 +896,7 @@ const GoalBattery = ({ battery }) => {
             </span>
             <span className="battery-family-name">{_familyLabel(fam.key)}</span>
             <span className="battery-family-count">
-              {fam.scenarios.length} {fam.scenarios.length === 1 ? "scenario" : "scenarios"}
+              {fam.scenarios.length} {fam.scenarios.length === 1 ? "test world" : "test worlds"}
             </span>
             <BatteryTally scenarios={fam.scenarios} />
           </summary>
@@ -971,7 +997,7 @@ const TrajNow = ({ g }) => {
   const lvl = _rungLevel(g);
   return (
     <td className="traj-now">
-      {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>no claim</i>}
+      {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>not assessed</i>}
     </td>
   );
 };
@@ -1021,7 +1047,7 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
               {runs.map((r) => {
                 const g = _claimOn(r, goal);
                 const lvl = _rungLevel(g);
-                const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "no claim";
+                const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "not assessed";
                 return (
                   <td
                     key={r.index}
@@ -1090,17 +1116,17 @@ const GoalReading = ({ labels, reached, word, none, chips }) => (
           <Pips n={labels.length} reached={reached} />
           <strong>{word}</strong>
           <span className="goal-of">
-            {reached + 1} of {labels.length}
+            step {reached + 1} of {labels.length}
           </span>
           {chips}
         </p>
         <p className="goal-next">
           {reached < labels.length - 1 ? (
             <>
-              Next rung <b>{_humanize(labels[reached + 1])}</b>
+              Next step up <b>{_humanize(labels[reached + 1])}</b>
             </>
           ) : (
-            "Top of the ladder"
+            "Highest step reached"
           )}
         </p>
       </>
@@ -1146,7 +1172,12 @@ const claimFacts = (g) => {
     ]);
   const noTests = !g.n_valid && !g.n_abstained;
   return [
-    ["", noTests ? null : `${g.n_valid || 0} valid, ${g.n_abstained || 0} abstained`],
+    [
+      "",
+      noTests
+        ? null
+        : `${_count(g.n_valid || 0, "test counted", "tests counted")}, ${g.n_abstained || 0} inconclusive`,
+    ],
     ["pieces cleared", Number.isFinite(d.proportion_cleared) ? _pct(d.proportion_cleared) : null],
     [
       "zone coverage",
@@ -1198,7 +1229,7 @@ const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {
         ))}
       {changes.length + laterChanges.length > 0 && (
         <div className="goal-role">
-          <span className="goal-role-label">rung changes</span>
+          <span className="goal-role-label">progress</span>
           <div>
             <GoalTimeline
               timeline={{ events: changes, post_exit_events: laterChanges }}
@@ -1209,7 +1240,7 @@ const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {
       )}
       {scenarios.length > 0 && (
         <div className="goal-role">
-          <span className="goal-role-label">sensor tests</span>
+          <span className="goal-role-label">test worlds</span>
           <ul className="battery-scenarios">
             {scenarios.map((sc, si) => (
               <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
@@ -1236,10 +1267,10 @@ const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {
 // then its evidence on demand.
 const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }) => {
   const summary = [
-    indicators.length && _count(indicators.length, "indicator", "indicators"),
-    scenarios.length && _count(scenarios.length, "sensor test", "sensor tests"),
+    indicators.length && _count(indicators.length, "signal", "signals"),
+    scenarios.length && _count(scenarios.length, "test world", "test worlds"),
     changes.length + laterChanges.length &&
-      _count(changes.length + laterChanges.length, "rung change", "rung changes"),
+      _count(changes.length + laterChanges.length, "step change", "step changes"),
   ].filter(Boolean);
   const flags = useFlags(claimFlags(claim));
   const labels = (claim && claim.rungs) || [];
@@ -1256,11 +1287,11 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }
               className="goal-source"
               title={
                 fromTests
-                  ? "banded from the sensor-test battery"
-                  : "derived from this goal's indicator rungs (no battery channel by design)"
+                  ? "Worked out by running the program in a set of test worlds"
+                  : "Worked out from what the code and the run show (this goal has no test worlds)"
               }
             >
-              {fromTests ? "From Tests" : "From Indicators"}
+              {fromTests ? "From Test Worlds" : "From Code and Runs"}
             </span>
           )}
         </div>
@@ -1269,12 +1300,12 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }
             labels={labels}
             reached={reached}
             word={_humanize(claim.rung)}
-            none={`no reading - ${noTests ? "no sensor tests ran" : _humanize(claim.abstain_reason) || "no evidence"}`}
+            none={`no reading - ${noTests ? "no test worlds ran" : _humanize(claim.abstain_reason) || "no evidence"}`}
             chips={flags.chip}
           />
         ) : (
           <div className="goal-reading">
-            <p className="goal-noclaim">No claim on this run.</p>
+            <p className="goal-noclaim">Not assessed on this run.</p>
           </div>
         )}
       </div>
@@ -1316,7 +1347,7 @@ const RubricRow = ({ d }) => {
       )}
       {d.ceiling != null && d.ceiling < d.max_level && (
         <span style={goalProvenanceChip} title="the highest level this program's code can show">
-          code ceiling {d.ceiling}
+          code allows up to {d.ceiling}
         </span>
       )}
     </>
@@ -1331,7 +1362,7 @@ const RubricRow = ({ d }) => {
           <GoalReading
             labels={labels}
             reached={-1}
-            none={`undetermined - ${_humanize(d.u_reason)}`}
+            none={`can't tell - ${_humanize(d.u_reason)}`}
             chips={chips}
           />
         ) : (
@@ -1347,8 +1378,8 @@ const RubricRow = ({ d }) => {
       </div>
       <GoalFacts
         facts={[
-          ["evidence", (d.evidence || []).map(_evidenceSource).join(", ") || null],
-          ["against", (d.negatives || []).map(_evidenceSource).join(", ") || null],
+          ["based on", (d.evidence || []).map(_evidenceSource).join(", ") || null],
+          ["counts against", (d.negatives || []).map(_evidenceSource).join(", ") || null],
         ]}
       />
     </article>
@@ -1368,15 +1399,15 @@ const GoalLegend = () => (
   <ul className="goal-legend">
     <li>
       <ChannelMark channel="outcome" />
-      Observed
+      Seen on the Robot
     </li>
     <li>
       <ChannelMark channel="simulation" />
-      Simulation
+      From the Simulator
     </li>
     <li>
       <ChannelMark channel="code" />
-      Authored in Code
+      Written in the Code
     </li>
   </ul>
 );
@@ -1455,9 +1486,9 @@ export const GoalEvidence = ({ runs, enabled }) => {
       }
     >
       <p className="goal-intro">
-        Where each goal got to on every run, then the picked run up close: the rung on each goal's
-        ladder and what backs it. Abstentions and uncertainty stay visible. This is evidence, not a
-        score.
+        How far the robot got toward each goal, run by run. Each goal is a ladder of steps, from
+        weakest to strongest. Pick a run number to see what backs it up. A dashed mark means there
+        wasn't enough to go on. This is evidence to look at, not a grade.
       </p>
       {claimed.length > 0 ? (
         <GoalTrajectory runs={list} goals={claimed} current={run.index} onPick={setPicked} />
@@ -1478,7 +1509,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
         </div>
       )}
       {unmapped.length > 0 && (
-        <GoalPart title="Other Sensor Tests">
+        <GoalPart title="Other Test Worlds">
           <GoalBattery battery={{ ...battery, scenarios: unmapped, qualifying_blocks: [] }} />
         </GoalPart>
       )}
@@ -1488,13 +1519,15 @@ export const GoalEvidence = ({ runs, enabled }) => {
           aside={
             <span
               style={goalFlagChip}
-              title={`still under human validation upstream (${run.rubric.status || "provisional"})`}
+              title={`Still being checked by people, so treat it as a draft (${run.rubric.status || "provisional"})`}
             >
-              provisional
+              draft
             </span>
           }
         >
-          <p className="goal-intro">How the program runs, separate from which goals it reaches.</p>
+          <p className="goal-intro">
+            How well the code is put together, separate from which goals the robot reaches.
+          </p>
           <div className="goals">
             <BoardHead first="Dimension" current={run.index} />
             {dims.map((d) => (

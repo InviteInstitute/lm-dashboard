@@ -58,14 +58,48 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _shape_state(s, heavy=False):
+def _since_reset(runs, episodes, since):
+    """The run and episode tracks cut to what happened at/after `since` (a board
+    reset). Items with no timestamp are kept; a pause survives only after a kept
+    episode. Returns (runs, episodes, run_count, event_count) for the payload."""
+    cut = since.timestamp()
+    kept_runs = [r for r in runs.get("runs") or [] if r.get("ts") is None or r["ts"] >= cut]
+    eps = [
+        e
+        for e in (episodes or {}).get("episodes") or []
+        if e.get("start_ts") is None or e["start_ts"] >= cut
+    ]
+    first = eps[0].get("start_idx", 0) if eps else None
+    pauses = [
+        p
+        for p in (episodes or {}).get("pauses") or []
+        if first is not None and p.get("after_idx", -1) >= first
+    ]
+    events = sum(e.get("event_count") or 0 for e in eps)
+    return (
+        {**runs, "runs": kept_runs, "run_count": len(kept_runs)},
+        {
+            **(episodes or {}),
+            "episodes": eps,
+            "pauses": pauses,
+            "event_count": events,
+            "episode_count": len(eps),
+            "pause_count": len(pauses),
+        },
+        len(kept_runs),
+        events,
+    )
+
+
+def _shape_state(s, heavy=False, since=None):
     """Turn a materialized student_state row into the dashboard's JSON payload.
 
     By default this is the light shape the cohort grid uses: it carries the
     per-run edit distances and episode tracks but omits the bulky playground dump. Passing
     heavy=True adds `block`, the large playground_prompt tree, which only the
     detail modal renders, so it's fetched one student at a time on open instead
-    of for the whole cohort on every poll."""
+    of for the whole cohort on every poll. `since` (this board's last reset)
+    hides the runs and episodes from before it, so the tile starts fresh."""
     out = {
         "studentID": s["studentID"],
         "display": s.get("display_id") or s["studentID"],  # most-recent casing for the UI
@@ -77,6 +111,10 @@ def _shape_state(s, heavy=False):
         "episodes": s["episodes"],  # {events, episodes, pauses,...}
         "updated_at": _iso(s["updated_at"]),
     }
+    if since is not None:
+        out["runs"], out["episodes"], out["run_count"], out["event_count"] = _since_reset(
+            out["runs"], out["episodes"], since
+        )
     if heavy:
         out["block"] = {
             "llm_prompt": s["playground_prompt"],
@@ -214,13 +252,13 @@ def _shape_rubric(rb):
     }
 
 
-def _shape_goal_runs(student_id):
+def _shape_goal_runs(student_id, since=None):
     """Per-run goal evidence for the detail view: for each profiled Castle
     Crashers run, its goals with the rung reached and the uncertainty flags. This
     is goal *evidence* with explicit abstentions/flags, not a score. run_index
     joins the edit-distance runs. Best-effort: a bad row just drops out."""
     runs = []
-    for p in db.list_goal_profiles(student_id):
+    for p in db.list_goal_profiles(student_id, since=since):
         prof = p.get("profile") or {}
         goals = []
         for g in prof.get("goals", []):
@@ -376,8 +414,10 @@ def student_states(classCode: str | None = None, wsid: int = Depends(current_wor
     # dead-man's switch -- it stops polling a board's students once no dashboard
     # has polled for VIEWER_PRESENT_SECONDS.
     db.set_workspace_setting(wsid, "viewer_last_seen", db.now().isoformat())
+    since = db.reset_since(wsid)
     rows = [
-        _shape_state(s) for s in db.list_student_states(class_code=classCode, workspace_id=wsid)
+        _shape_state(s, since=since)
+        for s in db.list_student_states(class_code=classCode, workspace_id=wsid)
     ]
     rows.sort(key=lambda s: s["last_seen"] or "", reverse=True)
     return {"students": rows, "student_count": len(rows)}
@@ -475,7 +515,8 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
     rows = db.list_student_states([student_id], workspace_id=wsid)
     if not rows:
         raise HTTPException(status_code=404, detail="no state for that student")
-    payload = _shape_state(rows[0], heavy=True)
+    since = db.reset_since(wsid)
+    payload = _shape_state(rows[0], heavy=True, since=since)
     # Readable program listing (feature #12): the student's latest blocks with
     # their parameters spelled out, incl. the numbers the edit-distance AST drops.
     # Best-effort and isolated -- a parse miss just yields "".
@@ -487,7 +528,7 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
     # Best-effort and isolated -- absent or failing, the detail view just omits it.
     payload["goal_recognition_enabled"] = config.GOAL_RECOGNITION_ENABLED
     try:
-        payload["goal_runs"] = _shape_goal_runs(student_id)
+        payload["goal_runs"] = _shape_goal_runs(student_id, since=since)
     except Exception:
         payload["goal_runs"] = []
     return payload
@@ -500,12 +541,14 @@ def triggers(wsid: int = Depends(current_workspace_id)):
     this workspace hasn't dismissed."""
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
-    feed = db.triggers_feed(cutoff, workspace_id=wsid)
+    since = db.reset_since(wsid)
+    feed = db.triggers_feed(cutoff, workspace_id=wsid, since=since)
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
     # the card can say "last: Wheel-spinning | 10:24". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
     history = {
-        sid: db.trigger_history(sid, workspace_id=wsid) for sid in {t["studentID"] for t in feed}
+        sid: db.trigger_history(sid, workspace_id=wsid, since=since)
+        for sid in {t["studentID"] for t in feed}
     }
     items, counts = [], {}
     for t in feed:
@@ -558,7 +601,7 @@ def trigger_history(studentID: str, wsid: int = Depends(current_workspace_id)):
     if not studentID:
         raise HTTPException(status_code=400, detail="provide studentID")
     rows = []
-    for t in db.trigger_history(studentID, workspace_id=wsid):
+    for t in db.trigger_history(studentID, workspace_id=wsid, since=db.reset_since(wsid)):
         d = t["detail"] or {}
         rows.append(
             {
@@ -613,7 +656,7 @@ def switches(wsid: int = Depends(current_workspace_id)):
             "ts": _iso(db.db_to_dt(r["ts"])),
             "acknowledged": bool(r["acknowledged"]),
         }
-        for r in db.list_switches(limit=100, workspace_id=wsid)
+        for r in db.list_switches(limit=100, workspace_id=wsid, since=db.reset_since(wsid))
     ]
     return {"switches": items, "unacked": sum(1 for i in items if not i["acknowledged"])}
 
@@ -696,13 +739,15 @@ def export(wsid: int = Depends(current_workspace_id)):
 
 @app.post("/api/reset/")
 def reset(wsid: int = Depends(current_workspace_id)):
-    """Clear THIS workspace's researcher state for a fresh session: its notes, the
-    interview-pick state (picked toggles + pick history), and its trigger
-    dismissals. The roster and presence stay, and -- unlike the old single-board
-    reset -- the SHARED per-student mirror is left intact (other boards depend on
-    it; this board just re-derives its view). A CSV snapshot of this workspace,
-    notes and picks included, is written to exports/reset_<timestamp>/ first, so
-    nothing is lost. Production is never touched."""
+    """Start THIS workspace fresh: clear its notes, the interview-pick state
+    (picked toggles + pick history) and its trigger dismissals, and from now on
+    show only activity after this moment on every part of the student tile (runs,
+    episodes, goal evidence, alerts, trigger history, switches). The roster and
+    presence stay, and the SHARED per-student mirror is left intact (other boards
+    depend on it); this board just reads it from the reset on. A CSV snapshot of
+    this workspace, notes and picks included, is written to
+    exports/reset_<timestamp>/ first, so nothing is lost. Production is never
+    touched."""
     stamp = db.now()
     backup_dir, _ = db.export_csv(
         str(config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}"),

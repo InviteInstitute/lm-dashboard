@@ -40,7 +40,7 @@ SSE stream - which scopes the response to that board's own roster, notes, and pi
 | `GET`  | `/api/outbox/` | failed researcher inputs parked for replay |
 | `POST` | `/api/outbox/` | park a failed researcher input |
 | `POST` | `/api/export/` | download a zip of CSV snapshots of this board's data |
-| `POST` | `/api/reset/` | clear THIS board's researcher data (notes, picks, acks), the shared mirror stays |
+| `POST` | `/api/reset/` | start THIS board fresh: clear its notes, picks and acks, and hide all activity from before now; the shared mirror stays |
 | `GET`  | `/api/polling/` | whether the daemon is currently polling production |
 | `POST` | `/api/polling/` | pause or resume the daemon's production polling |
 

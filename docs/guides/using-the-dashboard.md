@@ -153,10 +153,15 @@ can run it any time. The file is named `lm-dashboard_export_<timestamp>.zip`.
 
 ## Reset
 
-The **↺ Reset** button clears **your board's** researcher data for a fresh session:
-its notes, the picked toggles and pick history, and its trigger dismissals. Your
-roster and presence stay, and the shared per-student mirror is left intact (other
-boards depend on it, and your board just re-derives its view from it).
+The **↺ Reset** button starts **your board** fresh. Every part of each student tile
+then shows only what happens after the reset: the runs and episodes, the goal
+evidence, the alerts, the trigger history and the switches. It also clears your
+board's notes, the picked toggles and pick history, and its trigger dismissals. Your
+roster and presence stay, and the shared per-student data is left intact: other
+boards still see it, and your board simply stops showing what came before.
+
+Run numbers don't restart at a reset, so a run keeps the same number on the
+activity strip, in goal evidence and in alerts.
 
 !!! info
     Reset writes a CSV backup of your board (notes and picks included) to

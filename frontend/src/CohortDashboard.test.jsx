@@ -688,12 +688,12 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
-    // timeline: a rung transition
-    expect(await screen.findByText("Goal Progression")).toBeInTheDocument();
+    // rung changes sit with their goal (here one with no claim, so its evidence is open)
+    expect(await screen.findByText("rung changes")).toBeInTheDocument();
     const ev = await screen.findByText(/stationary/);
     expect(ev.textContent).toContain("moved");
-    // battery: scenarios grouped by family, with named checks
-    expect(await screen.findByText("Sensor Test Battery")).toBeInTheDocument();
+    // sensor tests sit with the goal they test, each tagged with its family
+    expect(await screen.findAllByText("sensor tests")).toHaveLength(2);
     expect(await screen.findByText("T2 boundary")).toBeInTheDocument();
     expect(await screen.findByText("T1 debris field")).toBeInTheDocument();
     expect(await screen.findByText("t2a direct")).toBeInTheDocument();
@@ -707,13 +707,16 @@ describe("CohortDashboard", () => {
       await screen.findByTitle("stays on island: abstained: encounter not reached"),
     ).toBeInTheDocument();
     expect(await screen.findByText("25%")).toBeInTheDocument();
-    // goal claims: a banded goal on its ladder, with the certainty demotion shown
-    expect(await screen.findByText("Goal Claims")).toBeInTheDocument();
-    expect(await screen.findByText("boundary safe")).toBeInTheDocument();
+    // the trajectory table has a row per claimed goal; the claim sits on its ladder,
+    // with the certainty demotion shown
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "Remain on Island" })).toBeInTheDocument();
+    // on the ladder, in the trajectory cell for this run, and its direct label
+    expect(await screen.findAllByText("boundary safe")).toHaveLength(3);
     expect(await screen.findByText("sparse evidence")).toBeInTheDocument();
     expect(await screen.findByText("3 valid, 16 abstained")).toBeInTheDocument();
     // ...and a derived goal, read from a named indicator
-    expect(await screen.findByText("approached not armed")).toBeInTheDocument();
+    expect(await screen.findAllByText("approached not armed")).toHaveLength(3);
     expect(await screen.findByText("from indicators")).toBeInTheDocument();
     expect(await screen.findByText("plow approach intent")).toBeInTheDocument();
     // rubric: labelled provisional, a level on its 0..max ladder, and a U reason

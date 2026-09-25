@@ -7,10 +7,13 @@ edit_distance sequence, the momentary triggers it fires, episodes, and the
 playground prompt) and writes it into the student_state table. The dashboard
 only ever reads student_state, never the raw logs.
 
-What gets recomputed when: the edit_distance sequence is per RUN (a runProject
-event), so it is only rebuilt when a new run lands; episodes and the playground
-prompt refresh on any new event. The whole recompute is cheap, on the order of
-tens of milliseconds per student.
+Every event is folded into three incremental engine streams as it arrives (the
+per-run edit distances, the episode segmenter and the goal profiles), so a
+recompute reads their current state instead of re-deriving it from the whole
+buffer. The run sequence and episodes are indexed from the worker's first event,
+the same way the goal stream is, so all three stay joined after the rolling
+buffer wraps. The whole recompute is cheap, on the order of milliseconds per
+student.
 """
 
 import json
@@ -20,13 +23,13 @@ from datetime import UTC, datetime
 
 from goal_strategy import GoalProfileStream
 from learner_models import (
-    clear_cache as clear_score_cache,
-)
-from learner_models import (
-    compute_run_edit_distances,
+    RunDistanceStream,
+    SessionSegmenter,
     detect_run_triggers_by_playground,
     detect_switches,
-    segment_session,
+)
+from learner_models import (
+    clear_cache as clear_score_cache,
 )
 from log_parser_delta_engine import generate_compact_prompt_from_project
 
@@ -58,9 +61,9 @@ class StudentWorker:
         self.latest_project_ts = None
         self.last_event_id = 0
         self.last_event_time = None
-        self.had_new_run = False
         self.dirty = False
-        self._runs_cache = None  # last run edit-distance sequence
+        self.run_stream = RunDistanceStream()  # per-run edit distances, fed every event
+        self.segmenter = SessionSegmenter()  # episodes + pauses, fed every event
         self.fired = {t: set() for t in RUN_TRIGGER_TYPES}  # run indices already alerted, per type
         # Real-time goal recognition: one stream per student, fed every event
         # (rehydrate + ingest) so its run indices line up with the edit-distance
@@ -77,6 +80,15 @@ class StudentWorker:
             else None
         )
         self.goal_written = set()  # run indices already persisted to goal_profile
+
+    def _feed(self, evt):
+        """Fold one buffered event ({event_type, content, ts}) into the buffer and
+        every incremental stream, in lockstep so their run and event indices line
+        up. Called by ingest and rehydrate alike."""
+        self.events.append(evt)
+        self.run_stream.push(evt)
+        self.segmenter.push(evt["event_type"], evt["ts"])
+        self._feed_goal(evt)
 
     def _feed_goal(self, evt):
         """Push one buffered event ({event_type, content, ts}) into the goal
@@ -115,16 +127,14 @@ class StudentWorker:
 
     # -- ingest ----------------------------------------------------------
     def ingest(self, ev):
-        """Fold one event into the buffer and update the running fields (class
-        code, latest project, last-seen markers). Flags the worker dirty, and
-        flags had_new_run when the event is a runProject so the next recompute
-        rebuilds the run sequence. `ev` is a dict with studentID, classCode, eventType,
-        raw_message, project, source_event_id, and event_time (a datetime)."""
+        """Fold one event into the buffer and streams and update the running fields
+        (class code, latest project, last-seen markers), then flag the worker
+        dirty. `ev` is a dict with studentID, classCode, eventType, raw_message,
+        project, source_event_id, and event_time (a datetime)."""
         et = ev.get("eventType") or ""
         ts = ev["event_time"].timestamp() if ev.get("event_time") else None
         evt = {"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts}
-        self.events.append(evt)
-        self._feed_goal(evt)
+        self._feed(evt)
         # Switch detection: compare this event's casing/class against the
         # last-seen ones BEFORE we overwrite them. Only tracked students have a
         # worker, so this is roster-only for free. Non-critical telemetry, so a
@@ -154,31 +164,21 @@ class StudentWorker:
             self.last_event_id = max(self.last_event_id, ev["source_event_id"])
         if ev.get("event_time"):
             self.last_event_time = ev["event_time"]
-        if et == "runProject":
-            self.had_new_run = True
         self.dirty = True
 
     # -- inference + materialize ----------------------------------------
     def recompute_and_write(self, disabled=None):
-        """Recompute this student's full derived state from the buffered events
-        and upsert it into student_state. Rebuilds the per-run edit_distance
-        sequence (reusing the cache when no new run arrived), fires the four
-        momentary edit-distance triggers, segments the session into episodes,
-        rebuilds the playground prompt, and clears the dirty flag.
+        """Materialize this student's derived state into student_state: the per-run
+        edit_distance sequence and episodes the streams already hold, the four
+        momentary edit-distance triggers they fire, and the playground prompt.
+        Clears the dirty flag.
 
         `disabled` is the set of switched-off trigger types; the daemon passes
         the copy it already fetched this tick, and we fall back to reading it
         ourselves when called without one."""
         if disabled is None:
             disabled = _disabled_types()
-        events = list(self.events)
-
-        # The edit-distance sequence only changes when a new run arrives; otherwise
-        # reuse the last one.
-        if self.had_new_run or self._runs_cache is None:
-            self._runs_cache = compute_run_edit_distances(events)
-            self.had_new_run = False
-        runs = self._runs_cache["runs"]
+        runs = self.run_stream.runs
         run_count = len(runs)  # one entry per runProject
 
         # Momentary triggers fire once per qualifying run, evaluated per contiguous
@@ -203,14 +203,13 @@ class StudentWorker:
             )
             self.fired[ttype].add(idx)
 
-        # Episodes (timeline)
-        seg_events = [{"event_type": e["event_type"], "ts": e["ts"]} for e in events]
-        episodes, pauses = segment_session(seg_events)
+        # Episodes (timeline), over the same window the rolling buffer holds.
+        self.segmenter.forget_before(self.segmenter.count - len(self.events))
+        episodes, pauses = self.segmenter.result()
         episodes_payload = {
-            "events": [{"eventType": e["event_type"]} for e in events],
             "episodes": episodes,
             "pauses": pauses,
-            "event_count": len(events),
+            "event_count": len(self.events),
             "episode_count": len(episodes),
             "pause_count": len(pauses),
         }
@@ -229,7 +228,7 @@ class StudentWorker:
                 "display_id": self.display_id or self.student_id,
                 "classCode": self.class_code,
                 "run_count": run_count,
-                "event_count": len(events),
+                "event_count": len(self.events),
                 "runs": {"runs": runs, "run_count": run_count},
                 "episodes": episodes_payload,
                 "playground_prompt": prompt,
@@ -240,22 +239,32 @@ class StudentWorker:
         )
 
         # Goal evidence: persist each newly-profiled Castle Crashers run once.
-        # The stream indexes runs the same way compute_run_edit_distances does
-        # (same event buffer), so run_index joins the edit-distance runs above.
+        # The goal stream and the run stream are fed the same events, so
+        # run_index joins the edit-distance runs above.
         # Unsupported playgrounds (status != "profiled") are skipped, per the
         # Castle-Crashers-only gate. Non-critical: never break the materialize.
+        # Once a run is stored, the stream releases it (its result and inputs are
+        # the bulk of a worker's memory), except the latest: a playgroundData
+        # outcome that arrives next re-profiles it.
         if self.gstream is not None:
+            latest = len(self.gstream.runs) - 1
             for gr in self.gstream.runs:
+                if gr is None:
+                    continue  # already stored and released
                 idx = gr.get("index")
-                if idx is None or idx in self.goal_written or gr.get("status") != "profiled":
+                if idx is None:
                     continue
-                try:
-                    db.upsert_goal_profile(self.student_id, idx, gr, session=session_key())
-                    self.goal_written.add(idx)
-                except Exception:
-                    logger.exception(
-                        "upsert_goal_profile failed for %s run %s", self.student_id, idx
-                    )
+                if idx not in self.goal_written and gr.get("status") == "profiled":
+                    try:
+                        db.upsert_goal_profile(self.student_id, idx, gr, session=session_key())
+                        self.goal_written.add(idx)
+                    except Exception:
+                        logger.exception(
+                            "upsert_goal_profile failed for %s run %s", self.student_id, idx
+                        )
+                        continue
+                if idx < latest and (idx in self.goal_written or gr.get("status") != "profiled"):
+                    self.gstream.release(idx)
 
         self.dirty = False
 
@@ -370,8 +379,7 @@ def _rehydrate(worker):
         elif row["received_at"]:
             ts = row["received_at"].timestamp()
         evt = {"event_type": et, "content": row["raw_message"] or "{}", "ts": ts}
-        worker.events.append(evt)
-        worker._feed_goal(evt)  # keep the goal stream in lockstep with the buffer
+        worker._feed(evt)
         if row.get("studentID"):
             worker.display_id = row[
                 "studentID"
@@ -386,6 +394,5 @@ def _rehydrate(worker):
         if row["event_time"]:
             worker.last_event_time = row["event_time"]
     if worker.events:
-        worker.had_new_run = True
         worker.dirty = True
         logger.info("rehydrated %s with %d events", worker.student_id, len(worker.events))

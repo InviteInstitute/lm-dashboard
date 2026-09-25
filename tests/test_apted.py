@@ -73,7 +73,7 @@ def test_cached_edit_distance_short_circuits_and_memoizes():
     assert A.cached_edit_distance(xa, xa, a, a) == 0  # identical XML short-circuits
     d1 = A.cached_edit_distance(xa, xb, a, b)
     d2 = A.cached_edit_distance(xa, xb, a, b)  # served from cache
-    assert d1 == d2 and (A._xml_hash(xa), A._xml_hash(xb)) in A._distance_cache
+    assert d1 == d2 and (A.xml_digest(xa), A.xml_digest(xb)) in A._distance_cache
 
 
 def test_rename_cost_field_vs_type_change():

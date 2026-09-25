@@ -10,10 +10,9 @@ def _worker_with_distances(sid, dists):
     so we can drive recompute_and_write without constructing real VEX XML (the
     edit-distance computation is tested separately)."""
     w = workers.StudentWorker(sid)
-    w._runs_cache = {
-        "runs": [{"index": i, "edit_distance": d, "ts": float(i)} for i, d in enumerate(dists)]
-    }
-    w.had_new_run = False
+    w.run_stream.runs = [
+        {"index": i, "edit_distance": d, "ts": float(i)} for i, d in enumerate(dists)
+    ]
     return w
 
 
@@ -64,13 +63,10 @@ def test_fired_dedupe_seeded_from_db_on_rehydrate():
     w2 = workers.StudentWorker("s1")
     for t in w2.fired:
         w2.fired[t] = db.fired_indices("s1", t)
-    w2._runs_cache = {
-        "runs": [
-            {"index": 0, "edit_distance": None, "ts": 0.0},
-            {"index": 1, "edit_distance": 13, "ts": 1.0},
-        ]
-    }
-    w2.had_new_run = False
+    w2.run_stream.runs = [
+        {"index": 0, "edit_distance": None, "ts": 0.0},
+        {"index": 1, "edit_distance": 13, "ts": 1.0},
+    ]
     w2.recompute_and_write()
     assert len(db._query("SELECT 1 FROM trigger_event WHERE trigger_type='explorer'")) == 1
 
@@ -114,8 +110,8 @@ def test_prompt_generation_failure_falls_back_to_none(monkeypatch):
 
 
 def test_recompute_decodes_real_runs_from_buffered_events():
-    """Exercise the real path (no pre-seeded cache): two runProject events with
-    workspaces flow through compute_run_edit_distances."""
+    """Exercise the real path (no pre-seeded runs): two runProject events with
+    workspaces flow through the worker's run stream."""
     import json
 
     xa = '<xml><block type="events_whenStarted" id="a"></block></xml>'
@@ -125,14 +121,13 @@ def test_recompute_decodes_real_runs_from_buffered_events():
     )
     w = workers.StudentWorker("s1")
     for i, x in enumerate([xa, xb]):
-        w.events.append(
+        w._feed(
             {
                 "event_type": "runProject",
                 "ts": float(i),
                 "content": json.dumps({"project": {"workspace": x}}),
             }
         )
-    w.had_new_run = True  # force a real recompute
     w.recompute_and_write()
     assert db.list_student_states(["s1"])[0]["run_count"] == 2
 
@@ -182,15 +177,12 @@ def test_recompute_fires_step_by_step_at_the_playground_threshold():
     three edits (edit_distance > 1) in RoverRescue fire it, even though the default
     threshold (6) would not. Distances are seeded so the count is unambiguous."""
     w = workers.StudentWorker("s1")
-    w._runs_cache = {
-        "runs": [
-            {"index": 0, "edit_distance": None, "ts": 0.0, "playground": "RoverRescue"},
-            {"index": 1, "edit_distance": 2, "ts": 1.0, "playground": "RoverRescue"},
-            {"index": 2, "edit_distance": 2, "ts": 2.0, "playground": "RoverRescue"},
-            {"index": 3, "edit_distance": 2, "ts": 3.0, "playground": "RoverRescue"},
-        ]
-    }
-    w.had_new_run = False
+    w.run_stream.runs = [
+        {"index": 0, "edit_distance": None, "ts": 0.0, "playground": "RoverRescue"},
+        {"index": 1, "edit_distance": 2, "ts": 1.0, "playground": "RoverRescue"},
+        {"index": 2, "edit_distance": 2, "ts": 2.0, "playground": "RoverRescue"},
+        {"index": 3, "edit_distance": 2, "ts": 3.0, "playground": "RoverRescue"},
+    ]
     w.recompute_and_write()
     assert db.fired_indices("s1", "iterative") == {3}
 
@@ -314,3 +306,64 @@ def test_out_of_order_project_snapshot_does_not_regress():
 
     w.ingest(_ev('{"unstamped": true}', None))  # no clock -> accept as before
     assert w.latest_project == '{"unstamped": true}'
+
+
+def _raw(et, i, workspace=None):
+    import json
+
+    content = {"eventType": et}
+    if workspace is not None:
+        content["project"] = {"workspace": workspace}
+    return {"event_type": et, "ts": 1000.0 + 10 * i, "content": json.dumps(content)}
+
+
+def _ws(n):
+    """A workspace with n chained blocks, so consecutive sizes differ by n."""
+    inner = ""
+    for i in range(n, 0, -1):
+        inner = (
+            f'<block type="motor_on" id="m{i}">'
+            + (f"<next>{inner}</next>" if inner else "")
+            + "</block>"
+        )
+    return f'<xml><block type="events_whenStarted" id="a"><next>{inner}</next></block></xml>'
+
+
+def test_streams_match_the_batch_engine_on_the_buffer():
+    """Until the buffer wraps, the incremental streams give exactly what the batch
+    engine calls give over the buffered events."""
+    from learner_models import compute_run_edit_distances, segment_session
+
+    w = workers.StudentWorker("s1")
+    kinds = ["blockCreated", "runProject", "projectEnd", "menuSelect", "runProject", "blockMoved"]
+    for i in range(30):
+        et = kinds[i % len(kinds)]
+        w._feed(_raw(et, i, _ws(i % 4 + 1) if et == "runProject" else None))
+    w.recompute_and_write()
+    events = list(w.events)
+    assert w.run_stream.runs == compute_run_edit_distances(events)["runs"]
+    row = db.list_student_states(["s1"])[0]
+    episodes, pauses = segment_session(
+        [{"event_type": e["event_type"], "ts": e["ts"]} for e in events]
+    )
+    assert row["episodes"]["episodes"] == episodes
+    assert row["episodes"]["pauses"] == pauses
+    assert "events" not in row["episodes"]  # never read by the dashboard; not written
+
+
+def test_run_indices_stay_stable_after_the_buffer_wraps():
+    """Run indices count from the worker's first event, like the goal stream, so a
+    wrapped buffer doesn't shift them (which would break the fired-index dedupe)."""
+    from collections import deque
+
+    w = workers.StudentWorker("s1")
+    w.events = deque(maxlen=3)
+    for i in range(6):
+        w._feed(_raw("runProject", i, _ws(1 if i < 5 else 20)))
+    w.recompute_and_write()
+    assert [r["index"] for r in w.run_stream.runs] == list(range(6))
+    assert [r["i"] for r in _fired("explorer")] == [5]
+    assert len(w.events) == 3
+    row = db.list_student_states(["s1"])[0]
+    assert row["run_count"] == 6 and row["event_count"] == 3
+    assert all(ep["start_idx"] >= 3 for ep in row["episodes"]["episodes"])

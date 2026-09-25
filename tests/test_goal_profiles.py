@@ -301,9 +301,26 @@ def test_an_engine_error_run_does_not_shift_later_runs():
     w = StudentWorker("cobra15")
     for i, xml in enumerate([CC_XML, overflow, SENSING_XML]):
         w.ingest(_raw_run("cobra15", xml, "CasteCrasherPlus", i))
-    w.recompute_and_write()
     assert [r["status"] for r in w.gstream.runs] == ["profiled", "engine_error", "profiled"]
+    w.recompute_and_write()
     profs = db.list_goal_profiles("cobra15")
     assert [p["index"] for p in profs] == [0, 2]
     # run 2 is the sensing program: its evidence sits on run 2, not run 1
     assert profs[1]["battery"]["eligible"] is True
+
+
+def test_stored_goal_runs_are_released_except_the_latest():
+    # A long session must not keep every run's full goal result in memory: once
+    # a run is stored it is released, except the latest (a playgroundData outcome
+    # that arrives next re-profiles it).
+    w = StudentWorker("cobra16")
+    for i in range(3):
+        w.ingest(_raw_run("cobra16", CC_XML, "CasteCrasherPlus", i))
+    w.recompute_and_write()
+    assert w.gstream.runs[0] is None and w.gstream.runs[1] is None
+    assert w.gstream.runs[2]["index"] == 2
+    assert [p["index"] for p in db.list_goal_profiles("cobra16")] == [0, 1, 2]
+    w.ingest(_raw_run("cobra16", CC_XML, "CasteCrasherPlus", 3))
+    w.recompute_and_write()
+    assert w.gstream.runs[2] is None and w.gstream.runs[3]["index"] == 3
+    assert [p["index"] for p in db.list_goal_profiles("cobra16")] == [0, 1, 2, 3]

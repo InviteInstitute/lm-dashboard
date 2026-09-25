@@ -16,12 +16,19 @@ def test_none_and_empty_return_none():
 
 
 def test_hat_block_is_active():
-    xml = '<xml><block type="events_whenStarted" id="a"></block></xml>'
+    xml = '<xml><block type="pg_events_when_started" id="a"></block></xml>'
     out = generate_compact_prompt_from_project(_project(xml))
     assert "[Active]" in out and "[Orphaned]" in out
     # the hat block (event handler) is runnable -> appears under Active
     active = out.split("[Orphaned]")[0]
-    assert "whenStarted" in active
+    assert "events_when_started" in active
+
+
+def test_only_real_vex_hats_start_live_code():
+    # The engine uses VEX's explicit hat list, so a made-up events block is not live.
+    xml = '<xml><block type="events_whenStarted" id="a"></block></xml>'
+    out = generate_compact_prompt_from_project(_project(xml))
+    assert "whenStarted" in out.split("[Orphaned]")[1]
 
 
 def test_non_hat_top_level_block_is_orphaned():

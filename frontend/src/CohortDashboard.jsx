@@ -2245,10 +2245,11 @@ const CohortDashboard = () => {
     try {
       setNotes((await api.get("/api/notes/", { params: { studentID: sid } })).data.notes || []);
     } catch {
-      setNotes([]);
+      /* keep what's shown: a blip must not look like "no notes" */
     }
   }, []);
   React.useEffect(() => {
+    setNotes([]); // a different student: never show the previous one's notes
     fetchNotes(selected);
   }, [selected, fetchNotes]);
 
@@ -2256,6 +2257,9 @@ const CohortDashboard = () => {
   // keeps the grid current while the modal is open: whenever the live feed
   // refetches (a new alert, an ack), the history follows on the same beat.
   const [history, setHistory] = React.useState([]);
+  React.useEffect(() => {
+    setHistory([]); // a different student: never show the previous one's history
+  }, [selected]);
   React.useEffect(() => {
     if (!selected) {
       setHistory([]);
@@ -2268,7 +2272,7 @@ const CohortDashboard = () => {
         if (alive) setHistory(r.data.history || []);
       })
       .catch(() => {
-        if (alive) setHistory([]);
+        /* keep what's shown: a blip must not empty the grid */
       });
     return () => {
       alive = false;
@@ -2301,7 +2305,8 @@ const CohortDashboard = () => {
         const d = (await api.get(`/api/student_states/${encodeURIComponent(selected)}/`)).data;
         if (alive) setDetailFull(d);
       } catch {
-        if (alive) setDetailFull(null);
+        /* keep the last good payload; the selection effect above already
+           cleared it if this is a different student */
       }
       if (alive) setDetailFor(selected);
     })();

@@ -244,7 +244,7 @@ describe("CohortDashboard", () => {
 
   it("posts a roster pick (source roster, no trigger) from the student card", async () => {
     render(<CohortDashboard />);
-    const pick = await screen.findByText("Mark picked");
+    const pick = await screen.findByText("Mark Picked");
     fireEvent.click(pick);
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/picked/", {
@@ -281,9 +281,9 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    // Both the card and the alert say "Mark picked"; click the one in the alert feed.
+    // Both the card and the alert say "Mark Picked"; click the one in the alert feed.
     const feed = await screen.findByRole("complementary", { name: "Needs Intervention" });
-    fireEvent.click(await within(feed).findByText("Mark picked"));
+    fireEvent.click(await within(feed).findByText("Mark Picked"));
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/picked/", {
         studentID: "alice",
@@ -297,7 +297,7 @@ describe("CohortDashboard", () => {
 
   it("toggles daemon polling via the pause button", async () => {
     render(<CohortDashboard />);
-    const pause = await screen.findByText(/Pause polling/);
+    const pause = await screen.findByText(/Pause Polling/);
     fireEvent.click(pause);
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/polling/", { enabled: false });
@@ -317,13 +317,13 @@ describe("CohortDashboard", () => {
       render(<CohortDashboard />);
       await act(() => vi.advanceTimersByTimeAsync(0)); // mount fetch -> "on"
 
-      fireEvent.click(screen.getByText(/Pause polling/)); // optimistic -> off
-      expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
+      fireEvent.click(screen.getByText(/Pause Polling/)); // optimistic -> off
+      expect(screen.getByText(/Resume Polling/)).toBeInTheDocument();
 
       // advance well past several poll intervals: the other feeds re-poll, but the
       // pause state is NOT on a timer, so nothing can flip it back to "on".
       await act(() => vi.advanceTimersByTimeAsync(5000));
-      expect(screen.getByText(/Resume polling/)).toBeInTheDocument();
+      expect(screen.getByText(/Resume Polling/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -1004,10 +1004,10 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText("Add note")); // open the editor
+    fireEvent.click(await screen.findByText("Add Note")); // open the editor
     const box = await screen.findByPlaceholderText(/What did you see during this alert/);
     fireEvent.change(box, { target: { value: "looks stuck on the loop" } });
-    fireEvent.click(screen.getByText("Save note"));
+    fireEvent.click(screen.getByText("Save Note"));
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith(
         "/api/notes/",

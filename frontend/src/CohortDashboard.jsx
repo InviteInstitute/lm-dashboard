@@ -953,6 +953,16 @@ const GoalRunPicker = ({ runs, current, onPick }) => (
 
 // Where each goal's claim landed on every profiled run. A real table, so every
 // value is readable without hover; the column headers pick the run.
+// The picked run's rung for one goal, written out: the one-line state per row.
+const TrajNow = ({ g }) => {
+  const lvl = _rungLevel(g);
+  return (
+    <td className="traj-now">
+      {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>no claim</i>}
+    </td>
+  );
+};
+
 const GoalTrajectory = ({ runs, goals, current, onPick }) => {
   const wrap = React.useRef(null);
   React.useLayoutEffect(() => {
@@ -986,6 +996,9 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                 </button>
               </th>
             ))}
+            <th scope="col" className="traj-now">
+              On Run {current}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -1012,6 +1025,7 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                   </td>
                 );
               })}
+              <TrajNow g={_claimOn(runs.find((r) => r.index === current) || {}, goal)} />
             </tr>
           ))}
           {anyExit && (
@@ -1031,6 +1045,13 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                   </td>
                 );
               })}
+              <td className="traj-now">
+                {(runs.find((r) => r.index === current) || {}).summary?.boundary_exceeded ? (
+                  "yes"
+                ) : (
+                  <i>no</i>
+                )}
+              </td>
             </tr>
           )}
         </tbody>

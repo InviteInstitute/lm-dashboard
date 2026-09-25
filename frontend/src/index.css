@@ -1182,6 +1182,30 @@ button.flag-chip {
   height: 26px;
   color: var(--lmd-signal-d0433c);
 }
+/* The picked run's rung, written out: the one direct label per row. */
+.traj .traj-now {
+  width: auto;
+  padding: 0 0 0 16px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lmd-ink);
+}
+.traj thead .traj-now {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj .traj-now i {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--lmd-faint);
+}
+.traj-exit .traj-now {
+  color: var(--lmd-signal-d0433c);
+}
 .traj-exit td svg {
   margin: 0 auto;
 }

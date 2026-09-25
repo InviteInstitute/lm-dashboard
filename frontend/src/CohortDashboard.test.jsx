@@ -712,13 +712,13 @@ describe("CohortDashboard", () => {
     expect(await screen.findByRole("table")).toBeInTheDocument();
     expect(await screen.findByRole("rowheader", { name: "Remain on Island" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Remain on Island" })).toBeInTheDocument();
-    // in the history cell for this run, and on the board
-    expect(await screen.findAllByText("boundary safe")).toHaveLength(2);
+    // in the history cell for this run, its one-line state, and on the board
+    expect(await screen.findAllByText("boundary safe")).toHaveLength(3);
     expect(await screen.findByText("Top of the ladder")).toBeInTheDocument();
     expect(await screen.findByText("sparse evidence")).toBeInTheDocument();
     expect(await screen.findByText("3 valid, 16 abstained")).toBeInTheDocument();
     // ...and a derived goal, read from a named indicator
-    expect(await screen.findAllByText("approached not armed")).toHaveLength(2);
+    expect(await screen.findAllByText("approached not armed")).toHaveLength(3);
     expect(await screen.findByText("armed not attached")).toBeInTheDocument(); // the next rung
     expect(await screen.findByText("From Indicators")).toBeInTheDocument();
     expect(await screen.findByText("plow approach intent")).toBeInTheDocument();

@@ -545,7 +545,7 @@ describe("CohortDashboard", () => {
     fireEvent.click(await screen.findByTitle("alice"));
     const chip = await screen.findByText(/left the island/i);
     expect(chip.textContent).toContain("step 3"); // critical failure surfaced with the exit step
-    expect(await screen.findByText(/sim vs GPS agree/)).toBeInTheDocument();
+    expect(await screen.findByText(/Simulation and GPS agree\./)).toBeInTheDocument();
     expect(await screen.findByText("invalid timestamp")).toBeInTheDocument(); // a diagnostic chip
     expect(screen.queryByText("inherited playground")).toBeNull(); // routine bookkeeping, hidden
   });

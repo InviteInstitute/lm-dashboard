@@ -1392,7 +1392,15 @@ button.flag-chip {
   font-size: 14px;
   font-weight: 600;
 }
-.goal-notes,
+.goal-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
 .goal-facts {
   display: flex;
   flex-wrap: wrap;

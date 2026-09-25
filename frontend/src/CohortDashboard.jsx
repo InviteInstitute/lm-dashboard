@@ -637,19 +637,34 @@ const GoalIndicatorRow = ({ ind }) => {
   );
 };
 
+const _count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// "optical near object" -> "optical sensor (near object)"
+const _sensorName = (b) => {
+  const [kind, ...check] = b.split(" ");
+  return check.length ? `${kind} sensor (${check.join(" ")})` : `${kind} sensor`;
+};
+// ["a", "b", "c"] -> "a, b and c"
+const _andList = (xs) =>
+  xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+
 // Run-level outcomes the per-goal rows don't carry. Leaving the island is a
 // critical failure (not a goal), so it gets the same red tint an alerted card
 // does; everything else is a quiet line of notes.
 const GoalRunSummary = ({ run, sensors = [], noSensors = false }) => {
   const s = run.summary || {};
   const notes = [];
-  if (s.outcome_available === false) notes.push("no telemetry associated yet");
-  if (s.fidelity_verdict && s.fidelity_verdict !== "not_applicable")
-    notes.push(`sim vs GPS ${_humanize(s.fidelity_verdict).toLowerCase()}`);
-  if (s.fabricated_motion) notes.push("fabricated motion");
-  if (s.orphan_block_count) notes.push(`${s.orphan_block_count} orphan blocks`);
-  if (sensors.length > 0) notes.push(`reads ${sensors.join(", ")}`);
-  if (noSensors) notes.push("reads no sensors, so no sensor tests");
+  const verdict = _humanize(s.fidelity_verdict).toLowerCase();
+  if (verdict === "agree" || verdict === "disagree") notes.push(`Simulation and GPS ${verdict}.`);
+  else if (verdict && verdict !== "not applicable") notes.push(`Simulation vs GPS: ${verdict}.`);
+  if (s.outcome_available === false) notes.push("No robot telemetry for this run yet.");
+  if (s.fabricated_motion) notes.push("Some motion was fabricated.");
+  if (s.orphan_block_count)
+    notes.push(
+      `${_count(s.orphan_block_count, "block isn't", "blocks aren't")} attached to the program.`,
+    );
+  if (sensors.length > 0) notes.push(`Uses the ${_andList(sensors.map(_sensorName))}.`);
+  if (noSensors) notes.push("Uses no sensors, so there are no sensor tests.");
   // inherited_playground is routine bookkeeping, not worth showing here
   const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
   const diagFlags = useFlags(diags, true);
@@ -668,9 +683,7 @@ const GoalRunSummary = ({ run, sensors = [], noSensors = false }) => {
       )}
       {(notes.length > 0 || diags.length > 0) && (
         <p className="goal-notes">
-          {notes.map((n) => (
-            <span key={n}>{n}</span>
-          ))}
+          {notes.join(" ")}
           {diagFlags.chip}
         </p>
       )}
@@ -1161,8 +1174,6 @@ const claimFlags = (g) => {
     : [];
   return [...reasons, ...(g.flags || [])];
 };
-
-const _count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // The indicators, rung changes and sensor tests behind one goal, grouped by role.
 const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {

@@ -8,7 +8,14 @@
 # Prereqs on this host: Docker + the compose v2 plugin, a `.env` with
 # POSTGRES_PASSWORD, and `.env.mirror` with the app secrets (see .env.example).
 set -euo pipefail
-cd "$(dirname "$0")/.."
+
+# The whole body is one function, called on the script's last line. Bash parses
+# a function completely before running it, so the `git pull` below can rewrite
+# this file mid-deploy without bash going on to read the new file's bytes at the
+# old offset (which skips or garbles whatever the pulled commit changed).
+main() {
+SELF=$(readlink -f "$0")
+cd "$(dirname "$SELF")/.."
 
 echo "Deploying LM Dashboard (docker compose) ..."
 
@@ -25,6 +32,13 @@ if [ "$BEFORE" = "$AFTER" ]; then
   echo "Already up to date ($AFTER)."
 else
   echo "Updated $BEFORE -> $AFTER"
+  # A pulled change to this script only takes effect if the new version runs,
+  # so a new deploy step ships on its first deploy, not the next one. The rerun
+  # pulls nothing, so it cannot loop.
+  if ! git diff --quiet "$BEFORE" "$AFTER" -- scripts/deploy.sh; then
+    echo "scripts/deploy.sh changed in this pull -- re-running the new version ..."
+    exec "$SELF" "$@"
+  fi
 fi
 
 # The trigger/learner-model engine is the agent-lm-packages git submodule under
@@ -59,3 +73,6 @@ fi
 
 docker compose -f compose.yml ps
 echo "Polling is per-board and gated by the dead-man switch (a board is only polled while its dashboard is open)."
+}
+
+main "$@"; exit

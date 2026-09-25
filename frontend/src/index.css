@@ -846,7 +846,7 @@ textarea::placeholder {
 .goal-part {
   margin-top: 24px;
 }
-.goal-part h4 {
+.goal-part > h4 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -956,6 +956,96 @@ button.flag-chip {
   color: var(--lmd-ink);
 }
 
+/* Goal board: one row per goal (or rubric dimension). Name | reading. */
+.goal-cols,
+.goal-row {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
+}
+.goal-cols {
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--lmd-border);
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.goal-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.goal-name h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--lmd-ink);
+}
+.goal-reading {
+  min-width: 0;
+}
+.goal-now {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  min-height: 22px;
+  font-size: 14px;
+  color: var(--lmd-ink);
+}
+.goal-now strong {
+  font-weight: 600;
+}
+.goal-of {
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.goal-none {
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-next {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.goal-next b {
+  font-weight: 500;
+  color: var(--lmd-ink);
+}
+.goal-now .flag-chip {
+  margin-left: auto;
+}
+/* The ladder as pips: reached solid ink, climbed-past a lighter ink, ahead empty. */
+.pips {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.pips i {
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--lmd-track);
+  box-shadow: inset 0 0 0 1px var(--lmd-border);
+}
+.pips i.is-climbed {
+  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
+  box-shadow: none;
+}
+.pips i.is-reached {
+  background: var(--lmd-ink);
+  box-shadow: none;
+}
+.pips.is-none i {
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed var(--lmd-faint);
+}
 /* Goal trajectory: where each goal's claim landed on every run. One hue
    (ink), ordinal: the bar's fill height is the rung's place on its ladder. */
 .traj {
@@ -972,7 +1062,9 @@ button.flag-chip {
   position: sticky;
   left: 0;
   z-index: 1;
-  padding: 0 16px 0 0;
+  width: 176px;
+  min-width: 176px;
+  padding: 0 20px 0 0;
   background: var(--lmd-panel);
   font-weight: 500;
   color: var(--lmd-ink);
@@ -984,7 +1076,7 @@ button.flag-chip {
   left: 0;
   z-index: 1;
   background: var(--lmd-panel);
-  padding-right: 16px;
+  padding-right: 20px;
   text-align: left;
   font-size: 12px;
   font-weight: 400;
@@ -1061,6 +1153,9 @@ button.flag-chip {
   right: 0;
   bottom: 0;
   height: max(3px, calc(var(--lvl) * 100%));
+  background: color-mix(in srgb, var(--lmd-ink) 40%, var(--lmd-track));
+}
+.traj td.is-current .traj-bar::after {
   background: var(--lmd-ink);
 }
 .traj-none {
@@ -1087,10 +1182,7 @@ button.flag-chip {
   height: 26px;
   color: var(--lmd-signal-d0433c);
 }
-.traj-exit td svg {
-  margin: 0 auto;
-}
-/* The selected run's rung, written out: the one direct label per row. */
+/* The picked run's rung, written out: the one direct label per row. */
 .traj .traj-now {
   width: auto;
   padding: 0 0 0 16px;
@@ -1114,30 +1206,41 @@ button.flag-chip {
 .traj-exit .traj-now {
   color: var(--lmd-signal-d0433c);
 }
+.traj-exit td svg {
+  margin: 0 auto;
+}
+@media (max-width: 640px) {
+  .goal-cols {
+    display: none;
+  }
+  .goal-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+}
 /* One goal on the selected run. */
 .goals {
   display: flex;
   flex-direction: column;
 }
 .goal {
-  padding: 16px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--lmd-border);
 }
-.goal-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-  margin-bottom: 10px;
+.goal-cols + .goal {
+  border-top: 0;
 }
-.goal-head h4 {
-  margin: 0 auto 0 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--lmd-ink);
+/* Facts and evidence hang under the reading column. */
+@media (min-width: 641px) {
+  .goal > .goal-facts,
+  .goal > .goal-evidence,
+  .goal > .flag-list {
+    margin-left: 196px;
+  }
 }
 .goal-noclaim {
   margin: 0;
+  line-height: 22px;
   font-size: 13px;
   color: var(--lmd-sub);
 }
@@ -1177,20 +1280,6 @@ button.flag-chip {
 .battery-family-tag {
   font-size: 12px;
   color: var(--lmd-faint);
-}
-.goal-run-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--lmd-sub);
-}
-.goal-run-meta:empty {
-  display: none;
-}
-.goal-legend {
-  margin-top: 16px;
 }
 
 /* Rung ladder: a segmented bar filled up to the reached rung, names below. */
@@ -1247,7 +1336,7 @@ button.flag-chip {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
-  margin: 0;
+  margin: 20px 0 0;
   padding: 0;
   list-style: none;
   font-size: 12px;
@@ -1258,20 +1347,25 @@ button.flag-chip {
   align-items: center;
   gap: 6px;
 }
-.legend-bar {
-  width: 18px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--lmd-ink);
-}
-.legend-bar.is-climbed {
-  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
-}
 .dashboard .chip-btn.goal-run {
   min-width: 36px;
   justify-content: center;
   font-family: var(--lmd-mono);
   font-variant-numeric: tabular-nums;
+}
+.chip-btn.goal-run.is-exit {
+  position: relative;
+}
+/* A run that left the island: a red tick under its number. */
+.chip-btn.goal-run.is-exit::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--lmd-signal-d0433c);
 }
 .chip-btn.goal-run[aria-pressed="true"] {
   background: var(--lmd-ink);
@@ -1283,7 +1377,7 @@ button.flag-chip {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 8px;
+  margin: 12px 0 20px;
 }
 .goal-critical {
   display: flex;
@@ -1298,7 +1392,15 @@ button.flag-chip {
   font-size: 14px;
   font-weight: 600;
 }
-.goal-notes,
+.goal-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
 .goal-facts {
   display: flex;
   flex-wrap: wrap;
@@ -1713,4 +1815,11 @@ details > summary::-webkit-details-marker {
 }
 details[open] > summary .goal-fam-caret {
   transform: rotate(90deg);
+}
+@media (max-width: 640px) {
+  .traj th[scope="row"] {
+    width: 132px;
+    min-width: 132px;
+    padding-right: 12px;
+  }
 }

@@ -484,7 +484,7 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("systematic")).toBeInTheDocument();
     // an abstained indicator states no reading (with the reason), never a rung
     expect(await screen.findByText(/no reading - no simulation/)).toBeInTheDocument();
-    expect(await screen.findByText("sim unverified")).toBeInTheDocument(); // an uncertainty flag chip
+    expect(await screen.findByText("simulation not confirmed")).toBeInTheDocument(); // an uncertainty flag chip
     // achieved/attempting grouping and the single-run label
     expect(await screen.findByText("achieved")).toBeInTheDocument();
     expect(await screen.findByText("attempting")).toBeInTheDocument();
@@ -545,8 +545,8 @@ describe("CohortDashboard", () => {
     fireEvent.click(await screen.findByTitle("alice"));
     const chip = await screen.findByText(/left the island/i);
     expect(chip.textContent).toContain("step 3"); // critical failure surfaced with the exit step
-    expect(await screen.findByText(/sim vs GPS agree/)).toBeInTheDocument();
-    expect(await screen.findByText("invalid timestamp")).toBeInTheDocument(); // a diagnostic chip
+    expect(await screen.findByText(/Simulation and GPS agree\./)).toBeInTheDocument();
+    expect(await screen.findByText("bad timestamps")).toBeInTheDocument(); // a diagnostic chip
     expect(screen.queryByText("inherited playground")).toBeNull(); // routine bookkeeping, hidden
   });
 
@@ -689,11 +689,11 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
     // rung changes sit with their goal (here one with no claim, so its evidence is open)
-    expect(await screen.findByText("rung changes")).toBeInTheDocument();
+    expect(await screen.findByText("progress")).toBeInTheDocument();
     const ev = await screen.findByText(/stationary/);
     expect(ev.textContent).toContain("moved");
     // sensor tests sit with the goal they test, each tagged with its family
-    expect(await screen.findAllByText("sensor tests")).toHaveLength(2);
+    expect(await screen.findAllByText("test worlds")).toHaveLength(2);
     expect(await screen.findByText("T2 boundary")).toBeInTheDocument();
     expect(await screen.findByText("T1 debris field")).toBeInTheDocument();
     expect(await screen.findByText("t2a direct")).toBeInTheDocument();
@@ -704,27 +704,30 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("detects")).toBeInTheDocument();
     // an abstained check says why; a measured check carries its value
     expect(
-      await screen.findByTitle("stays on island: abstained: encounter not reached"),
+      await screen.findByTitle("stays on island: inconclusive: encounter not reached"),
     ).toBeInTheDocument();
     expect(await screen.findByText("25%")).toBeInTheDocument();
-    // the trajectory table has a row per claimed goal; the claim sits on its ladder,
-    // with the certainty demotion shown
+    // the history table has a row per claimed goal; below it the goal board writes
+    // the claim out beside its pips, with the certainty demotion shown
     expect(await screen.findByRole("table")).toBeInTheDocument();
     expect(await screen.findByRole("rowheader", { name: "Remain on Island" })).toBeInTheDocument();
-    // on the ladder, in the trajectory cell for this run, and its direct label
+    expect(await screen.findByRole("heading", { name: "Remain on Island" })).toBeInTheDocument();
+    // in the history cell for this run, its one-line state, and on the board
     expect(await screen.findAllByText("boundary safe")).toHaveLength(3);
-    expect(await screen.findByText("sparse evidence")).toBeInTheDocument();
-    expect(await screen.findByText("3 valid, 16 abstained")).toBeInTheDocument();
+    expect(await screen.findByText("Highest step reached")).toBeInTheDocument();
+    expect(await screen.findByText("little evidence")).toBeInTheDocument();
+    expect(await screen.findByText("3 tests counted, 16 inconclusive")).toBeInTheDocument();
     // ...and a derived goal, read from a named indicator
     expect(await screen.findAllByText("approached not armed")).toHaveLength(3);
-    expect(await screen.findByText("from indicators")).toBeInTheDocument();
+    expect(await screen.findByText("armed not attached")).toBeInTheDocument(); // the next rung
+    expect(await screen.findByText("From Code and Runs")).toBeInTheDocument();
     expect(await screen.findByText("plow approach intent")).toBeInTheDocument();
     // rubric: labelled provisional, a level on its 0..max ladder, and a U reason
     expect(await screen.findByText("Execution Rubric")).toBeInTheDocument();
     expect(await screen.findByText("provisional")).toBeInTheDocument();
     expect(await screen.findByText("borderline")).toBeInTheDocument();
     expect(await screen.findByText("code: coordination relations")).toBeInTheDocument();
-    expect(await screen.findByText("undetermined - no informative variable")).toBeInTheDocument();
+    expect(await screen.findByText("can't tell - no informative variable")).toBeInTheDocument();
   });
 
   it("clears the previous student's goal evidence when switching students", async () => {

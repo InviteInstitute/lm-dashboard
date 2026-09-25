@@ -460,6 +460,27 @@ const UNCERTAIN_FLAG =
 // inline below the row, so nothing is hover-only and nothing wraps into a
 // second line of chips. `allUncertain` for lists that are hedges by definition
 // (a claim's certainty reasons, run diagnostics).
+// Engine flag names in plain words, for readers who don't know the engine. The
+// raw name stays in the tooltip; anything not listed is just de-underscored.
+const FLAG_TEXT = {
+  sparse_evidence: "little evidence",
+  sim_unverified: "simulation not confirmed",
+  simulated_fallback: "simulated, not seen",
+  simulated_attainment: "reached in simulation only",
+  gps_invalid: "GPS data unusable",
+  invalid_timestamp: "bad timestamps",
+  loop_capped: "loop cut short",
+  duration_imputed: "timing estimated",
+  early_stop_outcome: "run stopped early",
+  evidence_post_sim_exit: "after leaving the island",
+  band_model_disagreement: "methods disagree",
+  attachment_boundary_marginal: "attachment borderline",
+  unknown_reporter: "unrecognized block",
+  foreign_playground_block: "block from another playground",
+  fabricated_motion: "motion filled in",
+};
+const _flagText = (f) => FLAG_TEXT[f] || _humanize(f);
+
 function useFlags(flags, allUncertain = false) {
   const [open, setOpen] = React.useState(false);
   const all = [...new Set(flags || [])];
@@ -470,21 +491,24 @@ function useFlags(flags, allUncertain = false) {
   const cls = `flag-chip${unc.length ? " is-uncertain" : ""}`;
   const chip =
     ordered.length === 1 ? (
-      <span className={cls} title={unc.length ? "uncertainty flag" : "provenance"}>
-        <span className="flag-name">{_humanize(ordered[0])}</span>
+      <span
+        className={cls}
+        title={`${unc.length ? "Uncertain" : "Where this came from"} (${ordered[0]})`}
+      >
+        <span className="flag-name">{_flagText(ordered[0])}</span>
       </span>
     ) : (
       <button
         type="button"
         className={cls}
         aria-expanded={open}
-        title={open ? "Hide flags" : `All flags: ${ordered.map(_humanize).join(", ")}`}
+        title={open ? "Hide flags" : `All flags: ${ordered.map(_flagText).join(", ")}`}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
       >
-        <span className="flag-name">{_humanize(ordered[0])}</span>
+        <span className="flag-name">{_flagText(ordered[0])}</span>
         <span className="flag-more">+{ordered.length - 1}</span>
       </button>
     );
@@ -493,13 +517,13 @@ function useFlags(flags, allUncertain = false) {
       {unc.length > 0 && (
         <div>
           <dt>Uncertain</dt>
-          <dd>{unc.map(_humanize).join(", ")}</dd>
+          <dd>{unc.map(_flagText).join(", ")}</dd>
         </div>
       )}
       {prov.length > 0 && (
         <div>
-          <dt>Provenance</dt>
-          <dd>{prov.map(_humanize).join(", ")}</dd>
+          <dt>Source</dt>
+          <dd>{prov.map(_flagText).join(", ")}</dd>
         </div>
       )}
     </dl>
@@ -637,17 +661,34 @@ const GoalIndicatorRow = ({ ind }) => {
   );
 };
 
+const _count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// "optical near object" -> "optical sensor (near object)"
+const _sensorName = (b) => {
+  const [kind, ...check] = b.split(" ");
+  return check.length ? `${kind} sensor (${check.join(" ")})` : `${kind} sensor`;
+};
+// ["a", "b", "c"] -> "a, b and c"
+const _andList = (xs) =>
+  xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+
 // Run-level outcomes the per-goal rows don't carry. Leaving the island is a
 // critical failure (not a goal), so it gets the same red tint an alerted card
 // does; everything else is a quiet line of notes.
-const GoalRunSummary = ({ run }) => {
+const GoalRunSummary = ({ run, sensors = [], noSensors = false }) => {
   const s = run.summary || {};
   const notes = [];
-  if (s.outcome_available === false) notes.push("no telemetry associated yet");
-  if (s.fidelity_verdict && s.fidelity_verdict !== "not_applicable")
-    notes.push(`sim vs GPS ${_humanize(s.fidelity_verdict).toLowerCase()}`);
-  if (s.fabricated_motion) notes.push("fabricated motion");
-  if (s.orphan_block_count) notes.push(`${s.orphan_block_count} orphan blocks`);
+  const verdict = _humanize(s.fidelity_verdict).toLowerCase();
+  if (verdict === "agree" || verdict === "disagree") notes.push(`Simulation and GPS ${verdict}.`);
+  else if (verdict && verdict !== "not applicable") notes.push(`Simulation vs GPS: ${verdict}.`);
+  if (s.outcome_available === false) notes.push("No robot telemetry for this run yet.");
+  if (s.fabricated_motion) notes.push("Some motion was fabricated.");
+  if (s.orphan_block_count)
+    notes.push(
+      `${_count(s.orphan_block_count, "block isn't", "blocks aren't")} attached to the program.`,
+    );
+  if (sensors.length > 0) notes.push(`Uses the ${_andList(sensors.map(_sensorName))}.`);
+  if (noSensors) notes.push("Uses no sensors, so there are no test worlds to run.");
   // inherited_playground is routine bookkeeping, not worth showing here
   const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
   const diagFlags = useFlags(diags, true);
@@ -666,9 +707,7 @@ const GoalRunSummary = ({ run }) => {
       )}
       {(notes.length > 0 || diags.length > 0) && (
         <p className="goal-notes">
-          {notes.map((n) => (
-            <span key={n}>{n}</span>
-          ))}
+          {notes.join(" ")}
           {diagFlags.chip}
         </p>
       )}
@@ -701,7 +740,7 @@ const GoalTimeline = ({ timeline, showGoal = true }) => {
   const events = (timeline && timeline.events) || [];
   const post = (timeline && timeline.post_exit_events) || [];
   if (events.length === 0 && post.length === 0)
-    return <p className="sd-empty">No rung changes recorded on this run.</p>;
+    return <p className="sd-empty">No step changes on this run.</p>;
   return (
     <>
       <ol className="goal-timeline">
@@ -739,6 +778,8 @@ const goalCheckColor = (st) =>
         ? "var(--lmd-warning)"
         : T.sub;
 const _checkState = (c) => (c.abstained || c.status === "abstained" ? "abstained" : c.status);
+// "abstained" is engine vocabulary; readers know it as inconclusive.
+const _checkWord = (st) => (st === "abstained" ? "inconclusive" : st);
 const _pct = (v) => `${Math.round(v * 100)}%`;
 // "t2_boundary" -> "T2 boundary"
 const _familyLabel = _sentence;
@@ -792,7 +833,7 @@ const BatteryCheck = ({ c }) => {
   const measured = state === "measured" && Number.isFinite(c.value);
   const detail =
     state === "abstained"
-      ? `abstained: ${_humanize(c.abstain_reason) || "not reached"}`
+      ? `inconclusive: ${_humanize(c.abstain_reason) || "not reached"}`
       : `${state}${c.detail ? ` (${c.detail})` : ""}`;
   return (
     <span className={`battery-check is-${state}`} title={`${_humanize(c.name)}: ${detail}`}>
@@ -821,9 +862,9 @@ const BatteryTally = ({ scenarios }) => {
   return (
     <span className="battery-tally">
       {order.map((st) => (
-        <span key={st} title={`${n[st]} ${st}`}>
+        <span key={st} title={`${n[st]} ${_checkWord(st)}`}>
           <CheckDot state={st} />
-          {n[st]} {st}
+          {n[st]} {_checkWord(st)}
         </span>
       ))}
     </span>
@@ -833,7 +874,7 @@ const BatteryTally = ({ scenarios }) => {
 const GoalBattery = ({ battery }) => {
   if (!battery) return null;
   if (!battery.eligible)
-    return <p className="sd-empty">Not applicable: this program reads no sensors.</p>;
+    return <p className="sd-empty">Not applicable: this program uses no sensors.</p>;
   const families = [];
   (battery.scenarios || []).forEach((sc) => {
     const key = sc.family || "other";
@@ -855,7 +896,7 @@ const GoalBattery = ({ battery }) => {
             </span>
             <span className="battery-family-name">{_familyLabel(fam.key)}</span>
             <span className="battery-family-count">
-              {fam.scenarios.length} {fam.scenarios.length === 1 ? "scenario" : "scenarios"}
+              {fam.scenarios.length} {fam.scenarios.length === 1 ? "test world" : "test worlds"}
             </span>
             <BatteryTally scenarios={fam.scenarios} />
           </summary>
@@ -880,126 +921,13 @@ const GoalBattery = ({ battery }) => {
   );
 };
 
-// Where a rollup claim or rubric level was read from, as a short source name.
-const _evidenceSource = (e) => {
-  const [src, ...rest] = (e || "").split(".");
-  const name = _humanize(rest.join(".")) || _humanize(src);
-  const where = { production: "code", battery: "tests" }[src] || src;
-  return rest.length ? `${where}: ${name}` : name;
-};
-
-// A caption line under a ladder: quiet key/value facts. `lead` (where the claim
-// comes from) opens the line.
-const GoalFacts = ({ facts, lead }) => {
-  const shown = facts.filter(([, v]) => v != null && v !== "");
-  if (shown.length === 0 && !lead) return null;
-  return (
-    <p className="goal-facts">
-      {lead}
-      {shown.map(([k, v]) => (
-        <span key={k || "value"}>
-          {k && `${k} `}
-          <b>{v}</b>
-        </span>
-      ))}
-    </p>
-  );
-};
-
-// The purpose-2 execution rubric: six dimensions of HOW the program runs, each
-// a level on 0..max. Provisional upstream (still under human validation), so it
-// is labelled as such and never reads as a grade.
-const GoalRubric = ({ rubric }) => (
-  <div>
-    {(rubric.dimensions || []).map((d) => {
-      const labels = Array.from({ length: (d.max_level || 0) + 1 }, (_, i) => String(i));
-      return (
-        <div key={d.dimension} style={{ marginBottom: 10 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexWrap: "wrap",
-              marginBottom: 5,
-            }}
-          >
-            <span style={{ color: T.ink, fontSize: 13 }}>{_humanize(d.dimension)}</span>
-            <span style={{ marginLeft: "auto", display: "flex", gap: 7, flexWrap: "wrap" }}>
-              {d.borderline && (
-                <span style={goalFlagChip} title="within the borderline margin of the next level">
-                  borderline
-                </span>
-              )}
-              {d.ceiling != null && d.ceiling < d.max_level && (
-                <span
-                  style={goalProvenanceChip}
-                  title="the highest level this program's code can show"
-                >
-                  code ceiling {d.ceiling}
-                </span>
-              )}
-            </span>
-          </div>
-          {d.level == null ? (
-            <div style={goalNoReadingPill(false)}>undetermined - {_humanize(d.u_reason)}</div>
-          ) : (
-            <RungLadder labels={labels} reached={d.level} />
-          )}
-          <GoalFacts
-            facts={[
-              ["evidence", (d.evidence || []).map(_evidenceSource).join(", ") || null],
-              ["against", (d.negatives || []).map(_evidenceSource).join(", ") || null],
-            ]}
-          />
-        </div>
-      );
-    })}
-  </div>
-);
-
-// Legend for the panel: what each channel mark means, and how the ladder fills.
-const GoalLegend = () => (
-  <ul className="goal-legend">
-    <li>
-      <ChannelMark channel="outcome" />
-      observed
-    </li>
-    <li>
-      <ChannelMark channel="simulation" />
-      simulation
-    </li>
-    <li>
-      <ChannelMark channel="code" />
-      authored from the code
-    </li>
-    <li>
-      <span className="legend-bar is-reached" />
-      reached rung
-    </li>
-    <li>
-      <span className="legend-bar is-climbed" />
-      climbed past
-    </li>
-  </ul>
-);
-
-// A sub-part of the goal-evidence section (the rubric, leftover sensor tests).
-const GoalPart = ({ title, aside, children }) => (
-  <div className="goal-part">
-    <h4>
-      {title}
-      {aside}
-    </h4>
-    {children}
-  </div>
-);
-
-// ---- goal evidence: one block per goal ----
-// Everything the engine says about a goal lives together: the claim (rung on
-// its ladder, with certainty), then, behind a disclosure, the indicators, the
-// rung changes and the sensor tests that back it. Across runs, a trajectory
-// table shows where each goal landed on every profiled run.
+// ---- goal evidence: a board of goals ----
+// A history table on top shows where every goal's claim landed on each run (its
+// run headers pick the run). Below it, one row per goal on the picked run: the
+// goal, and where its claim sits on its ladder (a pip meter plus the rung written
+// out, "2 of 4", and the next rung up). The indicators, rung changes and sensor
+// tests behind a claim sit under the row, on demand. The execution rubric reuses
+// the same row, so the whole section reads as one board.
 
 // Rung position as a 0..1 fraction of its ladder, or null for no reading.
 const _rungLevel = (g) => {
@@ -1022,14 +950,63 @@ const _goalOrder = (runs) => {
   return seen;
 };
 
+const _claimOn = (r, goal) =>
+  ((r && r.rollup && r.rollup.goals) || []).find((g) => g.goal === goal);
+
+// A ladder as a row of pips, weaker (left) to stronger (right): the reached rung
+// solid, the ones below it lighter, the ones above it empty. `reached` -1 is no
+// reading (every pip dashed). Decorative: the rung is always written out beside it.
+const Pips = ({ n, reached }) => (
+  <span className={`pips${reached === -1 ? " is-none" : ""}`} aria-hidden="true">
+    {Array.from({ length: n }, (_, i) => (
+      <i
+        key={i}
+        className={i === reached ? "is-reached" : i < reached ? "is-climbed" : undefined}
+      />
+    ))}
+  </span>
+);
+
+// The selectable runs, oldest first. A run that left the island carries a red
+// mark under its number, so the critical failure is findable from any run.
+const GoalRunPicker = ({ runs, current, onPick }) => (
+  <div className="goal-runs" role="group" aria-label="Profiled run">
+    <span>Run</span>
+    {runs.map((r) => {
+      const out = r.summary && r.summary.boundary_exceeded;
+      return (
+        <button
+          key={r.index}
+          type="button"
+          onClick={() => onPick(r.index)}
+          className={`chip-btn goal-run${out ? " is-exit" : ""}`}
+          aria-pressed={r.index === current}
+          title={`Show run ${r.index}${out ? " (left the island)" : ""}`}
+        >
+          {r.index}
+        </button>
+      );
+    })}
+  </div>
+);
+
 // Where each goal's claim landed on every profiled run. A real table, so every
 // value is readable without hover; the column headers pick the run.
+// The picked run's rung for one goal, written out: the one-line state per row.
+const TrajNow = ({ g }) => {
+  const lvl = _rungLevel(g);
+  return (
+    <td className="traj-now">
+      {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>not assessed</i>}
+    </td>
+  );
+};
+
 const GoalTrajectory = ({ runs, goals, current, onPick }) => {
   const wrap = React.useRef(null);
   React.useLayoutEffect(() => {
     if (wrap.current) wrap.current.scrollLeft = wrap.current.scrollWidth; // latest run in view
   }, [runs.length]);
-  const claim = (r, goal) => ((r.rollup && r.rollup.goals) || []).find((g) => g.goal === goal);
   const anyExit = runs.some((r) => r.summary && r.summary.boundary_exceeded);
   return (
     <div className="traj" ref={wrap}>
@@ -1059,7 +1036,7 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
               </th>
             ))}
             <th scope="col" className="traj-now">
-              On run {current}
+              On Run {current}
             </th>
           </tr>
         </thead>
@@ -1068,9 +1045,9 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
             <tr key={goal}>
               <th scope="row">{_title(goal)}</th>
               {runs.map((r) => {
-                const g = claim(r, goal);
+                const g = _claimOn(r, goal);
                 const lvl = _rungLevel(g);
-                const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "no claim";
+                const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "not assessed";
                 return (
                   <td
                     key={r.index}
@@ -1087,21 +1064,12 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                   </td>
                 );
               })}
-              {(() => {
-                // direct label: the selected run's rung, written out
-                const g = claim(runs.find((r) => r.index === current) || {}, goal);
-                const lvl = _rungLevel(g);
-                return (
-                  <td className="traj-now">
-                    {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>no claim</i>}
-                  </td>
-                );
-              })()}
+              <TrajNow g={_claimOn(runs.find((r) => r.index === current) || {}, goal)} />
             </tr>
           ))}
           {anyExit && (
             <tr className="traj-exit">
-              <th scope="row">Left the island</th>
+              <th scope="row">Left the Island</th>
               {runs.map((r) => {
                 const out = r.summary && r.summary.boundary_exceeded;
                 return (
@@ -1131,67 +1099,99 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
   );
 };
 
-// The claim for one goal: its ladder (or an honest no-reading note), the
-// certainty flags, and the facts that support it.
-const GoalClaim = ({ g }) => {
-  const labels = g.rungs || [];
-  const reached = labels.indexOf(g.rung);
-  const fromTests = g.source === "battery";
-  // No battery test contributed at all: the program reads no sensors, so there
-  // was nothing to band. Say that rather than a bare "no evidence".
-  const noTests = fromTests && !g.n_valid && !g.n_abstained;
-  const d = g.debris || {};
-  const facts = fromTests
-    ? [
-        ["", noTests ? null : `${g.n_valid || 0} valid, ${g.n_abstained || 0} abstained`],
-        [
-          "pieces cleared",
-          Number.isFinite(d.proportion_cleared) ? _pct(d.proportion_cleared) : null,
-        ],
-        [
-          "zone coverage",
-          Number.isFinite(d.zone_coverage)
-            ? `${_pct(d.zone_coverage)}${d.zone_coverage_band ? ` (${_humanize(d.zone_coverage_band)})` : ""}`
-            : null,
-        ],
-        [
-          "weight cleared",
-          Number.isFinite(d.weight_cleared_kg)
-            ? `${Math.round(d.weight_cleared_kg)} kg${d.weight_cleared_band ? ` (${_humanize(d.weight_cleared_band)})` : ""}`
-            : null,
-        ],
-      ]
-    : Object.entries(g.basis || {}).map(([k, v]) => [
-        _humanize(k),
-        v == null ? "n/a" : _humanize(v),
-      ]);
-  return (
-    <>
-      {reached !== -1 ? (
-        <RungLadder labels={labels} reached={reached} />
-      ) : (
-        <div style={goalNoReadingPill(false)}>
-          no reading -{" "}
-          {noTests ? "no sensor tests ran" : _humanize(g.abstain_reason) || "no evidence"}
-        </div>
-      )}
-      <GoalFacts
-        facts={facts}
-        lead={
-          <span
-            className="goal-source"
-            title={
-              fromTests
-                ? "banded from the sensor-test battery"
-                : "derived from this goal's indicator rungs (no battery channel by design)"
-            }
-          >
-            {fromTests ? "from tests" : "from indicators"}
+// The reading for one row: pips, the rung written out, "n of N", and the rung
+// above it (what the next step would be). `none` replaces all of it with an
+// honest no-reading line.
+const GoalReading = ({ labels, reached, word, none, chips }) => (
+  <div className="goal-reading">
+    {reached === -1 ? (
+      <p className="goal-now">
+        <Pips n={Math.max(labels.length, 3)} reached={-1} />
+        <span className="goal-none">{none}</span>
+        {chips}
+      </p>
+    ) : (
+      <>
+        <p className="goal-now">
+          <Pips n={labels.length} reached={reached} />
+          <strong>{word}</strong>
+          <span className="goal-of">
+            step {reached + 1} of {labels.length}
           </span>
-        }
-      />
-    </>
+          {chips}
+        </p>
+        <p className="goal-next">
+          {reached < labels.length - 1 ? (
+            <>
+              Next step up <b>{_humanize(labels[reached + 1])}</b>
+            </>
+          ) : (
+            "Highest step reached"
+          )}
+        </p>
+      </>
+    )}
+  </div>
+);
+
+// Where a rollup claim or rubric level was read from, as a short source name.
+const _evidenceSource = (e) => {
+  const [src, ...rest] = (e || "").split(".");
+  const name = _humanize(rest.join(".")) || _humanize(src);
+  const where = { production: "code", battery: "tests" }[src] || src;
+  return rest.length ? `${where}: ${name}` : name;
+};
+
+// A caption line under a reading: quiet key/value facts. `lead` (where the claim
+// comes from) opens the line.
+const GoalFacts = ({ facts, lead }) => {
+  const shown = facts.filter(([, v]) => v != null && v !== "");
+  if (shown.length === 0 && !lead) return null;
+  return (
+    <p className="goal-facts">
+      {lead}
+      {shown.map(([k, v]) => (
+        <span key={k || "value"}>
+          {k && `${k} `}
+          <b>{v}</b>
+        </span>
+      ))}
+    </p>
   );
+};
+
+// The facts behind one goal's claim: tests (valid/abstained plus the debris
+// numbers) or the indicator rungs it was derived from.
+const claimFacts = (g) => {
+  const fromTests = g.source === "battery";
+  const d = g.debris || {};
+  if (!fromTests)
+    return Object.entries(g.basis || {}).map(([k, v]) => [
+      _humanize(k),
+      v == null ? "n/a" : _humanize(v),
+    ]);
+  const noTests = !g.n_valid && !g.n_abstained;
+  return [
+    [
+      "",
+      noTests
+        ? null
+        : `${_count(g.n_valid || 0, "test counted", "tests counted")}, ${g.n_abstained || 0} inconclusive`,
+    ],
+    ["pieces cleared", Number.isFinite(d.proportion_cleared) ? _pct(d.proportion_cleared) : null],
+    [
+      "zone coverage",
+      Number.isFinite(d.zone_coverage)
+        ? `${_pct(d.zone_coverage)}${d.zone_coverage_band ? ` (${_humanize(d.zone_coverage_band)})` : ""}`
+        : null,
+    ],
+    [
+      "weight cleared",
+      Number.isFinite(d.weight_cleared_kg)
+        ? `${Math.round(d.weight_cleared_kg)} kg${d.weight_cleared_band ? ` (${_humanize(d.weight_cleared_band)})` : ""}`
+        : null,
+    ],
+  ];
 };
 
 // The flags that qualify a claim: reduced certainty and engine flags (amber).
@@ -1206,31 +1206,111 @@ const claimFlags = (g) => {
   return [...reasons, ...(g.flags || [])];
 };
 
-const _count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-
-// One goal on the selected run: header, claim, and its evidence on demand.
-const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }) => {
+// The indicators, rung changes and sensor tests behind one goal, grouped by role.
+const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {
   const attained = indicators.filter((i) => i.role === "attainment");
   const intent = indicators.filter((i) => i.role !== "attainment");
+  return (
+    <div className="goal-evidence-body">
+      {[
+        ["achieved", attained],
+        ["attempting", intent],
+      ]
+        .filter(([, list]) => list.length > 0)
+        .map(([role, list]) => (
+          <div key={role} className="goal-role">
+            <span className="goal-role-label">{role}</span>
+            <div>
+              {list.map((ind, i) => (
+                <GoalIndicatorRow key={i} ind={ind} />
+              ))}
+            </div>
+          </div>
+        ))}
+      {changes.length + laterChanges.length > 0 && (
+        <div className="goal-role">
+          <span className="goal-role-label">progress</span>
+          <div>
+            <GoalTimeline
+              timeline={{ events: changes, post_exit_events: laterChanges }}
+              showGoal={false}
+            />
+          </div>
+        </div>
+      )}
+      {scenarios.length > 0 && (
+        <div className="goal-role">
+          <span className="goal-role-label">test worlds</span>
+          <ul className="battery-scenarios">
+            {scenarios.map((sc, si) => (
+              <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
+                <div className="battery-scenario-head">
+                  <span className="battery-family-tag">{_familyLabel(sc.family || "other")}</span>
+                  <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
+                  {_scenarioBlurb(sc) && <span title={sc.description}>{_scenarioBlurb(sc)}</span>}
+                </div>
+                <div className="battery-checks">
+                  {(sc.checks || []).map((c, ci) => (
+                    <BatteryCheck key={ci} c={c} />
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// One goal on the selected run: a board row (name and source, reading),
+// then its evidence on demand.
+const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }) => {
   const summary = [
-    indicators.length && _count(indicators.length, "indicator", "indicators"),
-    scenarios.length && _count(scenarios.length, "sensor test", "sensor tests"),
+    indicators.length && _count(indicators.length, "signal", "signals"),
+    scenarios.length && _count(scenarios.length, "test world", "test worlds"),
     changes.length + laterChanges.length &&
-      _count(changes.length + laterChanges.length, "rung change", "rung changes"),
+      _count(changes.length + laterChanges.length, "step change", "step changes"),
   ].filter(Boolean);
   const flags = useFlags(claimFlags(claim));
+  const labels = (claim && claim.rungs) || [];
+  const reached = claim ? labels.indexOf(claim.rung) : -1;
+  const fromTests = claim && claim.source === "battery";
+  const noTests = fromTests && !claim.n_valid && !claim.n_abstained;
   return (
     <article className="goal">
-      <header className="goal-head">
-        <h4>{_title(goal)}</h4>
-        {flags.chip}
-      </header>
+      <div className="goal-row">
+        <div className="goal-name">
+          <h4>{_title(goal)}</h4>
+          {claim && (
+            <span
+              className="goal-source"
+              title={
+                fromTests
+                  ? "Worked out by running the program in a set of test worlds"
+                  : "Worked out from what the code and the run show (this goal has no test worlds)"
+              }
+            >
+              {fromTests ? "From Test Worlds" : "From Code and Runs"}
+            </span>
+          )}
+        </div>
+        {claim ? (
+          <GoalReading
+            labels={labels}
+            reached={reached}
+            word={_humanize(claim.rung)}
+            none={`no reading - ${noTests ? "no test worlds ran" : _humanize(claim.abstain_reason) || "no evidence"}`}
+            chips={flags.chip}
+          />
+        ) : (
+          <div className="goal-reading">
+            <p className="goal-noclaim">Not assessed on this run.</p>
+          </div>
+        )}
+      </div>
       {flags.list}
-      {claim ? (
-        <GoalClaim g={claim} />
-      ) : (
-        <p className="goal-noclaim">The engine made no claim for this goal on this run.</p>
-      )}
+      {claim && <GoalFacts facts={claimFacts(claim)} />}
       {summary.length > 0 && (
         <details className="goal-evidence" open={!claim || undefined}>
           <summary>
@@ -1240,64 +1320,108 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }
             Evidence
             <span className="goal-evidence-count">{summary.join(", ")}</span>
           </summary>
-          <div className="goal-evidence-body">
-            {[
-              ["achieved", attained],
-              ["attempting", intent],
-            ]
-              .filter(([, list]) => list.length > 0)
-              .map(([role, list]) => (
-                <div key={role} className="goal-role">
-                  <span className="goal-role-label">{role}</span>
-                  <div>
-                    {list.map((ind, i) => (
-                      <GoalIndicatorRow key={i} ind={ind} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            {changes.length + laterChanges.length > 0 && (
-              <div className="goal-role">
-                <span className="goal-role-label">rung changes</span>
-                <div>
-                  <GoalTimeline
-                    timeline={{ events: changes, post_exit_events: laterChanges }}
-                    showGoal={false}
-                  />
-                </div>
-              </div>
-            )}
-            {scenarios.length > 0 && (
-              <div className="goal-role">
-                <span className="goal-role-label">sensor tests</span>
-                <ul className="battery-scenarios">
-                  {scenarios.map((sc, si) => (
-                    <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
-                      <div className="battery-scenario-head">
-                        <span className="battery-family-tag">
-                          {_familyLabel(sc.family || "other")}
-                        </span>
-                        <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
-                        {_scenarioBlurb(sc) && (
-                          <span title={sc.description}>{_scenarioBlurb(sc)}</span>
-                        )}
-                      </div>
-                      <div className="battery-checks">
-                        {(sc.checks || []).map((c, ci) => (
-                          <BatteryCheck key={ci} c={c} />
-                        ))}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+          <GoalEvidenceBody
+            indicators={indicators}
+            changes={changes}
+            laterChanges={laterChanges}
+            scenarios={scenarios}
+          />
         </details>
       )}
     </article>
   );
 };
+
+// The purpose-2 execution rubric: dimensions of HOW the program runs, each a
+// level on 0..max, drawn as the same board row as a goal. Provisional upstream
+// (still under human validation), so it is labelled as such and never reads as
+// a grade.
+const RubricRow = ({ d }) => {
+  const labels = Array.from({ length: (d.max_level || 0) + 1 }, (_, i) => String(i));
+  const chips = (
+    <>
+      {d.borderline && (
+        <span style={goalFlagChip} title="within the borderline margin of the next level">
+          borderline
+        </span>
+      )}
+      {d.ceiling != null && d.ceiling < d.max_level && (
+        <span style={goalProvenanceChip} title="the highest level this program's code can show">
+          code allows up to {d.ceiling}
+        </span>
+      )}
+    </>
+  );
+  return (
+    <article className="goal">
+      <div className="goal-row">
+        <div className="goal-name">
+          <h4>{_title(d.dimension)}</h4>
+        </div>
+        {d.level == null ? (
+          <GoalReading
+            labels={labels}
+            reached={-1}
+            none={`can't tell - ${_humanize(d.u_reason)}`}
+            chips={chips}
+          />
+        ) : (
+          <div className="goal-reading">
+            <p className="goal-now">
+              <Pips n={labels.length} reached={d.level} />
+              <strong>level {d.level}</strong>
+              <span className="goal-of">of {d.max_level}</span>
+              {chips}
+            </p>
+          </div>
+        )}
+      </div>
+      <GoalFacts
+        facts={[
+          ["based on", (d.evidence || []).map(_evidenceSource).join(", ") || null],
+          ["counts against", (d.negatives || []).map(_evidenceSource).join(", ") || null],
+        ]}
+      />
+    </article>
+  );
+};
+
+// Column captions for a board of rows.
+const BoardHead = ({ first, current }) => (
+  <div className="goal-cols" aria-hidden="true">
+    <span>{first}</span>
+    <span>On Run {current}</span>
+  </div>
+);
+
+// Legend for the channel marks the evidence uses.
+const GoalLegend = () => (
+  <ul className="goal-legend">
+    <li>
+      <ChannelMark channel="outcome" />
+      Seen on the Robot
+    </li>
+    <li>
+      <ChannelMark channel="simulation" />
+      From the Simulator
+    </li>
+    <li>
+      <ChannelMark channel="code" />
+      Written in the Code
+    </li>
+  </ul>
+);
+
+// A sub-part of the goal-evidence section (the rubric, leftover sensor tests).
+const GoalPart = ({ title, aside, children }) => (
+  <div className="goal-part">
+    <h4>
+      {title}
+      {aside}
+    </h4>
+    {children}
+  </div>
+);
 
 export const GoalEvidence = ({ runs, enabled }) => {
   const list = runs || [];
@@ -1320,15 +1444,13 @@ export const GoalEvidence = ({ runs, enabled }) => {
   const run = list.find((r) => r.index === picked) || list[list.length - 1];
   const latest = list[list.length - 1].index;
   const order = _goalOrder(list);
-  const claimed = order.filter((goal) =>
-    list.some((r) => ((r.rollup && r.rollup.goals) || []).some((g) => g.goal === goal)),
-  );
+  const claimed = order.filter((goal) => list.some((r) => _claimOn(r, goal)));
   const battery = run.battery;
   // This run's evidence, gathered per goal.
   const onRun = order
     .map((goal) => ({
       goal,
-      claim: ((run.rollup && run.rollup.goals) || []).find((g) => g.goal === goal),
+      claim: _claimOn(run, goal),
       indicators: ((run.goals || []).find((g) => g.goal === goal) || {}).indicators || [],
       changes: ((run.timeline && run.timeline.events) || []).filter((e) => e.goal === goal),
       laterChanges: ((run.timeline && run.timeline.post_exit_events) || []).filter(
@@ -1352,6 +1474,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
   const sensors = ((battery && battery.qualifying_blocks) || []).map((b) =>
     _humanize(b.replace(/^pg_(sensing_)?/, "")),
   );
+  const dims = (run.rubric && run.rubric.dimensions) || [];
   return (
     <Section
       title="Goal Evidence"
@@ -1362,61 +1485,51 @@ export const GoalEvidence = ({ runs, enabled }) => {
         </span>
       }
     >
-      <p className="goal-intro">
-        What the program was going for on each run and how far it got, as a rung on each goal's
-        ladder. Abstentions and uncertainty stay visible. This is evidence, not a score.
-      </p>
+      <p className="goal-intro">Each goal, run by run. Pick a run to see what backs it up.</p>
       {claimed.length > 0 ? (
         <GoalTrajectory runs={list} goals={claimed} current={run.index} onPick={setPicked} />
       ) : (
-        list.length > 1 && (
-          <div className="goal-runs" role="group" aria-label="Profiled run">
-            <span>Run</span>
-            {list.map((r) => (
-              <button
-                key={r.index}
-                type="button"
-                onClick={() => setPicked(r.index)}
-                className="chip-btn goal-run"
-                aria-pressed={r.index === run.index}
-              >
-                {r.index}
-              </button>
-            ))}
-          </div>
-        )
+        list.length > 1 && <GoalRunPicker runs={list} current={run.index} onPick={setPicked} />
       )}
-      <GoalRunSummary run={run} />
-      <div className="goal-run-meta">
-        {battery && !battery.eligible && (
-          <span>Sensor tests: not applicable, this program reads no sensors.</span>
-        )}
-        {sensors.length > 0 && <span>Sensor blocks: {sensors.join(", ")}</span>}
-      </div>
-      <div className="goals">
-        {onRun.map((b) => (
-          <GoalBlock key={b.goal} {...b} />
-        ))}
-      </div>
+      <GoalRunSummary
+        run={run}
+        sensors={sensors}
+        noSensors={Boolean(battery && !battery.eligible)}
+      />
+      {onRun.length > 0 && (
+        <div className="goals">
+          <BoardHead first="Goal" current={run.index} />
+          {onRun.map((b) => (
+            <GoalBlock key={b.goal} {...b} />
+          ))}
+        </div>
+      )}
       {unmapped.length > 0 && (
-        <GoalPart title="Other Sensor Tests">
+        <GoalPart title="Other Test Worlds">
           <GoalBattery battery={{ ...battery, scenarios: unmapped, qualifying_blocks: [] }} />
         </GoalPart>
       )}
-      {run.rubric && (run.rubric.dimensions || []).length > 0 && (
+      {dims.length > 0 && (
         <GoalPart
           title="Execution Rubric"
           aside={
             <span
               style={goalFlagChip}
-              title={`still under human validation upstream (${run.rubric.status || "provisional"})`}
+              title={`Still being checked by people, so treat it as a draft (${run.rubric.status || "provisional"})`}
             >
               provisional
             </span>
           }
         >
-          <p className="goal-intro">How the program runs, separate from which goals it reaches.</p>
-          <GoalRubric rubric={run.rubric} />
+          <p className="goal-intro">
+            How well the code is put together, separate from which goals the robot reaches.
+          </p>
+          <div className="goals">
+            <BoardHead first="Dimension" current={run.index} />
+            {dims.map((d) => (
+              <RubricRow key={d.dimension} d={d} />
+            ))}
+          </div>
         </GoalPart>
       )}
       <GoalLegend />

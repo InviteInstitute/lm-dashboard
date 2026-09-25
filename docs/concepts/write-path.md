@@ -70,6 +70,10 @@ correctness machinery in the whole thing.
 - Each drain pages prod with `dateFrom = last_event_time - overlap`, where overlap is
   a 2-second window, so events sitting right on a timestamp boundary don't slip
   through.
+- Prod returns pages newest-first, so a drain collects every page, sorts the events
+  oldest-first, and only then persists and routes them. Workers must see a student's
+  events in the order they happened: a run's outcome follows its run, and run
+  numbers count up.
 - It persists, then advances. The cursor only moves after a full drain is safely
   written.
 - Inserts are idempotent. Every event has a unique `source_event_id`, so re-fetched

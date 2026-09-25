@@ -1211,9 +1211,6 @@ textarea::placeholder {
   color: var(--lmd-sub);
   font-variant-numeric: tabular-nums;
 }
-.sd-note-meta span + span::before {
-  content: "- ";
-}
 .sd-notes p {
   margin: 0;
   font-size: 14px;

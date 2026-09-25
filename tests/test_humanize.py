@@ -9,7 +9,16 @@ from app import db
 
 
 def _wrap(inner):
-    return f"<xml>{inner}</xml>"
+    """A program: `inner` under a when-started hat. Loose blocks with no hat render
+    under the "not connected (won't run)" heading instead."""
+    return f'<xml><block type="pg_events_when_started" id="h"><next>{inner}</next></block></xml>'
+
+
+def _body(xml):
+    """The lines after the hat."""
+    lines = generate_readable_lines(xml)
+    assert lines[0] == "when started"
+    return lines[1:]
 
 
 def _num(slot, n):
@@ -17,9 +26,7 @@ def _num(slot, n):
 
 
 def test_simple_block_is_just_its_name():
-    assert generate_readable_lines(_wrap('<block type="pg_drivetrain_stop_driving"/>')) == [
-        "stop driving"
-    ]
+    assert _body(_wrap('<block type="pg_drivetrain_stop_driving"/>')) == ["stop driving"]
 
 
 def test_keeps_the_value_number_and_hides_mutator_noise():
@@ -28,15 +35,18 @@ def test_keeps_the_value_number_and_hides_mutator_noise():
         '<field name="DIRECTION">fwd</field><field name="UNITS">mm</field>'
         '<field name="anddontwait_mutator">false</field>' + _num("AMOUNT", 200) + "</block>"
     )
-    line = generate_readable_lines(xml)[0]
+    line = _body(xml)[0]
     assert "drive for" in line and "forward" in line and "200" in line
     assert "mutator" not in line  # Blockly plumbing hidden
 
 
-def test_unknown_block_falls_back_to_raw_type():
-    assert generate_readable_lines(_wrap('<block type="pg_brand_new_2099"/>')) == [
-        "pg_brand_new_2099"
-    ]
+def test_unknown_block_gets_a_name_derived_from_its_type():
+    assert _body(_wrap('<block type="pg_brand_new_2099"/>')) == ["brand new 2099"]
+
+
+def test_loose_blocks_are_listed_as_not_connected():
+    lines = generate_readable_lines('<xml><block type="pg_drivetrain_stop_driving"/></xml>')
+    assert lines == ["not connected (won't run):", "  stop driving"]
 
 
 def test_if_else_labels_the_else_branch():
@@ -49,7 +59,7 @@ def test_if_else_labels_the_else_branch():
         '<statement name="SUBSTACK"><block type="pg_drivetrain_drive"><field name="DIRECTION">fwd</field></block></statement>'
         '<statement name="SUBSTACK2"><block type="pg_drivetrain_stop_driving"/></statement></block>'
     )
-    lines = generate_readable_lines(xml)
+    lines = _body(xml)
     assert any("object distance" in l and "< 200" in l for l in lines)  # condition rendered
     assert "else:" in [l.strip() for l in lines]  # branch labeled
     assert "  drive forward" in lines and "  stop driving" in lines  # both bodies indented
@@ -71,7 +81,7 @@ def test_nested_reporters_recurse_to_any_depth():
         f'<block type="pg_control_if_then"><value name="CONDITION">{cond}</value>'
         '<statement name="SUBSTACK"><block type="pg_drivetrain_stop_driving"/></statement></block>'
     )
-    top = generate_readable_lines(xml)[0]
+    top = _body(xml)[0]
     assert "not (" in top and "and" in top and "< 200" in top  # full depth rendered
 
 
@@ -85,7 +95,7 @@ def test_range_operator_keeps_all_three_numbers():
         + "</block></value>"
         '<statement name="SUBSTACK"><block type="pg_drivetrain_stop_driving"/></statement></block>'
     )
-    top = generate_readable_lines(xml)[0]
+    top = _body(xml)[0]
     assert "0" in top and "50" in top and "90" in top  # none dropped
 
 

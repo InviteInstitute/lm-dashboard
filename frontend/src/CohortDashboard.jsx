@@ -883,14 +883,12 @@ const GoalBattery = ({ battery }) => {
 };
 
 // ---- goal evidence: a board of goals ----
-// One row per goal on the selected run: the goal, where its claim sits on its
-// ladder (a pip meter plus the rung written out, "2 of 4", and the next rung up),
-// and a trend of that claim across recent runs. The indicators, rung changes and
-// sensor tests behind a claim sit under the row, on demand. The execution rubric
-// reuses the same row, so the whole section reads as one board.
-
-// How many runs a row's trend shows (the most recent ones).
-const TREND_RUNS = 12;
+// A history table on top shows where every goal's claim landed on each run (its
+// run headers pick the run). Below it, one row per goal on the picked run: the
+// goal, and where its claim sits on its ladder (a pip meter plus the rung written
+// out, "2 of 4", and the next rung up). The indicators, rung changes and sensor
+// tests behind a claim sit under the row, on demand. The execution rubric reuses
+// the same row, so the whole section reads as one board.
 
 // Rung position as a 0..1 fraction of its ladder, or null for no reading.
 const _rungLevel = (g) => {
@@ -915,8 +913,6 @@ const _goalOrder = (runs) => {
 
 const _claimOn = (r, goal) =>
   ((r && r.rollup && r.rollup.goals) || []).find((g) => g.goal === goal);
-const _dimOn = (r, dim) =>
-  ((r && r.rubric && r.rubric.dimensions) || []).find((d) => d.dimension === dim);
 
 // A ladder as a row of pips, weaker (left) to stronger (right): the reached rung
 // solid, the ones below it lighter, the ones above it empty. `reached` -1 is no
@@ -955,33 +951,91 @@ const GoalRunPicker = ({ runs, current, onPick }) => (
   </div>
 );
 
-// A row's claim across the last TREND_RUNS runs: one bar per run, its height the
-// rung's place on the ladder. The selected run is solid; a dashed outline is a
-// run with no reading, a short dash a run with no claim. Each bar picks its run.
-const GoalTrend = ({ runs, current, onPick, read }) => {
-  const shown = runs.slice(-TREND_RUNS);
-  if (!shown.some((r) => read(r))) return <span className="trend-empty">no claims yet</span>;
+// Where each goal's claim landed on every profiled run. A real table, so every
+// value is readable without hover; the column headers pick the run.
+const GoalTrajectory = ({ runs, goals, current, onPick }) => {
+  const wrap = React.useRef(null);
+  React.useLayoutEffect(() => {
+    if (wrap.current) wrap.current.scrollLeft = wrap.current.scrollWidth; // latest run in view
+  }, [runs.length]);
+  const anyExit = runs.some((r) => r.summary && r.summary.boundary_exceeded);
   return (
-    <ol className="trend">
-      {shown.map((r) => {
-        const v = read(r);
-        const state = !v ? "is-empty" : v.lvl == null ? "is-none" : undefined;
-        const text = !v ? "no claim" : v.text;
-        return (
-          <li key={r.index}>
-            <button
-              type="button"
-              className={state}
-              style={{ "--lvl": v && v.lvl != null ? v.lvl : 0 }}
-              aria-pressed={r.index === current}
-              aria-label={`Run ${r.index}: ${text}`}
-              title={`Run ${r.index}: ${text}`}
-              onClick={() => onPick(r.index)}
-            />
-          </li>
-        );
-      })}
-    </ol>
+    <div className="traj" ref={wrap}>
+      <table>
+        <caption className="visually-hidden">
+          Rung each goal's claim reached on every profiled run
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col" className="traj-corner">
+              Run
+            </th>
+            {runs.map((r) => (
+              <th
+                key={r.index}
+                scope="col"
+                className={r.index === current ? "is-current" : undefined}
+              >
+                <button
+                  type="button"
+                  aria-pressed={r.index === current}
+                  title={`Show run ${r.index}`}
+                  onClick={() => onPick(r.index)}
+                >
+                  {r.index}
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {goals.map((goal) => (
+            <tr key={goal}>
+              <th scope="row">{_title(goal)}</th>
+              {runs.map((r) => {
+                const g = _claimOn(r, goal);
+                const lvl = _rungLevel(g);
+                const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "no claim";
+                return (
+                  <td
+                    key={r.index}
+                    className={r.index === current ? "is-current" : undefined}
+                    title={`${_title(goal)}, run ${r.index}: ${text}`}
+                    onClick={() => onPick(r.index)}
+                  >
+                    {lvl == null ? (
+                      <span className={g ? "traj-none is-abstained" : "traj-none"} />
+                    ) : (
+                      <span className="traj-bar" style={{ "--lvl": lvl }} />
+                    )}
+                    <span className="visually-hidden">{text}</span>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          {anyExit && (
+            <tr className="traj-exit">
+              <th scope="row">Left the Island</th>
+              {runs.map((r) => {
+                const out = r.summary && r.summary.boundary_exceeded;
+                return (
+                  <td
+                    key={r.index}
+                    className={r.index === current ? "is-current" : undefined}
+                    title={out ? `Run ${r.index}: left the island` : `Run ${r.index}: stayed on`}
+                    onClick={() => onPick(r.index)}
+                  >
+                    {out && <Icon name="alert" size={14} />}
+                    <span className="visually-hidden">{out ? "yes" : "no"}</span>
+                  </td>
+                );
+              })}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 };
 
@@ -1146,9 +1200,9 @@ const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {
   );
 };
 
-// One goal on the selected run: a board row (name and source, reading, trend),
+// One goal on the selected run: a board row (name and source, reading),
 // then its evidence on demand.
-const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios, trend }) => {
+const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }) => {
   const summary = [
     indicators.length && _count(indicators.length, "indicator", "indicators"),
     scenarios.length && _count(scenarios.length, "sensor test", "sensor tests"),
@@ -1191,7 +1245,6 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios, 
             <p className="goal-noclaim">No claim on this run.</p>
           </div>
         )}
-        <div className="goal-trend">{trend}</div>
       </div>
       {flags.list}
       {claim && <GoalFacts facts={claimFacts(claim)} />}
@@ -1220,7 +1273,7 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios, 
 // level on 0..max, drawn as the same board row as a goal. Provisional upstream
 // (still under human validation), so it is labelled as such and never reads as
 // a grade.
-const RubricRow = ({ d, trend }) => {
+const RubricRow = ({ d }) => {
   const labels = Array.from({ length: (d.max_level || 0) + 1 }, (_, i) => String(i));
   const chips = (
     <>
@@ -1259,7 +1312,6 @@ const RubricRow = ({ d, trend }) => {
             </p>
           </div>
         )}
-        <div className="goal-trend">{trend}</div>
       </div>
       <GoalFacts
         facts={[
@@ -1272,18 +1324,12 @@ const RubricRow = ({ d, trend }) => {
 };
 
 // Column captions for a board of rows.
-const BoardHead = ({ first, current, runs }) => {
-  const shown = runs.slice(-TREND_RUNS);
-  const span =
-    shown.length > 1 ? `Runs ${shown[0].index}-${shown[shown.length - 1].index}` : "Trend";
-  return (
-    <div className="goal-cols" aria-hidden="true">
-      <span>{first}</span>
-      <span>On Run {current}</span>
-      <span>{span}</span>
-    </div>
-  );
-};
+const BoardHead = ({ first, current }) => (
+  <div className="goal-cols" aria-hidden="true">
+    <span>{first}</span>
+    <span>On Run {current}</span>
+  </div>
+);
 
 // Legend for the channel marks the evidence uses.
 const GoalLegend = () => (
@@ -1335,6 +1381,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
   const run = list.find((r) => r.index === picked) || list[list.length - 1];
   const latest = list[list.length - 1].index;
   const order = _goalOrder(list);
+  const claimed = order.filter((goal) => list.some((r) => _claimOn(r, goal)));
   const battery = run.battery;
   // This run's evidence, gathered per goal.
   const onRun = order
@@ -1364,32 +1411,6 @@ export const GoalEvidence = ({ runs, enabled }) => {
   const sensors = ((battery && battery.qualifying_blocks) || []).map((b) =>
     _humanize(b.replace(/^pg_(sensing_)?/, "")),
   );
-  const goalTrend = (goal) => (
-    <GoalTrend
-      runs={list}
-      current={run.index}
-      onPick={setPicked}
-      read={(r) => {
-        const g = _claimOn(r, goal);
-        if (!g) return null;
-        const lvl = _rungLevel(g);
-        return { lvl, text: lvl == null ? "no reading" : _humanize(g.rung) };
-      }}
-    />
-  );
-  const dimTrend = (dim) => (
-    <GoalTrend
-      runs={list}
-      current={run.index}
-      onPick={setPicked}
-      read={(r) => {
-        const d = _dimOn(r, dim);
-        if (!d) return null;
-        if (d.level == null) return { lvl: null, text: "undetermined" };
-        return { lvl: d.max_level ? d.level / d.max_level : 1, text: `level ${d.level}` };
-      }}
-    />
-  );
   const dims = (run.rubric && run.rubric.dimensions) || [];
   return (
     <Section
@@ -1402,10 +1423,15 @@ export const GoalEvidence = ({ runs, enabled }) => {
       }
     >
       <p className="goal-intro">
-        Where each goal got to on a run, as a rung on its ladder, and how that moved across runs.
-        Abstentions and uncertainty stay visible. This is evidence, not a score.
+        Where each goal got to on every run, then the picked run up close: the rung on each goal's
+        ladder and what backs it. Abstentions and uncertainty stay visible. This is evidence, not a
+        score.
       </p>
-      {list.length > 1 && <GoalRunPicker runs={list} current={run.index} onPick={setPicked} />}
+      {claimed.length > 0 ? (
+        <GoalTrajectory runs={list} goals={claimed} current={run.index} onPick={setPicked} />
+      ) : (
+        list.length > 1 && <GoalRunPicker runs={list} current={run.index} onPick={setPicked} />
+      )}
       <GoalRunSummary
         run={run}
         sensors={sensors}
@@ -1413,9 +1439,9 @@ export const GoalEvidence = ({ runs, enabled }) => {
       />
       {onRun.length > 0 && (
         <div className="goals">
-          <BoardHead first="Goal" current={run.index} runs={list} />
+          <BoardHead first="Goal" current={run.index} />
           {onRun.map((b) => (
-            <GoalBlock key={b.goal} {...b} trend={goalTrend(b.goal)} />
+            <GoalBlock key={b.goal} {...b} />
           ))}
         </div>
       )}
@@ -1438,9 +1464,9 @@ export const GoalEvidence = ({ runs, enabled }) => {
         >
           <p className="goal-intro">How the program runs, separate from which goals it reaches.</p>
           <div className="goals">
-            <BoardHead first="Dimension" current={run.index} runs={list} />
+            <BoardHead first="Dimension" current={run.index} />
             {dims.map((d) => (
-              <RubricRow key={d.dimension} d={d} trend={dimTrend(d.dimension)} />
+              <RubricRow key={d.dimension} d={d} />
             ))}
           </div>
         </GoalPart>

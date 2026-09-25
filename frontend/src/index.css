@@ -891,6 +891,71 @@ h5 {
   text-wrap: pretty;
 }
 
+/* One flag chip per row: the lead flag, a +N count, the full list on click. */
+.flag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0 7px;
+  border: 1px solid var(--lmd-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lmd-sub);
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.flag-chip.is-uncertain {
+  color: var(--lmd-warning);
+  border-color: color-mix(in srgb, var(--lmd-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--lmd-warning) 8%, transparent);
+}
+.flag-name {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flag-more {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+button.flag-chip {
+  cursor: pointer;
+}
+.student-dialog button.flag-chip {
+  min-height: 22px;
+}
+.student-dialog button.flag-chip:hover {
+  filter: none;
+  border-color: currentColor;
+}
+.flag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-basis: 100%;
+  margin: 2px 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--lmd-track);
+  font-size: 12px;
+}
+.flag-list div {
+  display: flex;
+  gap: 8px;
+}
+.flag-list dt {
+  flex: 0 0 72px;
+  color: var(--lmd-sub);
+}
+.flag-list dd {
+  margin: 0;
+  color: var(--lmd-ink);
+}
+
 /* Goal trajectory: where each goal's claim landed on every run. One hue
    (ink), ordinal: the bar's fill height is the rung's place on its ladder. */
 .traj {

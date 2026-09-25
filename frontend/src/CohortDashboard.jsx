@@ -449,8 +449,63 @@ const goalProvenanceChip = {
   color: T.sub,
   border: `1px solid ${T.border}`,
 };
-// Uncertainty flags qualify the reading (amber); every other flag is provenance.
-const UNCERTAINTY_FLAGS = new Set(["sim_unverified", "fabricated_motion", "invalid_timestamp"]);
+// Uncertainty flags qualify the reading (amber); every other flag is provenance
+// (where the reading came from). The engine names its hedges by what they are,
+// so classify on those words rather than a list that goes stale.
+const UNCERTAIN_FLAG =
+  /unverified|assumed|estimated|stale|fallback|marginal|defaulted|disagreement|sparse|invalid|fabricated|capped|override|unknown|certainty/;
+
+// However many flags a row carries, it gets one chip: the most important flag
+// (uncertainty before provenance) plus a count. The chip opens the full list
+// inline below the row, so nothing is hover-only and nothing wraps into a
+// second line of chips. `allUncertain` for lists that are hedges by definition
+// (a claim's certainty reasons, run diagnostics).
+function useFlags(flags, allUncertain = false) {
+  const [open, setOpen] = React.useState(false);
+  const all = [...new Set(flags || [])];
+  if (all.length === 0) return { chip: null, list: null };
+  const unc = all.filter((f) => allUncertain || UNCERTAIN_FLAG.test(f));
+  const prov = all.filter((f) => !unc.includes(f));
+  const ordered = [...unc, ...prov];
+  const cls = `flag-chip${unc.length ? " is-uncertain" : ""}`;
+  const chip =
+    ordered.length === 1 ? (
+      <span className={cls} title={unc.length ? "uncertainty flag" : "provenance"}>
+        <span className="flag-name">{_humanize(ordered[0])}</span>
+      </span>
+    ) : (
+      <button
+        type="button"
+        className={cls}
+        aria-expanded={open}
+        title={open ? "Hide flags" : `All flags: ${ordered.map(_humanize).join(", ")}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+      >
+        <span className="flag-name">{_humanize(ordered[0])}</span>
+        <span className="flag-more">+{ordered.length - 1}</span>
+      </button>
+    );
+  const list = open && ordered.length > 1 && (
+    <dl className="flag-list">
+      {unc.length > 0 && (
+        <div>
+          <dt>Uncertain</dt>
+          <dd>{unc.map(_humanize).join(", ")}</dd>
+        </div>
+      )}
+      {prov.length > 0 && (
+        <div>
+          <dt>Provenance</dt>
+          <dd>{prov.map(_humanize).join(", ")}</dd>
+        </div>
+      )}
+    </dl>
+  );
+  return { chip, list };
+}
 
 // An indicator with no rung to place: an abstention (dashed, no reading) or a
 // meaningful absence (solid, the thing never happened). Never a fake rung.
@@ -534,6 +589,7 @@ const GoalIndicatorRow = ({ ind }) => {
   const reached = labels.indexOf(ind.rung);
   const absent = ind.absent_label != null && ind.rung === ind.absent_label;
   const showLadder = !ind.abstained && !absent && labels.length > 0 && reached !== -1;
+  const flags = useFlags(ind.flags);
   return (
     <div style={{ marginBottom: 10 }}>
       <div
@@ -546,8 +602,8 @@ const GoalIndicatorRow = ({ ind }) => {
             marginLeft: "auto",
             display: "flex",
             alignItems: "center",
-            gap: 7,
-            flexWrap: "wrap",
+            gap: 8,
+            minWidth: 0,
           }}
         >
           {val != null && showLadder && (
@@ -562,17 +618,10 @@ const GoalIndicatorRow = ({ ind }) => {
               {val}
             </span>
           )}
-          {(ind.flags || []).map((f) => (
-            <span
-              key={f}
-              style={UNCERTAINTY_FLAGS.has(f) ? goalFlagChip : goalProvenanceChip}
-              title={UNCERTAINTY_FLAGS.has(f) ? "uncertainty flag" : "provenance"}
-            >
-              {_humanize(f)}
-            </span>
-          ))}
+          {flags.chip}
         </span>
       </div>
+      {flags.list}
       {ind.abstained ? (
         <div style={goalNoReadingPill(false)}>
           no reading - {_humanize(ind.abstain_reason) || "no data"}
@@ -601,6 +650,7 @@ const GoalRunSummary = ({ run }) => {
   if (s.orphan_block_count) notes.push(`${s.orphan_block_count} orphan blocks`);
   // inherited_playground is routine bookkeeping, not worth showing here
   const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
+  const diagFlags = useFlags(diags, true);
   if (!s.boundary_exceeded && notes.length === 0 && diags.length === 0) return null;
   return (
     <div className="goal-summary">
@@ -619,26 +669,21 @@ const GoalRunSummary = ({ run }) => {
           {notes.map((n) => (
             <span key={n}>{n}</span>
           ))}
-          {diags.map((d) => (
-            <span key={d} style={goalFlagChip} title="diagnostic">
-              {_humanize(d)}
-            </span>
-          ))}
+          {diagFlags.chip}
         </p>
       )}
+      {diagFlags.list}
     </div>
   );
 };
 
 // The goal-progression timeline: each row is a moment a block moved a goal's
 // indicator from one rung to another (steps after leaving the island dimmed).
-const GoalTimeline = ({ timeline, showGoal = true }) => {
-  const events = (timeline && timeline.events) || [];
-  const post = (timeline && timeline.post_exit_events) || [];
-  if (events.length === 0 && post.length === 0)
-    return <p className="sd-empty">No rung changes recorded on this run.</p>;
-  const row = (e, i, faded) => (
-    <li key={`${faded ? "p" : "e"}${i}`} className={faded ? "is-faded" : undefined}>
+// One rung change: step, what moved, from -> to, and its flags.
+const TimelineRow = ({ e, faded, showGoal }) => {
+  const flags = useFlags(e.flags);
+  return (
+    <li className={faded ? "is-faded" : undefined}>
       <span className="tl-step">step {e.step}</span>
       <span className="tl-what">
         {showGoal ? `${_sentence(e.goal)}, ${_humanize(e.indicator)}` : _humanize(e.indicator)}
@@ -646,20 +691,32 @@ const GoalTimeline = ({ timeline, showGoal = true }) => {
       <span className="tl-change">
         {_humanize(e.from_rung) || "start"} &rarr; {_humanize(e.to_rung)}
       </span>
-      {(e.flags || []).map((f) => (
-        <span key={f} style={goalFlagChip}>
-          {_humanize(f)}
-        </span>
-      ))}
+      {flags.chip}
+      {flags.list}
     </li>
   );
+};
+
+const GoalTimeline = ({ timeline, showGoal = true }) => {
+  const events = (timeline && timeline.events) || [];
+  const post = (timeline && timeline.post_exit_events) || [];
+  if (events.length === 0 && post.length === 0)
+    return <p className="sd-empty">No rung changes recorded on this run.</p>;
   return (
     <>
-      <ol className="goal-timeline">{events.map((e, i) => row(e, i, false))}</ol>
+      <ol className="goal-timeline">
+        {events.map((e, i) => (
+          <TimelineRow key={`e${i}`} e={e} showGoal={showGoal} />
+        ))}
+      </ol>
       {post.length > 0 && (
         <>
           <p className="goal-timeline-sub">After Leaving the Island</p>
-          <ol className="goal-timeline">{post.map((e, i) => row(e, i, true))}</ol>
+          <ol className="goal-timeline">
+            {post.map((e, i) => (
+              <TimelineRow key={`p${i}`} e={e} faded showGoal={showGoal} />
+            ))}
+          </ol>
         </>
       )}
     </>
@@ -1161,16 +1218,14 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }
     changes.length + laterChanges.length &&
       _count(changes.length + laterChanges.length, "rung change", "rung changes"),
   ].filter(Boolean);
+  const flags = useFlags(claimFlags(claim));
   return (
     <article className="goal">
       <header className="goal-head">
         <h4>{_title(goal)}</h4>
-        {claimFlags(claim).map((f) => (
-          <span key={f} style={goalFlagChip} title="qualifies the claim">
-            {_humanize(f)}
-          </span>
-        ))}
+        {flags.chip}
       </header>
+      {flags.list}
       {claim ? (
         <GoalClaim g={claim} />
       ) : (

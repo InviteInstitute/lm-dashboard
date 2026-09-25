@@ -724,7 +724,7 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("plow approach intent")).toBeInTheDocument();
     // rubric: labelled provisional, a level on its 0..max ladder, and a U reason
     expect(await screen.findByText("Execution Rubric")).toBeInTheDocument();
-    expect(await screen.findByText("draft")).toBeInTheDocument();
+    expect(await screen.findByText("provisional")).toBeInTheDocument();
     expect(await screen.findByText("borderline")).toBeInTheDocument();
     expect(await screen.findByText("code: coordination relations")).toBeInTheDocument();
     expect(await screen.findByText("can't tell - no informative variable")).toBeInTheDocument();

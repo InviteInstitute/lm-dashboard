@@ -1485,11 +1485,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
         </span>
       }
     >
-      <p className="goal-intro">
-        How far the robot got toward each goal, run by run. Each goal is a ladder of steps, from
-        weakest to strongest. Pick a run number to see what backs it up. A dashed mark means there
-        wasn't enough to go on. This is evidence to look at, not a grade.
-      </p>
+      <p className="goal-intro">Each goal, run by run. Pick a run to see what backs it up.</p>
       {claimed.length > 0 ? (
         <GoalTrajectory runs={list} goals={claimed} current={run.index} onPick={setPicked} />
       ) : (
@@ -1521,7 +1517,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
               style={goalFlagChip}
               title={`Still being checked by people, so treat it as a draft (${run.rubric.status || "provisional"})`}
             >
-              draft
+              provisional
             </span>
           }
         >

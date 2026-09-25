@@ -105,6 +105,11 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
     max_et = cursor.last_event_time
     max_id = cursor.last_source_id or 0
 
+    # Collect every page first. Prod pages newest-first, and the workers must see
+    # each student's events in the order they happened (a run's outcome follows
+    # its run; run numbers count up), so events are persisted and routed only
+    # after sorting them oldest-first.
+    wanted = []
     while True:
         results = client.page_by_time(date_from, limit, offset)
         if not results:
@@ -120,27 +125,32 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
                 continue
             if since is not None and et is not None and et < since:
                 continue  # before the session cutoff -- skip, but the cursor still advanced above
-            inserted, norm = persist(ev)
-            if inserted:
-                try:
-                    route(norm)
-                    new_count += 1
-                except Exception:
-                    # The row is already in vex_log, but routing it into the
-                    # in-memory worker failed. Discard that worker so the next
-                    # tick rebuilds it from the DB (which now has this event),
-                    # rather than keep serving a buffer that's silently missing it.
-                    from app.pipeline import workers
-
-                    workers._workers.pop(db.canon_id(norm["studentID"]), None)
-                    logger.exception(
-                        "route failed for %s after persist; dropped worker for rehydrate",
-                        norm["studentID"],
-                    )
-                    raise
+            wanted.append((et, sid or 0, ev))
         if len(results) < limit:
             break
         offset += limit
+
+    _EPOCH = datetime.min.replace(tzinfo=UTC)
+    wanted.sort(key=lambda w: (w[0] or _EPOCH, w[1]))
+    for _, _, ev in wanted:
+        inserted, norm = persist(ev)
+        if inserted:
+            try:
+                route(norm)
+                new_count += 1
+            except Exception:
+                # The row is already in vex_log, but routing it into the
+                # in-memory worker failed. Discard that worker so the next
+                # tick rebuilds it from the DB (which now has this event),
+                # rather than keep serving a buffer that's silently missing it.
+                from app.pipeline import workers
+
+                workers._workers.pop(db.canon_id(norm["studentID"]), None)
+                logger.exception(
+                    "route failed for %s after persist; dropped worker for rehydrate",
+                    norm["studentID"],
+                )
+                raise
 
     # Drain finished and everything is durably written, now advance the cursor.
     if max_et != cursor.last_event_time or max_id != (cursor.last_source_id or 0):

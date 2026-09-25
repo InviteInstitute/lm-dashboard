@@ -893,7 +893,12 @@ def set_polling(body: PollingBody, wsid: int = Depends(current_workspace_id)):
     paused the daemon makes no prod requests on this board's behalf; it keeps
     running and picks back up within about a second of being re-enabled. Purely a
     control flag, prod is untouched either way."""
+    was_enabled = _polling_enabled(wsid)
     db.set_workspace_setting(wsid, "polling_enabled", "1" if body.enabled else "0")
+    if body.enabled and not was_enabled:
+        # Refill the pause gap: backfill is idempotent, and the daemon rebuilds
+        # each student's worker from the log afterwards.
+        db.mark_workspace_for_backfill(wsid)
     return {"enabled": body.enabled}
 
 

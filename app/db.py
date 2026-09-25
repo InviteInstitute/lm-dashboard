@@ -468,6 +468,9 @@ _SCHEMA = [
 # (table, channel) pairs whose row-level INSERT/UPDATE/DELETE bump a counter.
 _REV_TRIGGERS = [
     ("student_state", "states"),
+    # Goal profiles are written after the student_state row, so they signal the
+    # same channel; else an open sheet refetches before the newest run's evidence.
+    ("goal_profile", "states"),
     ("trigger_event", "triggers"),
     ("switch_event", "switches"),
     ("tracked_student", "roster"),
@@ -822,6 +825,7 @@ def _workspace_export_queries(workspace_id):
         "student_state": (f"SELECT * FROM student_state WHERE {roster}", (ws,)),
         "trigger_event": (f"SELECT * FROM trigger_event WHERE {roster}", (ws,)),
         "switch_event": (f"SELECT * FROM switch_event WHERE {roster}", (ws,)),
+        "goal_profile": (f"SELECT * FROM goal_profile WHERE {roster}", (ws,)),
         "vex_log": (f"SELECT * FROM vex_log WHERE {vex_roster}", (ws,)),
     }
 
@@ -995,7 +999,9 @@ def triggers_feed(cutoff, limit=100, workspace_id=None, since=None):
         params.append(workspace_id)
     after = ""
     if since is not None:
-        after = "AND te.started_at >= ? "
+        # A reset hides earlier alerts, except one still open: that is the
+        # student's current state (e.g. idle right now), not history.
+        after = "AND (te.resolved_at IS NULL OR te.started_at >= ?) "
         params.append(dt_to_db(since))
     params += [dt_to_db(cutoff), limit]
     rows = _query(
@@ -1255,6 +1261,15 @@ def tracked_add(sid, workspace_id=None):
     )
 
 
+def mark_workspace_for_backfill(workspace_id=None):
+    """Ask the daemon to backfill every student on this workspace's roster again.
+    Used when a paused board resumes: while it was paused its students weren't
+    fetched, but the shared cursor moved on if another board was live."""
+    _execute(
+        "UPDATE tracked_student SET backfilled = 0 WHERE workspace_id = ?", (_ws(workspace_id),)
+    )
+
+
 def mark_backfilled(sid):
     # Backfill pulls a student's shared history once, so mark every workspace's
     # roster row for that student (the daemon ingests the union, per student).
@@ -1290,6 +1305,10 @@ def tracked_remove(sid, workspace_id=None):
             con.executemany("DELETE FROM message WHERE id = ?", [(m,) for m in msg_ids])
         con.execute("DELETE FROM student_state WHERE studentID = ?", (sid,))
         con.execute("DELETE FROM trigger_event WHERE studentID = ?", (sid,))
+        # Everything else derived from their events goes too, or a re-add would
+        # mix these stale goal runs and switches into the rebuilt ones.
+        con.execute("DELETE FROM goal_profile WHERE studentID = ?", (sid,))
+        con.execute("DELETE FROM switch_event WHERE studentID = ?", (sid,))
 
 
 # ==========================================================================

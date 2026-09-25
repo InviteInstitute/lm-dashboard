@@ -374,8 +374,8 @@ const legend = {
   display: "flex",
   gap: 14,
   flexWrap: "wrap",
-  marginTop: 9,
-  fontSize: 11.5,
+  marginTop: 8,
+  fontSize: 12,
   color: T.sub,
 };
 const sw = (bg) => ({
@@ -554,7 +554,7 @@ const GoalIndicatorRow = ({ ind }) => {
             <span
               style={{
                 fontFamily: MONO,
-                fontSize: 11,
+                fontSize: 12,
                 color: T.faint,
                 fontVariantNumeric: "tabular-nums",
               }}
@@ -1457,8 +1457,8 @@ const S = {
     justifyContent: "center",
   },
   toastBody: { display: "flex", flexDirection: "column", gap: 2, lineHeight: 1.25 },
-  toastTitle: { fontFamily: MONO, fontSize: 13.5, fontWeight: 700, color: T.ink },
-  toastSub: { fontSize: 11.5, color: T.sub, whiteSpace: "nowrap" },
+  toastTitle: { fontFamily: MONO, fontSize: 14, fontWeight: 600, color: T.ink },
+  toastSub: { fontSize: 12, color: T.sub, whiteSpace: "nowrap" },
   toastArrow: { fontFamily: MONO },
   toastClose: {
     flexShrink: 0,

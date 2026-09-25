@@ -308,7 +308,7 @@ const RunTrack = ({ data, compact }) => {
         <div style={legend}>
           <span>
             <i style={sw(ED_ZERO)} />
-            No change
+            No Change
           </span>
           <span>
             <i style={sw(ED_SMALL)} />
@@ -316,7 +316,7 @@ const RunTrack = ({ data, compact }) => {
           </span>
           <span>
             <i style={sw(ED_BIG)} />
-            Big change (&gt;=13)
+            Big Change (&gt;=13)
           </span>
         </div>
       )}
@@ -1788,7 +1788,7 @@ const NotesPanel = ({ notes, onAdd }) => {
         <div className="sd-composer-foot">
           <span>Ctrl+Enter to save</span>
           <button type="button" onClick={save} disabled={!draft.trim()}>
-            Save note
+            Save Note
           </button>
         </div>
       </div>
@@ -2395,7 +2395,7 @@ const CohortDashboard = () => {
             }
           >
             <Icon name={pollingOn ? "pause" : "play"} />
-            <span>{pollingOn ? "Pause polling" : "Resume polling"}</span>
+            <span>{pollingOn ? "Pause Polling" : "Resume Polling"}</span>
           </button>
           <button
             className="hdr-btn"
@@ -2459,7 +2459,7 @@ const CohortDashboard = () => {
           <div className="board-heading">
             <h2>Students</h2>
             <a className="feed-jump" href="#interventions">
-              View alerts ({alerts.length})
+              View Alerts ({alerts.length})
             </a>
             <span>
               {boxes.length} tracked, {boxes.filter((b) => b.present).length} present,{" "}
@@ -2474,7 +2474,7 @@ const CohortDashboard = () => {
                 className="empty-action"
                 onClick={() => document.querySelector(".track-form input").focus()}
               >
-                Track a student
+                Track a Student
               </button>
             </div>
           ) : (
@@ -2554,7 +2554,7 @@ const CohortDashboard = () => {
                         }
                       >
                         {b.picked && <Icon name="check" size={14} />}
-                        <span>{b.picked ? "Picked" : "Mark picked"}</span>
+                        <span>{b.picked ? "Picked" : "Mark Picked"}</span>
                       </button>
                       <button
                         className="icon-btn"
@@ -2632,7 +2632,7 @@ const CohortDashboard = () => {
                         }}
                       >
                         {picked && <Icon name="check" size={14} />}
-                        <span>{picked ? "Picked" : "Mark picked"}</span>
+                        <span>{picked ? "Picked" : "Mark Picked"}</span>
                       </button>
                       <button
                         className="chip-btn"
@@ -2644,7 +2644,7 @@ const CohortDashboard = () => {
                           setNoteOpen(noteOpen === t.id ? null : t.id);
                         }}
                       >
-                        Add note
+                        Add Note
                       </button>
                       <button
                         className="icon-btn"
@@ -2676,7 +2676,7 @@ const CohortDashboard = () => {
                             setNoteText("");
                           }}
                         >
-                          Save note
+                          Save Note
                         </button>
                       </div>
                     )}

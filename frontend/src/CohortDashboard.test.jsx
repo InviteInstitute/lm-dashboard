@@ -282,7 +282,7 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     // Both the card and the alert say "Mark picked"; click the one in the alert feed.
-    const feed = await screen.findByRole("complementary", { name: "Needs intervention" });
+    const feed = await screen.findByRole("complementary", { name: "Needs Intervention" });
     fireEvent.click(await within(feed).findByText("Mark picked"));
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/picked/", {
@@ -477,8 +477,8 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
-    expect(await screen.findByText("Goal evidence")).toBeInTheDocument();
-    expect(await screen.findByText("Clear debris zone")).toBeInTheDocument();
+    expect(await screen.findByText("Goal Evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Clear Debris Zone")).toBeInTheDocument();
     // the rung ladder: the reached rung and an un-reached rung both render as segments
     expect(await screen.findByText("negligible")).toBeInTheDocument();
     expect(await screen.findByText("systematic")).toBeInTheDocument();
@@ -689,11 +689,11 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
     // timeline: a rung transition
-    expect(await screen.findByText("Goal progression")).toBeInTheDocument();
+    expect(await screen.findByText("Goal Progression")).toBeInTheDocument();
     const ev = await screen.findByText(/stationary/);
     expect(ev.textContent).toContain("moved");
     // battery: scenarios grouped by family, with named checks
-    expect(await screen.findByText("Sensor test battery")).toBeInTheDocument();
+    expect(await screen.findByText("Sensor Test Battery")).toBeInTheDocument();
     expect(await screen.findByText("T2 boundary")).toBeInTheDocument();
     expect(await screen.findByText("T1 debris field")).toBeInTheDocument();
     expect(await screen.findByText("t2a direct")).toBeInTheDocument();
@@ -708,7 +708,7 @@ describe("CohortDashboard", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("25%")).toBeInTheDocument();
     // goal claims: a banded goal on its ladder, with the certainty demotion shown
-    expect(await screen.findByText("Goal claims")).toBeInTheDocument();
+    expect(await screen.findByText("Goal Claims")).toBeInTheDocument();
     expect(await screen.findByText("boundary safe")).toBeInTheDocument();
     expect(await screen.findByText("sparse evidence")).toBeInTheDocument();
     expect(await screen.findByText("3 valid, 16 abstained")).toBeInTheDocument();
@@ -717,7 +717,7 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("from indicators")).toBeInTheDocument();
     expect(await screen.findByText("plow approach intent")).toBeInTheDocument();
     // rubric: labelled provisional, a level on its 0..max ladder, and a U reason
-    expect(await screen.findByText("Execution rubric")).toBeInTheDocument();
+    expect(await screen.findByText("Execution Rubric")).toBeInTheDocument();
     expect(await screen.findByText("provisional")).toBeInTheDocument();
     expect(await screen.findByText("borderline")).toBeInTheDocument();
     expect(await screen.findByText("code: coordination relations")).toBeInTheDocument();
@@ -792,11 +792,11 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
-    expect(await screen.findByText("Clear debris zone")).toBeInTheDocument();
+    expect(await screen.findByText("Clear Debris Zone")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle("bob")); // switch students
     // alice's goal must clear out, and bob's empty state must show
-    await waitFor(() => expect(screen.queryByText("Clear debris zone")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Clear Debris Zone")).toBeNull());
     expect(await screen.findByText(/No Castle Crashers runs profiled yet/)).toBeInTheDocument();
   });
 
@@ -1041,7 +1041,7 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    expect(await screen.findByText(/Identity switches/)).toBeInTheDocument();
+    expect(await screen.findByText(/Identity Switches/)).toBeInTheDocument();
     expect(await screen.findByText("FPFVDH -> AFURRR")).toBeInTheDocument();
     fireEvent.click(await screen.findByTitle("Dismiss switch"));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/switches/ack/", { id: 5 }));
@@ -1124,7 +1124,7 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // open the modal
-    expect(await screen.findByText("Trigger history")).toBeInTheDocument();
+    expect(await screen.findByText("Trigger History")).toBeInTheDocument();
     expect(await screen.findByText("6 identical reruns")).toBeInTheDocument();
     expect(await screen.findByText("dismissed")).toBeInTheDocument();
     await waitFor(() =>

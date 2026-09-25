@@ -39,9 +39,22 @@ export { COMPACT_TAIL } from "./constants";
 
 const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
 
+// Parse a server timestamp. Most API times are ISO with an offset, but notes and
+// identity switches come straight from the DB as UTC with no zone
+// ("2026-09-25 01:57:18.055110"), which `new Date` would read as local time.
+export function parseTs(ts) {
+  if (!ts) return null;
+  const bare = /^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(\.\d+)?$/.exec(ts);
+  const d = bare
+    ? new Date(`${bare[1]}T${bare[2]}${bare[3] ? bare[3].slice(0, 4) : ""}Z`)
+    : new Date(ts);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export function relTime(iso) {
-  if (!iso) return "-";
-  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  const d = parseTs(iso);
+  if (!d) return "-";
+  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
   if (s < 60) return `${Math.round(s)}s`;
   if (s < 3600) return `${Math.round(s / 60)}m`;
   if (s < 86400) return `${Math.round(s / 3600)}h`;
@@ -59,8 +72,41 @@ export function fmtDur(s) {
 // Wall-clock time for "at what time did that fire" readouts (alert prev-line,
 // trigger-history grid). Locale-aware, e.g. "10:24 AM".
 export function clockTime(iso) {
-  if (!iso) return "-";
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const d = parseTs(iso);
+  if (!d) return "-";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+// When a note was written, in the viewer's time zone: "8:57 PM" today,
+// "Yesterday, 8:57 PM", then "Sep 23, 8:57 PM" (with the year once it differs).
+export function noteTime(ts, now = new Date()) {
+  const d = parseTs(ts);
+  if (!d) return ts || "-";
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86400000);
+  if (days === 0) return time;
+  if (days === 1) return `Yesterday, ${time}`;
+  const date = d.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    ...(d.getFullYear() !== now.getFullYear() && { year: "numeric" }),
+  });
+  return `${date}, ${time}`;
+}
+// The full stamp for a hover title: "Thu, Sep 25, 2026, 8:57:18 PM".
+export function fullTime(ts) {
+  const d = parseTs(ts);
+  return d
+    ? d.toLocaleString([], {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+    : "";
 }
 // Save a Blob to the user's computer as `filename`. A browser can't write to
 // disk directly, so the trick is to point a temporary <a download> at an
@@ -349,11 +395,33 @@ const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
 // uncertainty flags. This is EVIDENCE with explicit abstentions, not a score or
 // an assessment of the student's ability -- the flags are the whole point.
 const _humanize = (s) => (s || "").replace(/_/g, " ");
-// "clear_debris_zone" -> "Clear debris zone": sentence case for goal names.
+// "clear_debris_zone" -> "Clear debris zone": sentence case for goal names in prose.
 const _sentence = (s) => {
   const h = _humanize(s);
   return h.charAt(0).toUpperCase() + h.slice(1);
 };
+// "remain_on_island" -> "Remain on Island": title case for goal names used as headers.
+const MINOR_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "at",
+  "by",
+  "for",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "vs",
+  "with",
+]);
+const _title = (s) =>
+  _humanize(s)
+    .split(" ")
+    .map((w, i) => (i > 0 && MINOR_WORDS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
 
 // Goal-evidence styling. Restrained on colour on purpose: this is evidence, not
 // a score. Each indicator is drawn as the rung ladder it climbed this run: a
@@ -530,7 +598,7 @@ const GoalCard = ({ g }) => {
   ].filter(([, list]) => list.length > 0);
   return (
     <div className="goal-block">
-      <h5>{_sentence(g.goal)}</h5>
+      <h5>{_title(g.goal)}</h5>
       {roles.map(([role, list]) => (
         <div key={role} className="goal-role">
           <span className="goal-role-label">{role}</span>
@@ -615,7 +683,7 @@ const GoalTimeline = ({ timeline }) => {
       <ol className="goal-timeline">{events.map((e, i) => row(e, i, false))}</ol>
       {post.length > 0 && (
         <>
-          <p className="goal-timeline-sub">After leaving the island</p>
+          <p className="goal-timeline-sub">After Leaving the Island</p>
           <ol className="goal-timeline">{post.map((e, i) => row(e, i, true))}</ol>
         </>
       )}
@@ -846,7 +914,7 @@ const GoalClaimRow = ({ g }) => {
       <div
         style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{_sentence(g.goal)}</span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{_title(g.goal)}</span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 7, flexWrap: "wrap" }}>
           {reduced &&
             (g.certainty_reasons.length ? g.certainty_reasons : [`${g.certainty} certainty`]).map(
@@ -992,13 +1060,13 @@ export const GoalEvidence = ({ runs, enabled }) => {
   const [picked, setPicked] = React.useState(null);
   if (enabled === false)
     return (
-      <Section title="Goal evidence">
+      <Section title="Goal Evidence">
         <p className="sd-empty">Goal recognition is switched off.</p>
       </Section>
     );
   if (list.length === 0)
     return (
-      <Section title="Goal evidence">
+      <Section title="Goal Evidence">
         <p className="sd-empty">
           No Castle Crashers runs profiled yet (goal evidence is Castle Crashers only).
         </p>
@@ -1028,7 +1096,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
       <span className="sd-count">Run {run.index}</span>
     );
   return (
-    <Section title="Goal evidence" aside={picker}>
+    <Section title="Goal Evidence" aside={picker}>
       <p className="goal-intro">
         Each indicator is drawn as the rung ladder it climbed on this run, weaker to stronger.
         Abstentions and uncertainty stay visible. This is evidence, not a score.
@@ -1036,7 +1104,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
       <GoalLegend />
       <GoalRunSummary run={run} />
       {run.rollup && (run.rollup.goals || []).length > 0 && (
-        <GoalPart title="Goal claims">
+        <GoalPart title="Goal Claims">
           <GoalClaims rollup={run.rollup} />
         </GoalPart>
       )}
@@ -1049,7 +1117,7 @@ export const GoalEvidence = ({ runs, enabled }) => {
       )}
       {run.rubric && (run.rubric.dimensions || []).length > 0 && (
         <GoalPart
-          title="Execution rubric"
+          title="Execution Rubric"
           aside={
             <span
               style={goalFlagChip}
@@ -1063,12 +1131,12 @@ export const GoalEvidence = ({ runs, enabled }) => {
         </GoalPart>
       )}
       {run.timeline && (
-        <GoalPart title="Goal progression">
+        <GoalPart title="Goal Progression">
           <GoalTimeline timeline={run.timeline} />
         </GoalPart>
       )}
       {run.battery && (
-        <GoalPart title="Sensor test battery">
+        <GoalPart title="Sensor Test Battery">
           <GoalBattery battery={run.battery} />
         </GoalPart>
       )}
@@ -1141,7 +1209,7 @@ const CodePane = ({ block }) => {
   const text = block && block[cur.field];
   return (
     <Section
-      title="Latest program"
+      title="Latest Program"
       aside={
         <div className="sd-switch" role="tablist" aria-label="Program view">
           {CODE_VIEWS.map((v) => (
@@ -1172,7 +1240,7 @@ const CodePane = ({ block }) => {
 // Newest trigger first; the label keeps its trigger colour, everything else is quiet.
 const TriggerHistory = ({ history }) => (
   <Section
-    title="Trigger history"
+    title="Trigger History"
     aside={history.length > 0 && <span className="sd-count">{history.length}</span>}
   >
     {history.length === 0 ? (
@@ -1451,7 +1519,9 @@ const NotesPanel = ({ notes, onAdd }) => {
           {[...notes].reverse().map((n) => (
             <li key={n.id}>
               <div className="sd-note-meta">
-                <span>{n.ts}</span>
+                <time dateTime={parseTs(n.ts)?.toISOString()} title={fullTime(n.ts)}>
+                  {noteTime(n.ts)}
+                </time>
                 {n.trigger_type && <span>during {triggerMeta(n.trigger_type).label}</span>}
               </div>
               <p>{n.text}</p>
@@ -2118,7 +2188,7 @@ const CohortDashboard = () => {
           </div>
           {boxes.length === 0 ? (
             <div className="board-empty" style={S.empty}>
-              <h3>Start with your first student</h3>
+              <h3>Start with Your First Student</h3>
               <p>No students added yet. Enter student IDs up top to start.</p>
               <button
                 className="empty-action"
@@ -2226,9 +2296,9 @@ const CohortDashboard = () => {
         </section>
 
         {/* right: backend-fired alerts (the five edit-distance / idle triggers) */}
-        <aside id="interventions" className="intervention-feed" aria-label="Needs intervention">
+        <aside id="interventions" className="intervention-feed" aria-label="Needs Intervention">
           <div className="feed-head">
-            <h2>Needs intervention</h2>
+            <h2>Needs Intervention</h2>
             <span className="feed-count">{alerts.length}</span>
           </div>
           {alerts.length === 0 ? (
@@ -2339,7 +2409,7 @@ const CohortDashboard = () => {
           {unackedSwitches.length > 0 && (
             <>
               <div className="feed-head feed-head-sub">
-                <h2>Identity switches</h2>
+                <h2>Identity Switches</h2>
                 <span className="feed-count">{unackedSwitches.length}</span>
               </div>
               <ul className="feed-list">
@@ -2357,7 +2427,9 @@ const CohortDashboard = () => {
                       >
                         {displayFor(s.studentID)}
                       </button>
-                      <span className="feed-age">{relTime(s.ts)} ago</span>
+                      <span className="feed-age" title={fullTime(s.ts)}>
+                        {relTime(s.ts)} ago
+                      </span>
                       <button
                         className="icon-btn"
                         title="Dismiss switch"

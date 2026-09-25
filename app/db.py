@@ -307,14 +307,30 @@ _SCHEMA = [
     # the full goal_strategy result dict as JSON (json.dumps, like runs/episodes).
     """CREATE TABLE IF NOT EXISTS goal_profile (
         studentID VARCHAR(128) NOT NULL,          -- canonical (folded) key; see canon_id
+        session TEXT NOT NULL DEFAULT '',         -- daemon session the run_index belongs to
         run_index INTEGER NOT NULL,
         playground VARCHAR(64),
         status VARCHAR(32),
         ts DOUBLE PRECISION,
         profile TEXT NOT NULL,                    -- json.dumps of the goal result dict
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (studentID, run_index)
+        PRIMARY KEY (studentID, session, run_index)
     )""",
+    # run_index restarts at 0 every daemon session, so a row is keyed by session
+    # too. Older databases have the (studentID, run_index) key: add the column
+    # (existing rows get session '') and widen the key, once.
+    "ALTER TABLE goal_profile ADD COLUMN IF NOT EXISTS session TEXT NOT NULL DEFAULT ''",
+    """DO $mig$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_index i
+            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE i.indrelid = 'goal_profile'::regclass AND i.indisprimary
+              AND a.attname = 'session'
+        ) THEN
+            ALTER TABLE goal_profile DROP CONSTRAINT IF EXISTS goal_profile_pkey;
+            ALTER TABLE goal_profile ADD PRIMARY KEY (studentID, session, run_index);
+        END IF;
+    END $mig$""",
     # tracked_student is per-workspace: which students a workspace's board tracks,
     # plus that workspace's presence/picked state for them. Same student in two
     # workspaces = two rows, so the roster is isolated (UNIQUE per workspace).
@@ -656,6 +672,10 @@ def get_workspace_settings_many(workspace_id, keys):
 # meta: a tiny key/value store the two processes use to signal each other
 # (the reset trigger, the polling pause flag, the disabled-trigger list)
 # --------------------------------------------------------------------------
+# The daemon's current session (see workers.start_session).
+SESSION_META_KEY = "session_start"
+
+
 def set_meta(key, value):
     _execute(
         "INSERT INTO meta (key, value) VALUES (?, ?) "
@@ -743,6 +763,15 @@ def get_meta_many(keys):
     return out
 
 
+RESET_AT_KEY = "reset_at"
+
+
+def reset_since(workspace_id=None):
+    """When this workspace was last reset (a UTC datetime), or None. Every read
+    behind the student tile shows only activity from then on."""
+    return db_to_dt(get_workspace_setting(workspace_id, RESET_AT_KEY))
+
+
 def reset_workspace(workspace_id=None):
     """Clear one workspace's researcher-owned state for a fresh session: its
     notes, pick history + picked flags, and trigger acks. Spared: the roster
@@ -759,6 +788,14 @@ def reset_workspace(workspace_id=None):
         con.execute(
             "UPDATE tracked_student SET picked = 0, picked_at = NULL WHERE workspace_id = ?",
             (wsid,),
+        )
+        # The shared activity stays, but this board stops showing anything from
+        # before now: runs, episodes, goal evidence, alerts, trigger history and
+        # switches all read from this moment on (see reset_since).
+        con.execute(
+            "INSERT INTO workspace_setting (workspace_id, key, value) VALUES (?, ?, ?) "
+            "ON CONFLICT (workspace_id, key) DO UPDATE SET value = excluded.value",
+            (wsid, RESET_AT_KEY, dt_to_db(now())),
         )
 
 
@@ -942,7 +979,7 @@ _TRIG_COLS = (
 )
 
 
-def triggers_feed(cutoff, limit=100, workspace_id=None):
+def triggers_feed(cutoff, limit=100, workspace_id=None, since=None):
     """The intervention feed: triggers not dismissed by this workspace, either
     still open or resolved at/after `cutoff`, newest first. Passing workspace_id
     also restricts to that board's roster (the routes always do); with None the
@@ -956,11 +993,15 @@ def triggers_feed(cutoff, limit=100, workspace_id=None):
             "AND te.studentID IN (SELECT studentID FROM tracked_student WHERE workspace_id = ?) "
         )
         params.append(workspace_id)
+    after = ""
+    if since is not None:
+        after = "AND te.started_at >= ? "
+        params.append(dt_to_db(since))
     params += [dt_to_db(cutoff), limit]
     rows = _query(
         f"SELECT {_TRIG_COLS}, FALSE AS acknowledged FROM trigger_event te "
         "LEFT JOIN trigger_ack ta ON ta.trigger_id = te.id AND ta.workspace_id = ? "
-        f"WHERE ta.trigger_id IS NULL {roster}"
+        f"WHERE ta.trigger_id IS NULL {roster}{after}"
         "AND (te.resolved_at IS NULL OR te.resolved_at >= ?) "
         "ORDER BY te.started_at DESC LIMIT ?",
         params,
@@ -968,18 +1009,23 @@ def triggers_feed(cutoff, limit=100, workspace_id=None):
     return [_trigger_row(r) for r in rows]
 
 
-def trigger_history(sid, limit=100, workspace_id=None):
+def trigger_history(sid, limit=100, workspace_id=None, since=None):
     """Every trigger ever fired for one student, newest first -- open, resolved,
     and dismissed alike -- with this workspace's ack status. The detail modal
     renders it as the trigger-history grid; the feed uses it for each alert's
     previous trigger. Case-insensitive via the canonical key."""
+    params = [_ws(workspace_id), canon_id(sid)]
+    after = ""
+    if since is not None:
+        after = "AND te.started_at >= ? "
+        params.append(dt_to_db(since))
     rows = _query(
         f"SELECT {_TRIG_COLS}, (ta.trigger_id IS NOT NULL) AS acknowledged "
         "FROM trigger_event te "
         "LEFT JOIN trigger_ack ta ON ta.trigger_id = te.id AND ta.workspace_id = ? "
-        "WHERE te.studentID = ? "
+        f"WHERE te.studentID = ? {after}"
         "ORDER BY te.started_at DESC, te.id DESC LIMIT ?",
-        (_ws(workspace_id), canon_id(sid), limit),
+        (*params, limit),
     )
     return [_trigger_row(r) for r in rows]
 
@@ -1158,7 +1204,7 @@ def list_outbox(limit=200, workspace_id=None):
     return [dict(r) for r in rows]
 
 
-def list_switches(limit=100, unacked_only=False, workspace_id=None):
+def list_switches(limit=100, unacked_only=False, workspace_id=None, since=None):
     """Recent switches, newest first. switch_event is shared (daemon-detected per
     student); passing workspace_id scopes it to the students that board tracks
     (the route always does). `unacked_only` keeps just the ones not yet dismissed."""
@@ -1170,6 +1216,9 @@ def list_switches(limit=100, unacked_only=False, workspace_id=None):
         params.append(workspace_id)
     if unacked_only:
         clauses.append("acknowledged = 0")
+    if since is not None:
+        clauses.append("ts >= ?")
+        params.append(dt_to_db(since))
     where = ("WHERE " + " AND ".join(clauses) + " ") if clauses else ""
     rows = _query(
         "SELECT id, studentID, kind, from_value, to_value, ts, acknowledged "
@@ -1393,14 +1442,16 @@ def upsert_student_state(student_id, defaults):
 # ==========================================================================
 # Goal profiles: one row per profiled run, shared per student (like student_state).
 # ==========================================================================
-def upsert_goal_profile(student_id, run_index, result):
+def upsert_goal_profile(student_id, run_index, result, session=""):
     """Store one run's goal_strategy result dict. `result` is the full envelope
     (index, playground, status, profile, diagnostics, ...); we keep the whole
-    thing as JSON and lift a few columns out for querying/export."""
+    thing as JSON and lift a few columns out for querying/export. `session` is
+    the daemon session run_index counts within (see workers.session_key)."""
     sql = (
-        "INSERT INTO goal_profile (studentID, run_index, playground, status, ts, profile, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(studentID, run_index) DO UPDATE SET "
+        "INSERT INTO goal_profile "
+        "(studentID, session, run_index, playground, status, ts, profile, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(studentID, session, run_index) DO UPDATE SET "
         "playground=excluded.playground, status=excluded.status, ts=excluded.ts, "
         "profile=excluded.profile, updated_at=excluded.updated_at"
     )
@@ -1408,6 +1459,7 @@ def upsert_goal_profile(student_id, run_index, result):
         sql,
         (
             canon_id(student_id),
+            session or "",
             int(run_index),
             result.get("playground"),
             result.get("status"),
@@ -1418,12 +1470,33 @@ def upsert_goal_profile(student_id, run_index, result):
     )
 
 
-def list_goal_profiles(student_id):
-    """Every stored goal profile for a student, oldest run first. Returns the
-    full result dicts (the drill-down joins them to runs by run_index)."""
+_CURRENT = object()  # sentinel: "the daemon's current session"
+
+
+def current_session():
+    """The session key the daemon published at startup, or None when no daemon
+    has (tests, a fresh database)."""
+    return get_meta_cached(SESSION_META_KEY)
+
+
+def list_goal_profiles(student_id, session=_CURRENT, since=None):
+    """A student's stored goal profiles, oldest run first, as the full result
+    dicts (the drill-down joins them to runs by run_index). By default only the
+    daemon's current session, since run_index restarts every session; pass
+    session=None for every session. `since` (a UTC datetime) drops runs from
+    before it, e.g. a board reset."""
+    if session is _CURRENT:
+        session = current_session()
+    where, params = ["studentID = ?"], [canon_id(student_id)]
+    if session is not None:
+        where.append("session = ?")
+        params.append(session)
+    if since is not None:
+        where.append("ts >= ?")
+        params.append(since.timestamp())
     rows = _query(
-        "SELECT profile FROM goal_profile WHERE studentID = ? ORDER BY run_index",
-        (canon_id(student_id),),
+        f"SELECT profile FROM goal_profile WHERE {' AND '.join(where)} ORDER BY session, run_index",
+        params,
     )
     return [json.loads(r["profile"]) for r in rows if r.get("profile")]
 
@@ -1530,15 +1603,21 @@ def resolve_trigger(trigger_id, resolved_at):
     )
 
 
-def fired_indices(student_id, trigger_type):
+def fired_indices(student_id, trigger_type, session=None):
     """Run indices that already produced a momentary trigger of this type. A worker
-    loads these once on cold start to seed its in-memory dedupe, so a restart never
-    re-fires an old run and the trigger sweep needn't re-scan history."""
-    rows = _query(
+    loads these once on cold start to seed its in-memory dedupe, so a re-backfill
+    never re-fires an old run and the trigger sweep needn't re-scan history. Run
+    indices restart every daemon session, so pass `session` to count only that
+    session's alerts (else an old session's run 3 would silence this one's)."""
+    sql = (
         "SELECT (detail::jsonb ->> 'run_index')::int AS i FROM trigger_event "
-        "WHERE studentID = ? AND trigger_type = ?",
-        (student_id, trigger_type),
+        "WHERE studentID = ? AND trigger_type = ?"
     )
+    params = [student_id, trigger_type]
+    if session is not None:
+        sql += " AND COALESCE(detail::jsonb ->> 'session', '') = ?"
+        params.append(session)
+    rows = _query(sql, params)
     return {r["i"] for r in rows if r["i"] is not None}
 
 

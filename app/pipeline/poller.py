@@ -157,7 +157,10 @@ def backfill_student(client, student_id, since=None, max_events=600, page_size=2
     cutoff: page_student returns newest-first, so once we pass an event older than
     `since` every remaining one is older too and we stop -- this is what keeps a
     returning student's earlier sessions from leaking in. Without a cutoff it
-    falls back to the last `max_events`. Returns the number of events inserted."""
+    falls back to the last `max_events`. Returns the number of events inserted.
+
+    It only persists: the caller rebuilds the student's worker from the log
+    (workers.evict, then get_worker), so the history replays oldest-first."""
     inserted = 0
     for offset in range(0, max_events, page_size):
         results = client.page_student(student_id, page_size, offset)
@@ -170,9 +173,11 @@ def backfill_student(client, student_id, since=None, max_events=600, page_size=2
                 if et is not None and et < since:  # newest-first: the rest are older too
                     stop = True
                     break
-            was_in, norm = persist(ev)
+            # Persist only. Pages arrive newest-first, so routing here would feed
+            # the worker backwards (run 0 = the newest run); the caller rebuilds
+            # the worker from the log instead, which replays oldest-first.
+            was_in, _ = persist(ev)
             if was_in:
-                route(norm)
                 inserted += 1
                 page_new += 1
         if stop or len(results) < page_size or page_new == 0:

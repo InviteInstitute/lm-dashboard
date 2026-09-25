@@ -34,9 +34,17 @@ Each tick moves through these stages in order:
 6.  **Adaptive sleep.** Wait for the current poll interval, with idle backoff
     applied.
 
-There's no reset step any more: reset is a per-board API action that clears only that
-board's own notes/picks/acks and never touches the shared mirror, so the daemon has
+There's no reset step any more: reset is a per-board API action that clears that
+board's own notes/picks/acks and records when it happened, and the API then hides
+anything older on that board. It never touches the shared mirror, so the daemon has
 nothing to do on a reset.
+
+Each daemon start is a new session: workers replay only events from that moment
+on, so run numbers restart at 0. Stored goal evidence and the per-run alert dedupe
+are keyed by session as well as run number, so a restart never overwrites an
+earlier session's runs or silences a reused run number. A newly tracked student's
+history is backfilled into the log first, then the worker is rebuilt from it in
+time order.
 
 ## Client And Polling
 

@@ -197,7 +197,9 @@ class StudentWorker:
                 started_at=at,
                 last_seen_at=at,
                 resolved_at=at,
-                detail={**detail, "run_index": idx},
+                # run_index is only meaningful inside one daemon session, so the
+                # dedupe key is (session, run_index).
+                detail={**detail, "run_index": idx, "session": session_key()},
             )
             self.fired[ttype].add(idx)
 
@@ -248,7 +250,7 @@ class StudentWorker:
                 if idx is None or idx in self.goal_written or gr.get("status") != "profiled":
                     continue
                 try:
-                    db.upsert_goal_profile(self.student_id, idx, gr)
+                    db.upsert_goal_profile(self.student_id, idx, gr, session=session_key())
                     self.goal_written.add(idx)
                 except Exception:
                     logger.exception(
@@ -306,6 +308,12 @@ def reconcile(tracked):
             _workers.pop(key, None)
 
 
+def evict(student_id):
+    """Drop one student's cached worker so the next get_worker rebuilds it from
+    the raw log, in time order."""
+    _workers.pop(db.canon_id(student_id), None)
+
+
 def reset():
     """Evict every cached worker. The daemon calls this on a dashboard reset, so
     that buffered events can't immediately re-materialize the state that was
@@ -317,12 +325,30 @@ def reset():
 # Session cutoff: when set, workers rehydrate from session-only events so a
 # returning student's prior session is hidden (the raw log is left intact). The
 # daemon sets this once at startup.
+#
+# A run's index is its position in the session's replay, so it restarts at 0
+# every session. Everything keyed by run index (stored goal profiles, the alert
+# dedupe) is therefore also keyed by session_key(), or a restart would overwrite
+# an earlier session's run 0 and never alert on a reused index.
 _session_cutoff = None
 
 
 def set_session_cutoff(since):
     global _session_cutoff
     _session_cutoff = since
+
+
+def session_key():
+    """The current session's identity: its cutoff as a DB timestamp string, or
+    "" when there is no cutoff (tests, one-off tools)."""
+    return db.dt_to_db(_session_cutoff) if _session_cutoff is not None else ""
+
+
+def start_session(since):
+    """Begin a new session at `since`: set the cutoff and publish its key so the
+    API process shows this session's goal evidence only."""
+    set_session_cutoff(since)
+    db.set_meta(db.SESSION_META_KEY, session_key())
 
 
 def has_worker(student_id):
@@ -335,7 +361,7 @@ def _rehydrate(worker):
     dedupe sets so a restart never re-fires past alerts. db.student_tail already
     returns rows oldest-first, ready to replay in order."""
     for t in worker.fired:
-        worker.fired[t] = db.fired_indices(worker.student_id, t)
+        worker.fired[t] = db.fired_indices(worker.student_id, t, session=session_key())
     for row in db.student_tail(worker.student_id, BUFFER_MAX, since=_session_cutoff):
         et = row["eventType"] or ""
         ts = None

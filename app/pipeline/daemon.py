@@ -139,7 +139,7 @@ def main(argv=None):
     # Hide any prior session without deleting it: workers rehydrate from
     # session-only events, and we re-materialize every tracked student now so their
     # card reads empty at startup (the raw vex_log stays intact and recoverable).
-    workers.set_session_cutoff(session_start)
+    workers.start_session(session_start)
     for r in db.tracked_union():
         try:
             workers.get_worker(r["studentID"]).recompute_and_write()
@@ -188,6 +188,9 @@ def main(argv=None):
                     continue
                 try:
                     poller.backfill_student(client, r["studentID"], since=session_start)
+                    # Backfill only stores the history (prod pages it newest-first);
+                    # rebuild the worker from the log so runs replay oldest-first.
+                    workers.evict(r["studentID"])
                     workers.get_worker(r["studentID"]).recompute_and_write()
                     db.mark_backfilled(r["studentID"])
                     backfilled_now = True

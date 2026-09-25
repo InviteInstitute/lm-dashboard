@@ -262,7 +262,7 @@ function runSegments(data, compact) {
       key: `r${i + off}`,
       bg: edColor(d),
       faint: d == null,
-      title: `Run #${i + off + 1} | ${d == null ? "first run" : `edit distance ${d}`}`,
+      title: `Run #${(run.index ?? i + off) + 1} | ${d == null ? "first run" : `edit distance ${d}`}`,
     };
   });
 }
@@ -2394,15 +2394,16 @@ const CohortDashboard = () => {
   const resetAll = async () => {
     if (
       !window.confirm(
-        "Reset the board?\n\nThis clears every student's logs, episodes, triggers, flags, your notes & observations, AND the picked toggles + pick history. A CSV backup (notes and picks included) is saved to exports/ automatically first, so nothing is lost.\n\nStudents stay tracked and present/absent is kept; the board rebuilds from new activity. Local only, production is untouched.",
+        "Reset the board?\n\nEvery student starts fresh on this board: runs, episodes, goal evidence, alerts, trigger history and switches from before now are hidden, and your notes, picks and pick history are cleared. A CSV backup (notes and picks included) is saved to exports/ first, so nothing is lost.\n\nStudents stay tracked and present/absent is kept. Other boards are not affected, and production is untouched.",
       )
     )
       return;
     try {
       const { data } = await api.post("/api/reset/");
-      // Clear the local views at once so nothing lingers until the next
-      // poll: the cards, the open detail, the notes, the open note editor,
-      // AND the "Needs intervention" alerts (reset wiped trigger_event).
+      // Clear the local views at once so nothing lingers until the refetch
+      // below: the cards, the open detail, the notes, the open note editor,
+      // the alerts and the switches. The server now hides everything from
+      // before the reset, so the refetch comes back fresh too.
       setSelected(null);
       setStates({});
       setNotes([]);
@@ -2418,6 +2419,7 @@ const CohortDashboard = () => {
     fetchStates();
     fetchRoster();
     fetchTriggers();
+    fetchSwitches();
   };
 
   // One card per tracked student, each merged with its materialized state.

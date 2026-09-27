@@ -1,6 +1,5 @@
-// Shared axios instance for every call to the read API. Import this rather than
+// The one client for every call to the read API. Import this rather than
 // hitting the server directly so the base URL and headers stay in one place.
-import axios from "axios";
 
 // Same-origin by default. In dev the base is relative and Vite proxies /api to
 // :8000 (see vite.config.js); the prod build sets VITE_API_URL='' and FastAPI
@@ -22,31 +21,38 @@ export function boardId() {
   return id;
 }
 
-const api = axios.create({
-  baseURL: API_URL,
-  // withCredentials sends the ts_verified cookie the Turnstile gate sets, on
-  // same-origin XHR (and cross-origin in dev via the proxy).
-  withCredentials: true,
-  headers: {
-    "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
-    "X-Board-Id": boardId(), // per-browser board isolation
-  },
-});
-
-// The server's TurnstileGateMiddleware 403s any /api/* call from a browser
-// that hasn't solved the widget yet. Surface that as a DOM event so
-// TurnstileGate.jsx (mounted once, above everything else) can show the
-// challenge -- every caller of `api` gets this for free instead of each
-// needing its own 403 handling.
-api.interceptors.response.use(
-  (r) => r,
-  (err) => {
-    if (err.response?.status === 403 && err.response?.data?.error === "turnstile_required") {
+// fetch with the shape callers rely on: resolves to { data, status }, rejects
+// on a non-2xx with err.response = { status, data }. `params` becomes the query
+// string; `responseType: "blob"` returns the body as a Blob (the export zip).
+async function request(method, url, body, { params, responseType } = {}) {
+  const qs = params ? `?${new URLSearchParams(params)}` : "";
+  const res = await fetch(`${API_URL}${url}${qs}`, {
+    method,
+    // sends the ts_verified cookie the Turnstile gate sets
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-Board-Id": boardId() },
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  const data =
+    responseType === "blob" && res.ok ? await res.blob() : await res.json().catch(() => null);
+  if (!res.ok) {
+    // The server's TurnstileGateMiddleware 403s any /api/* call from a browser
+    // that hasn't solved the widget yet. Surface that as a DOM event so
+    // TurnstileGate.jsx (mounted once, above everything else) can show the
+    // challenge -- every caller gets this for free.
+    if (res.status === 403 && data?.error === "turnstile_required") {
       window.dispatchEvent(new CustomEvent("turnstile:required"));
     }
-    return Promise.reject(err);
-  },
-);
+    const err = new Error(`Request failed with status ${res.status}`);
+    err.response = { status: res.status, data };
+    throw err;
+  }
+  return { data, status: res.status };
+}
+
+const api = {
+  get: (url, opts) => request("GET", url, null, opts),
+  post: (url, body, opts) => request("POST", url, body, opts),
+};
 
 export default api;

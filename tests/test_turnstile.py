@@ -1,5 +1,5 @@
-"""The Cloudflare Turnstile bot gate over /api/* (see app/turnstile.py), which
-replaced HTTP Basic Auth: the dashboard is public, this only keeps bots off."""
+"""The Cloudflare Turnstile bot gate over /api/* (see app/turnstile.py): the
+dashboard has no login, this only keeps bots off."""
 
 from app.turnstile import COOKIE_NAME, cookie_is_valid, sign_cookie
 

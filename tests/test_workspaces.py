@@ -2,7 +2,7 @@
 per workspace, and the shared per-student mirror is only purged when no workspace
 tracks the student any more."""
 
-from app import auth, db
+from app import db
 
 
 def test_roster_is_isolated_per_workspace():
@@ -66,15 +66,6 @@ def test_student_states_scoped_to_workspace_roster():
     db.upsert_student_state("viper1", {"run_count": 1})
     assert {s["studentID"] for s in db.list_student_states(workspace_id=a)} == {"cobra3"}
     assert {s["studentID"] for s in db.list_student_states(workspace_id=b)} == {"viper1"}
-
-
-def test_creating_a_researcher_provisions_a_workspace():
-    rid = db.upsert_researcher("dr_x", auth.hash_password("pw"))
-    ws = db.workspace_ids_for_researcher(rid)
-    assert len(ws) == 1
-    # Password reset (re-upsert) doesn't create a second workspace.
-    db.upsert_researcher("dr_x", auth.hash_password("pw2"))
-    assert db.workspace_ids_for_researcher(rid) == ws
 
 
 def test_workspace_for_client_key_is_stable():

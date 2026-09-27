@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 
-// Mock the shared axios instance so the component talks to canned data, not a
+// Mock the shared api client so the component talks to canned data, not a
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
 vi.mock("./api", () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 import api from "./api";

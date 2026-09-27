@@ -20,7 +20,11 @@ import time
 from datetime import datetime, timedelta
 
 from app import db
-from app.constants import PAUSED_POLL_S, VIEWER_PRESENT_SECONDS  # pause cadence + dead-man's window
+from app.constants import (  # pause cadence, liveness stamp, dead-man's window
+    DAEMON_HEARTBEAT_S,
+    PAUSED_POLL_S,
+    VIEWER_PRESENT_SECONDS,
+)
 from app.pipeline import poller, triggers, workers
 from app.pipeline.client import ProdClient, ProdClientError
 
@@ -147,8 +151,14 @@ def main(argv=None):
             log.warning("startup re-materialize failed for %s: %s", r["studentID"], e)
 
     fails = idle = 0
+    last_beat = float("-inf")
     while True:
         t0 = time.monotonic()
+        # Liveness for /healthz: stamped on every kind of tick (busy, idle, paused,
+        # backing off), so a stale stamp means the loop itself is stuck or dead.
+        if t0 - last_beat >= DAEMON_HEARTBEAT_S:
+            db.set_meta(db.HEARTBEAT_META_KEY, db.dt_to_db(db.now()))
+            last_beat = t0
         backfilled_now = False
 
         # disabled_triggers stays a global setting (which alert TYPES are active);

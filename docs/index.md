@@ -34,8 +34,8 @@ second. Only the daemon writes. The dashboard recomputes nothing, it just reads
 what's already there. And nothing ever flows back to production. It's a read-only
 mirror, full stop.
 
-Each researcher works on their own isolated **board** behind a login: they sign in
-with the browser's native prompt, and every browser gets its own roster, notes, and
+There's no login: a one-time Cloudflare Turnstile check keeps bots off the API, and
+every browser gets its own isolated **board** with its own roster, notes, and
 picks. The daemon serves all the boards at once from a single shared mirror, so a
 student watched by two researchers is still pulled from production only once.
 

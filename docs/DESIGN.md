@@ -44,7 +44,7 @@ prod REST API and never writes back.
 
 Every design choice bends toward simplicity of operation: one `docker compose up`
 brings up the whole stack - Postgres, the API, and the daemon. It's multi-tenant -
-each researcher works on their own isolated board behind a login - while the daemon
+every browser gets its own isolated board, no login needed - while the daemon
 serves all the boards from a single shared mirror.
 
 ## 2. Processing Model
@@ -77,8 +77,8 @@ Three services in one `docker compose` stack, connected through Postgres:
 
 The split is deliberate. The daemon is a long-running compute loop that has to be
 exactly one instance (the cursor assumes a single writer), while the API stays light,
-ML-free, and safe to restart on its own. The whole origin is behind HTTP Basic Auth,
-and each browser is isolated into its own board.
+ML-free, and safe to restart on its own. The API is behind a Cloudflare Turnstile bot
+check (not a login), and each browser is isolated into its own board.
 
 ## 4. Write Path (The Daemon)
 
@@ -154,8 +154,8 @@ one streak. `TRIGGER_PRIORITY` only decides the headline badge.
 Postgres, all the SQL isolated in `app/db.py` (psycopg, no ORM). The raw mirror and the
 derived analysis are **shared** (one per student). The researcher-facing overlay - a
 board's roster, notes, picks, alert dismissals, and control flags - is **per-workspace**
-(keyed on `workspace_id`). Each browser maps to its own workspace under the shared
-login.
+(keyed on `workspace_id`). Each browser maps to its own workspace via the board id it
+sends.
 
 | Group | Tables | Role |
 |---|---|---|
@@ -215,8 +215,8 @@ polling whenever its browser tab is hidden.
 
 ## 9. Scaling And Evolution
 
-**Postgres, per-researcher auth, and workspace isolation are already in place** (they
-used to be on this list). Comfortable from tens of students up through a program's
+**Postgres and per-browser workspace isolation are already in place** (they used to
+be on this list). Comfortable from tens of students up through a program's
 worth of researchers on their own boards. The first real wall at larger scale is the
 daemon's sequential per-student inference, plus the per-tick full-table trigger sweep.
 It's not memory. The worker buffers are bounded. The evolution path, in the order you'd

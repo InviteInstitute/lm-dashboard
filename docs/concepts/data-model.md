@@ -34,7 +34,7 @@ flowchart LR
 | Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` - **shared** |
 | Cursor | `ingest_cursor` | how far we've consumed - shared |
 | Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable - **shared** (one per student) |
-| Tenancy | `workspace`, `workspace_member`, `researcher` | boards, who can access them, and login accounts (argon2 hashes) |
+| Tenancy | `workspace` | boards, one per browser (keyed by the board id it sends) |
 | Roster (per board) | `tracked_student` | a board's allowlist + its presence/picked toggles, keyed `(workspace_id, studentID)` |
 | Researcher input (per board) | `note`, `pick_event`, `trigger_ack`, `outbox` | observations, pick/unpick history, per-board alert dismissals, and failed inputs parked verbatim |
 | Control (per board) | `workspace_setting` | each board's flags (polling on/off, the viewer heartbeat) |

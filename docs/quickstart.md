@@ -22,11 +22,12 @@ Two small files, both gitignored:
 1.  **App secrets** - copy the example and fill it in:
 
     ```bash
-    cp .env.example .env.mirror     # set PROD_USERNAME / PROD_PASSWORD
+    cp .env.example .env.mirror     # set SESSION_SECRET, TURNSTILE_SECRET, PROD_USERNAME / PROD_PASSWORD
     ```
 
-    `PROD_USERNAME` / `PROD_PASSWORD` are the daemon's Reflecks login. They also
-    seed the interim shared dashboard login (see [Using the dashboard](guides/using-the-dashboard.md)).
+    `PROD_USERNAME` / `PROD_PASSWORD` are the daemon's Reflecks login.
+    `SESSION_SECRET` is required: the API refuses to start without it (see
+    [Configuration](guides/configuration.md)).
 
 2.  **Database password** for compose:
 
@@ -70,18 +71,16 @@ docker compose logs -f daemon        # follow a service (api / daemon / db)
 docker compose down                  # stop everything
 ```
 
-## Sign In and Track Your First Student
+## Track Your First Student
 
-Open the dashboard. Your **browser prompts for a username and password** - sign in
-with `PROD_USERNAME` / `PROD_PASSWORD`. Then type a student ID into **Track a
+Open the dashboard and solve the one-time **Turnstile** check (there's no login).
+Then type a student ID into **Track a
 student**: the daemon backfills their recent history, materializes their state, and
 their card appears within a tick or two.
 
 !!! note "Each browser is its own board"
-    Under the shared login, every browser gets its own isolated board (roster,
-    notes, picks). For stable per-person boards across devices, create named
-    accounts with `scripts/create_researcher.py` - see
-    [Configuration](guides/configuration.md).
+    Every browser gets its own isolated board (roster, notes, picks), kept by an
+    id in its `localStorage` - see [Configuration](guides/configuration.md).
 
 !!! success
     The dashboard is read-only against your Postgres mirror. Tracking, analyzing,

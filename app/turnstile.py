@@ -1,5 +1,5 @@
 """
-Cloudflare Turnstile gate for the API, replacing HTTP Basic Auth.
+Cloudflare Turnstile gate for the API, the only gate in front of it.
 
 The dashboard's data is only reachable if you know a board's student IDs, so
 this isn't about authenticating a person -- it's about keeping bots off the
@@ -21,6 +21,8 @@ COOKIE_NAME = "ts_verified"
 COOKIE_MAX_AGE = 12 * 3600  # re-solve the widget every 12h
 VERIFY_PATH = "/api/turnstile/verify/"
 
+if not config.SESSION_SECRET:
+    raise RuntimeError("SESSION_SECRET is not set (see .env.example)")
 _signer = TimestampSigner(config.SESSION_SECRET)
 
 

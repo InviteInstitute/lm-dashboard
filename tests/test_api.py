@@ -1,6 +1,8 @@
 """End-to-end API tests through the FastAPI TestClient -- the contract the
 frontend depends on."""
 
+from datetime import timedelta
+
 from app import config, db
 
 
@@ -10,6 +12,14 @@ def test_root_health(client):
     assert r.status_code == 200 and r.json()["ok"] is True
 
 
+def test_health_fails_when_daemon_heartbeat_is_stale(client):
+    db.set_meta(db.HEARTBEAT_META_KEY, db.dt_to_db(db.now() - timedelta(seconds=30)))
+    assert client.get("/healthz").json()["daemon_heartbeat_age_s"] >= 30
+    db.set_meta(db.HEARTBEAT_META_KEY, db.dt_to_db(db.now() - timedelta(hours=1)))
+    r = client.get("/healthz")
+    assert r.status_code == 503 and r.json()["ok"] is False
+
+
 def test_student_states_stamps_viewer_heartbeat(client):
     # The grid poll doubles as the dead-man's-switch heartbeat: each hit records
     # this workspace's viewer_last_seen so the daemon knows a dashboard is open.
@@ -17,10 +27,6 @@ def test_student_states_stamps_viewer_heartbeat(client):
     assert db.get_workspace_setting(ws, "viewer_last_seen") is None
     client.get("/api/student_states/")
     assert db.get_workspace_setting(ws, "viewer_last_seen") is not None
-
-
-# The origin-wide HTTP Basic gate was replaced by per-researcher session auth;
-# that gate is covered by tests/test_auth.py.
 
 
 # --- student_states: light list vs heavy detail (issue #9) -----------------
@@ -53,10 +59,6 @@ def test_student_states_sort_by_recency(client, seed_state):
     seed_state("newer", last_event_time=db.now())
     rows = client.get("/api/student_states/").json()["students"]
     assert rows[0]["studentID"] == "newer"  # most recent activity first
-
-
-# The grid now fetches this workspace's whole roster (no per-request `students`
-# list), so the MAX_STUDENT_IDS cap no longer applies to student_states.
 
 
 # --- tracked roster --------------------------------------------------------

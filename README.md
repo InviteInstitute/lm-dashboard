@@ -27,7 +27,7 @@ and the ingestion daemon - runs from one compose file, the same on your laptop a
 in prod:
 
 ```bash
-cp .env.example .env.mirror   # fill in PROD_USERNAME / PROD_PASSWORD
+cp .env.example .env.mirror   # fill in SESSION_SECRET, TURNSTILE_SECRET, PROD_USERNAME / PROD_PASSWORD
 echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16))')" > .env
 make dev                      # or: docker compose up -d
 ```
@@ -35,8 +35,8 @@ make dev                      # or: docker compose up -d
 `make` (or `make help`) lists the shared command vocabulary - `dev`, `test`, `lint`,
 `format`, `build`, `deploy`. See the [Development](https://inviteinstitute.github.io/lm-dashboard/guides/development/) docs.
 
-Open the dashboard, sign in with `PROD_USERNAME` / `PROD_PASSWORD`, add a student ID,
-and its data begins flowing while the board is open.
+Open the dashboard, solve the one-time Turnstile check, add a student ID, and its data
+begins flowing while the board is open. Each browser gets its own isolated board.
 
 Full setup (dev vs. prod, configuration, accounts) is in the
 [Quickstart](https://inviteinstitute.github.io/lm-dashboard/quickstart/) docs.
@@ -56,8 +56,8 @@ Full setup (dev vs. prod, configuration, accounts) is in the
 
 Run the prod stack (`docker compose -f compose.yml up -d`) - the API binds to
 `127.0.0.1:8000` so nginx (or another reverse proxy) sits in front of it. The whole
-origin is gated by **HTTP Basic** (your browser's native login dialog), checked
-against the researcher table, so nothing is ever exposed ungated. While served, a
+API is gated by **Cloudflare Turnstile**, a bot check rather than a login: there are
+no accounts, and each browser gets its own isolated board. While served, a
 dead-man's switch pauses a board's production polling whenever its dashboard isn't
 open.
 

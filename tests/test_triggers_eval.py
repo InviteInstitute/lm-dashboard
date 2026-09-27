@@ -76,7 +76,7 @@ def test_held_trigger_touch_is_throttled():
     backdated = seen1 - timedelta(seconds=triggers.TRIGGER_TOUCH_THROTTLE_S + 5)
     ev_id = db.current_open_trigger("s1", "inactive")["id"]
     db._execute(
-        "UPDATE trigger_event SET last_seen_at=? WHERE id=?", (db.dt_to_db(backdated), ev_id)
+        "UPDATE trigger_event SET last_seen_at=%s WHERE id=%s", (db.dt_to_db(backdated), ev_id)
     )
     triggers.evaluate()
     assert db.current_open_trigger("s1", "inactive")["last_seen_at"] > backdated
@@ -91,7 +91,7 @@ def test_acked_but_still_idle_rotates_after_re_alert_window():
 
     # backdate the open row's start beyond the re-alert window, then re-evaluate
     past = db.dt_to_db(db.now() - timedelta(seconds=triggers.RE_ALERT_SECONDS + 10))
-    db._execute("UPDATE trigger_event SET started_at=? WHERE id=?", (past, ev["id"]))
+    db._execute("UPDATE trigger_event SET started_at=%s WHERE id=%s", (past, ev["id"]))
     triggers.evaluate()
 
     fresh = db.current_open_trigger("s1", "inactive")

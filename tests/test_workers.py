@@ -18,7 +18,7 @@ def _worker_with_distances(sid, dists):
 
 def _fired(ttype):
     return db._query(
-        "SELECT (detail::jsonb ->> 'run_index')::int i FROM trigger_event WHERE trigger_type=?",
+        "SELECT (detail::jsonb ->> 'run_index')::int i FROM trigger_event WHERE trigger_type=%s",
         (ttype,),
     )
 
@@ -233,13 +233,13 @@ def test_student_tail_orders_null_event_time_by_received_at_fallback():
         with db.write_txn() as con:
             cur = con.execute(
                 "INSERT INTO message (queue_name, routing_key, exchange, content, received_at) "
-                "VALUES ('p', '', '', '{}', ?) RETURNING id",
+                "VALUES ('p', '', '', '{}', %s) RETURNING id",
                 (rt,),
             )
             con.execute(
                 "INSERT INTO vex_log (from_message_id, classCode, eventType, studentID, "
                 "project, raw_message, event_time, source_event_id) "
-                "VALUES (?, 'C', 'runProject', 's1', '{}', '{}', ?, ?)",
+                "VALUES (%s, 'C', 'runProject', 's1', '{}', '{}', %s, %s)",
                 (cur.fetchone()["id"], et, eid),
             )
 

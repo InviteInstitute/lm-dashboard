@@ -62,9 +62,10 @@ TRIGGER_PRIORITY = ("wheel_spin", "inactive", "resilience", "explorer", "iterati
 # ==========================================================================
 # Limits / timing
 # ==========================================================================
-MAX_STUDENT_IDS = 500  # cap on ?students= ids per request (under SQLite's variable limit)
 BUFFER_MAX = 5000  # per-student in-memory rolling event history
 PAUSED_POLL_S = 1.0  # how often the paused daemon re-checks the resume flag
+DAEMON_HEARTBEAT_S = 10  # how often the daemon stamps meta.daemon_heartbeat
+DAEMON_STALE_S = 120  # /healthz fails once the heartbeat is older than this
 VIEWER_PRESENT_SECONDS = (
     90  # dead-man's switch: prod polling pauses if no dashboard poll within this window
 )
@@ -125,9 +126,10 @@ __all__ = [
     "TRIGGER_RECENT_SECONDS",
     "TRIGGER_TOUCH_THROTTLE_S",
     "TRIGGER_PRIORITY",
-    "MAX_STUDENT_IDS",
     "BUFFER_MAX",
     "PAUSED_POLL_S",
+    "DAEMON_HEARTBEAT_S",
+    "DAEMON_STALE_S",
     "VIEWER_PRESENT_SECONDS",
     "CURSOR_NAME",
     "CODE_MERGE_GAP_S",

@@ -13,13 +13,11 @@ dependencies = [
     "psycopg[binary]==3.3.4",      # data layer (API + daemon), pooled via psycopg-pool
     "psycopg-pool==3.3.1",
     "itsdangerous==2.2.0",         # signs the Turnstile "solved the widget" cookie (app/turnstile)
-    "httpx==0.28.1",               # Turnstile siteverify (async)
-    "argon2-cffi==25.1.0",         # per-account password hashing (app/auth, scripts/create_researcher)
-    "requests==2.34.2",            # ingestion daemon
+    "httpx==0.28.1",               # Turnstile siteverify (async) + the daemon's prod client
     "python-dotenv==1.2.2",
     # The trigger + learner-model engine (and its apted dependency) come from the
     # agent-lm-packages submodule, installed editable from vendor/ (see the
-    # Dockerfile, requirements.txt, and CI).
+    # Dockerfile, the Makefile, and CI).
 ]
 
 [project.optional-dependencies]

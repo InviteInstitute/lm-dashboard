@@ -19,12 +19,14 @@ Configuration is split across two gitignored files:
 | `PROD_USERNAME` / `PROD_PASSWORD` | daemon | (none) | auth to the prod server (unrelated to the dashboard's own bot gate) |
 | `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | prod server base URL |
 | `TURNSTILE_SECRET` | API | (none) | Cloudflare Turnstile secret key, verified against the public site key baked into the frontend build |
-| `SESSION_SECRET` | API | insecure dev default | signs the "this browser solved Turnstile" cookie. Set a long random value in any real deployment |
+| `SESSION_SECRET` | API | (required) | signs the "this browser solved Turnstile" cookie. The API refuses to start without it; use a long random value |
 | `CORS_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | allowed dashboard origins (dev only, prod is same-origin) |
 | `PIPELINE_INTERVAL` | daemon | `0.5` | base seconds per tick while events are flowing |
 | `PIPELINE_IDLE_MAX` | daemon | `5.0` | idle-backoff ceiling (how far the poll gap stretches when it's quiet) |
 | `PIPELINE_PAGE_LIMIT` | daemon | `500` | events fetched per page |
 | `PIPELINE_BACKFILL_HOURS` | daemon | `24` | on the first run only, how far back the initial drain goes (`<= 0` = replay all history) |
+| `GOAL_RECOGNITION_ENABLED` | daemon | `1` | `0` turns goal recognition (and its storage) off entirely |
+| `GOAL_BATTERY_ENABLED` | daemon | `1` | `0` sheds the 19-simulation sensor battery and the goal claims and rubric derived from it |
 | `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (dev) / `1` (prod compose) | arms the per-board dead-man's switch (below) |
 
 ## Access

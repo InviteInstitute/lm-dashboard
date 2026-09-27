@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app import config, db
 from app.constants import (
+    DAEMON_STALE_S,
     TRIGGER_LABELS,
     TRIGGER_RECENT_SECONDS,
 )
@@ -352,9 +353,21 @@ def _shape_goal_runs(student_id, since=None):
 # routes
 # --------------------------------------------------------------------------
 @app.get("/healthz")
-def health():
-    # Not at "/" so the static frontend mount can serve the dashboard there.
-    return {"service": "luc-dashboard", "ok": True}
+def health(response: Response):
+    """API + DB up, and the daemon's loop still ticking. 503 once the daemon's
+    heartbeat is older than DAEMON_STALE_S; a DB that never saw a daemon (a fresh
+    stack) reports ok with a null age. Not at "/" so the static frontend mount can
+    serve the dashboard there."""
+    beat = db.db_to_dt(db.get_meta(db.HEARTBEAT_META_KEY))
+    age = (db.now() - beat).total_seconds() if beat else None
+    ok = age is None or age < DAEMON_STALE_S
+    if not ok:
+        response.status_code = 503
+    return {
+        "service": "lm-dashboard",
+        "ok": ok,
+        "daemon_heartbeat_age_s": None if age is None else round(age, 1),
+    }
 
 
 # --------------------------------------------------------------------------

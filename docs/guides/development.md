@@ -11,14 +11,14 @@ runs the same checks on every pull request.
 
 ## Set Up
 
-You need Python 3.12, Node 20, and a local Postgres for the backend tests. Install the
+You need Python 3.12, Node 22, and a local Postgres for the backend tests. Install the
 backend (editable, with the dev extras) and the frontend dependencies in one step:
 
 ```bash
 make install
 ```
 
-That runs `pip install -e '.[dev]'` and `npm install` in `frontend/`. Run it inside an
+That initializes the engine submodule, installs it and the backend (`pip install -e '.[dev]'`), and runs `npm ci` in `frontend/`. Run it inside an
 activated virtualenv so `pytest` and `ruff` land on your `PATH`.
 
 ## The Makefile

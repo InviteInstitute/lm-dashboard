@@ -1,4 +1,4 @@
-"""The prod REST client, with requests mocked out -- auth, token caching, the
+"""The prod REST client, with the HTTP session mocked out -- auth, token caching, the
 401 re-auth retry, paging, and credential loading."""
 
 import pytest

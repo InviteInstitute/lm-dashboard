@@ -14,9 +14,11 @@ help: ## List the available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	  awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install the backend (editable, dev extras) and frontend deps
+install: ## Install the backend (engine submodule + editable, dev extras) and frontend deps
+	git submodule update --init
+	pip install -e ./vendor/agent-lm-packages
 	pip install -e '.[dev]'
-	npm --prefix frontend install
+	npm --prefix frontend ci
 
 dev: ## Start the local dev stack (api reload + Vite on :3000); Ctrl-C to stop
 	$(COMPOSE) up

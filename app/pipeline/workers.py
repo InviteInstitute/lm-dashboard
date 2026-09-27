@@ -37,9 +37,6 @@ from app import db
 from app.config import (
     GOAL_BATTERY_ENABLED,
     GOAL_RECOGNITION_ENABLED,
-    GOAL_ROLLUP_ENABLED,
-    GOAL_RUBRIC_ENABLED,
-    GOAL_TIMELINE_ENABLED,
 )
 from app.pipeline.triggers import _disabled_types
 
@@ -71,10 +68,12 @@ class StudentWorker:
         self.gstream = (
             GoalProfileStream(
                 session_id=self.student_id,
-                include_timeline=GOAL_TIMELINE_ENABLED,
+                include_timeline=True,
+                # the goal claims (rollup) and provisional rubric reuse the
+                # battery's simulations, so they switch with it
                 include_battery=GOAL_BATTERY_ENABLED,
-                include_rollup=GOAL_ROLLUP_ENABLED,
-                include_rubric=GOAL_RUBRIC_ENABLED,
+                include_rollup=GOAL_BATTERY_ENABLED,
+                include_rubric=GOAL_BATTERY_ENABLED,
             )
             if GOAL_RECOGNITION_ENABLED
             else None

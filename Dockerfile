@@ -4,10 +4,10 @@
 # API serves at / in production.
 
 # ---- Stage 1: build the React SPA ----
-FROM node:20-slim AS web
+FROM node:22-slim AS web
 WORKDIR /web
-COPY frontend/package.json ./
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
 COPY frontend/ ./
 # frontend/.env.production pins VITE_API_URL='' -> a same-origin build.
 RUN npm run build          # -> /web/dist
@@ -16,7 +16,7 @@ RUN npm run build          # -> /web/dist
 FROM python:3.12-slim AS app
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-COPY pyproject.toml requirements.txt ./
+COPY pyproject.toml ./
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 COPY vendor/ ./vendor/

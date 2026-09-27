@@ -8,10 +8,11 @@ The read API runs at `http://localhost:8000` and also serves the built dashboard
 `/`. It serves the materialized state the daemon computes and performs only small,
 per-board writes (track, ack, notes, toggles, reset, export, polling).
 
-**Auth.** The whole origin is behind **HTTP Basic Auth** - the browser's native login
-dialog, verified against the researcher table (see
-[Configuration](../guides/configuration.md)). Every `/api` route below (and the static
-app) requires it. `/healthz` is the only open path. Each request also carries the
+**Access.** There's no login. Every `/api` route below is behind a **Cloudflare
+Turnstile** bot check: a browser solves the widget once, `POST /api/turnstile/verify/`
+sets a signed cookie, and a request without a valid cookie gets
+`403 {"error": "turnstile_required"}` (see [Configuration](../guides/configuration.md)).
+`/healthz`, the static app, and the verify route are open. Each request also carries the
 browser's **board id** - the `X-Board-Id` header, or a `?board_id=` query param on the
 SSE stream - which scopes the response to that board's own roster, notes, and picks.
 
@@ -19,8 +20,8 @@ SSE stream - which scopes the response to that board's own roster, notes, and pi
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET`  | `/healthz` | health check (the only unauthenticated route) |
-| `GET`  | `/api/me/` | the authenticated researcher (id + username) |
+| `GET`  | `/healthz` | health check: API, database, and daemon heartbeat (open) |
+| `POST` | `/api/turnstile/verify/` | verify a Turnstile token and set the gate cookie (open) |
 | `GET`  | `/api/stream/` | the live Server-Sent Events stream (pushes which channels changed) |
 | `GET`  | `/api/student_states/` | materialized per-student state (the dashboard's main read) |
 | `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt and readable program) |
@@ -53,11 +54,15 @@ SSE stream - which scopes the response to that board's own roster, notes, and pi
 
 ## GET /healthz
 
-Liveness check. It's at `/healthz` rather than `/` so the static dashboard can be
-served from the root in remote builds.
+Liveness check for the API, the database, and the daemon. The daemon stamps a
+heartbeat every 10 seconds on every kind of tick (busy, idle, paused), so a stale
+stamp means its loop is stuck or dead: once the heartbeat is older than 120 seconds
+this returns **503** with `"ok": false`. A database that has never seen a daemon
+reports ok with a null age. It's at `/healthz` rather than `/` so the static
+dashboard can be served from the root in remote builds.
 
 ```json title="Response"
-{ "service": "luc-dashboard", "ok": true }
+{ "service": "lm-dashboard", "ok": true, "daemon_heartbeat_age_s": 3.2 }
 ```
 
 ---

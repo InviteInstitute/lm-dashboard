@@ -19,7 +19,6 @@ export const T = {
 // One family for the whole tool: IBM Plex Sans for UI and headings, Plex Mono
 // for student IDs, code and measurements. Defined once as CSS vars in index.css.
 export const FONT = "var(--lmd-font)";
-export const HEADFONT = FONT;
 export const MONO = "var(--lmd-mono)";
 
 // ----- per-run edit_distance buckets (the run track colours) -----
@@ -77,3 +76,10 @@ export const COMPACT_TAIL = 10; // compact cards show only the most recent N run
 // Turnstile site key is public by design (paired server-side with the secret
 // key, which never leaves the backend) -- see TurnstileGate.jsx.
 export const TURNSTILE_SITE_KEY = "0x4AAAAAAD9y1rcwgwx5PODV";
+
+// A tinted surface for something in an alert state: the fill colour (for
+// backgrounds and borders) and its contrast-safe text variant.
+export const toneVars = (c) => ({
+  "--tone": c,
+  "--tone-text": `var(--lmd-signal-${c.slice(1)}, ${c})`,
+});

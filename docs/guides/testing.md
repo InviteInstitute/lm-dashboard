@@ -14,7 +14,7 @@ The backend tests exercise the parts where the real logic lives: the Postgres da
 layer (the datetime contract and the zip export), the ingestion poller, the
 per-student workers, the APTED edit-distance computation, the five trigger rules and
 their history, identity-switch detection, the episode segmenter, the block humanizer,
-the live-stream change signal, the failed-write outbox, the auth gate, the
+the live-stream change signal, the failed-write outbox, the Turnstile gate, the
 workspace/per-browser isolation and the daemon's fan-out, and every API endpoint
 through a test client.
 

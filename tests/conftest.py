@@ -21,6 +21,7 @@ if not _test_url:
     _base = os.environ["DATABASE_URL"]
     _test_url = _base.rsplit("/", 1)[0] + "/lm_dashboard_test"
 os.environ["DATABASE_URL"] = _test_url
+os.environ.setdefault("SESSION_SECRET", "test-only-session-secret")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

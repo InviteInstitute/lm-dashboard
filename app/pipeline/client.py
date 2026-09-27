@@ -12,7 +12,7 @@ and transparently refreshed whenever a request comes back 401.
 
 import os
 
-import requests
+import httpx
 
 PROD_API_BASE = os.environ.get("VEX_PROD_API_BASE", "https://inviteinstitutehub.org")
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,8 +45,8 @@ class ProdClient:
 
     def __init__(self, base=PROD_API_BASE, connect_timeout=3.0, read_timeout=8.0):
         self.base = base
-        self.timeout = (connect_timeout, read_timeout)
-        self.session = requests.Session()
+        self.timeout = httpx.Timeout(read_timeout, connect=connect_timeout)
+        self.session = httpx.Client()
         self._token = None
 
     # -- auth -------------------------------------------------------------

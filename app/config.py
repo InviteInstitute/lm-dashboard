@@ -29,24 +29,17 @@ def _flag(name, default="1"):
 
 
 GOAL_RECOGNITION_ENABLED = _flag("GOAL_RECOGNITION_ENABLED")
-# The goal-progression timeline (cheap) and the sensor-test battery (runs 19 extra
-# simulations per eligible run) are extra goal_strategy outputs. On by default;
-# set GOAL_BATTERY_ENABLED=0 to shed the heavier one under load.
-GOAL_TIMELINE_ENABLED = _flag("GOAL_TIMELINE_ENABLED")
+# The sensor-test battery runs 19 extra simulations per eligible run; the goal
+# claims (rollup) and the PROVISIONAL execution rubric are derived from that same
+# battery run, so all three switch together. On by default; set
+# GOAL_BATTERY_ENABLED=0 to shed the heavy part under load.
 GOAL_BATTERY_ENABLED = _flag("GOAL_BATTERY_ENABLED")
-# The two battery-fed rollups: the purpose-1 goal claims (each goal banded from
-# the battery, or derived from its indicators) and the PROVISIONAL purpose-2
-# execution rubric (six dimensions, still under human validation upstream, so
-# the UI labels it provisional). Both reuse the one battery run per program, so
-# enabling them adds no extra simulations on top of GOAL_BATTERY_ENABLED.
-GOAL_ROLLUP_ENABLED = _flag("GOAL_ROLLUP_ENABLED")
-GOAL_RUBRIC_ENABLED = _flag("GOAL_RUBRIC_ENABLED")
 
 # Secret used to sign the "this browser solved Turnstile" cookie (see
-# app/turnstile.py). Required in any real deployment -- set a long random value
-# in .env.mirror. The dev fallback keeps local runs and tests working but must
-# never be used in production (the cookie would be forgeable).
-SESSION_SECRET = os.environ.get("SESSION_SECRET") or "dev-insecure-session-secret-change-me"
+# app/turnstile.py). The API refuses to start without it, so a missing value can
+# never silently fall back to a guessable key and make the cookie forgeable. The
+# daemon doesn't use it.
+SESSION_SECRET = os.environ.get("SESSION_SECRET")
 
 # Cloudflare Turnstile secret key, used server-side to verify widget response
 # tokens against Cloudflare's siteverify endpoint. Set in .env.mirror; unset

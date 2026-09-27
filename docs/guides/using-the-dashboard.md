@@ -4,10 +4,9 @@ description: Student cards, the who-needs-help column, drill-down detail, and th
 
 # Using The Dashboard
 
-The dashboard is a single screen. The first time you open it your **browser prompts
-for a username and password** - that's the login. Each browser then gets its **own
-isolated board**: your roster, notes, and picks are yours, separate from anyone else
-signed in with the same credentials.
+The dashboard is a single screen. The first time you open it you solve a one-time
+**Turnstile** check (there's no login). Each browser then gets its **own isolated
+board**: your roster, notes, and picks are yours, separate from every other browser.
 
 It holds one live stream to the API and refetches only what changed, so the whole
 view stays in sync with itself and updates land in about a quarter second. If the

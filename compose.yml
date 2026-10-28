@@ -12,14 +12,17 @@ name: lm-dashboard
 
 services:
   db:
-    image: postgres:latest
+    # Pinned to a major version: a newer major cannot open this one's data folder.
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_USER: lmdash
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: lm_dashboard
     volumes:
-      - pgdata:/var/lib/postgresql
+      # The pgdata volume by default. The prod server sets DB_DATA to a folder on its data
+      # disk (/data/lm-dashboard/postgres), so the database outlives the root disk.
+      - ${DB_DATA:-pgdata}:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lmdash -d lm_dashboard"]
       interval: 5s

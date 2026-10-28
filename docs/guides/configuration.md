@@ -15,6 +15,7 @@ Configuration is split across two gitignored files:
 | Variable | Where | Default | What It Does |
 |---|---|---|---|
 | `POSTGRES_PASSWORD` | `.env` (compose) | (none) | password for the `db` service, compose folds it into `DATABASE_URL` |
+| `DB_DATA` | `.env` (compose) | `pgdata` (a compose volume) | where Postgres keeps its files. Prod sets `/data/lm-dashboard/postgres`, on the server's data disk. Copy the data there with the database stopped before setting it, or Postgres starts with an empty database |
 | `DATABASE_URL` | app | (compose sets it) | Postgres connection string. Under compose it points at the `db` service. Set it yourself only for a non-compose venv run |
 | `PROD_USERNAME` / `PROD_PASSWORD` | daemon | (none) | auth to the prod server (unrelated to the dashboard's own bot gate) |
 | `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | prod server base URL |

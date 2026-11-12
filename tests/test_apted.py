@@ -24,7 +24,9 @@ def test_tree_always_hangs_off_one_workspace_root():
 def test_connection_is_part_of_the_child_node():
     ast = {
         "nodes": {"a": {"type": "hat", "fields": {}}, "b": {"type": "motor", "fields": {"P": "A"}}},
-        "edges": [{"source": "a", "target": "b", "edge_type": "statement", "slot": "DO", "order": 0}],
+        "edges": [
+            {"source": "a", "target": "b", "edge_type": "statement", "slot": "DO", "order": 0}
+        ],
         "roots": ["a"],
     }
     child = A.ast_to_apted_tree(ast).children[0].children[0]

@@ -121,11 +121,14 @@ Inference is a single deterministic number per run: the **edit distance** betwee
 
 `compute_run_edit_distances` walks a student's runs in order and, for each one:
 
-1.  **Extract the block AST.** Parse the student's current blocks into a tree.
+1.  **Extract the scoring tree.** Parse the code that actually runs into a tree:
+    stacks under a hat and the My Blocks they call, with the numbers and text typed
+    into each block. Detached blocks, disabled blocks and comments are left out.
 2.  **Compute the edit distance.** APTED tree-edit-distance against the previous run,
-    rounded to an integer, with a hashed-pair cache so the same comparison isn't
-    recomputed. The costs are edge-aware (adding a block scores 1, not 2), so the
-    number reads as "how many blocks changed."
+    an integer, with a hashed-pair cache so the same comparison isn't recomputed.
+    Adding, deleting, changing or moving a block each costs 1, so the number reads
+    as "how many blocks changed." The full rules are in agent-lm-packages
+    (`learner_models/README.md`, and `test_scoring_policy.py` for every kind of edit).
 
 ```mermaid
 flowchart LR
@@ -135,7 +138,7 @@ flowchart LR
 ```
 
 The first run has no predecessor, so its `edit_distance` is `null`. Every later run
-gets an integer: `0` means the student re-ran identical code, a small number is an
+gets an integer: `0` means the code that runs is identical, a small number is an
 incremental edit, a large one is a structural rewrite. That single sequence of
 integers is all five triggers read.
 

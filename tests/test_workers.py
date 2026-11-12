@@ -326,7 +326,7 @@ def _ws(n):
             + (f"<next>{inner}</next>" if inner else "")
             + "</block>"
         )
-    return f'<xml><block type="events_whenStarted" id="a"><next>{inner}</next></block></xml>'
+    return f'<xml><block type="pg_events_when_started" id="a"><next>{inner}</next></block></xml>'
 
 
 def test_streams_match_the_batch_engine_on_the_buffer():

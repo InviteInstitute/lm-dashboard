@@ -126,8 +126,9 @@ of recent events. The key choices:
 
 ### 4.5 Inference
 No model, no numpy. `compute_run_edit_distances` runs per `runProject`: extract the
-block AST and compute the integer APTED tree-edit-distance against the previous run
-(edge-aware costs, so adding a block scores 1, hashed-pair cache to skip repeats).
+tree of the code that runs and compute the integer APTED tree-edit-distance against
+the previous run (adding, changing or moving a block costs 1, hashed-pair cache to
+skip repeats).
 The result is one number per run, `edit_distance`: `0` for an identical re-run, small
 for an incremental edit, large for a structural rewrite. On top of that, every tick
 segments the session into episodes (the vendored, dependency-free `app.episode_engine`)

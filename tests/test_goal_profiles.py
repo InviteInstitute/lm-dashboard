@@ -288,16 +288,23 @@ def test_detail_endpoint_battery_rollup_and_rubric_for_a_sensing_program(client)
     assert dims["control_structure"]["evidence"] == ["production.coordination_relations"]
 
 
-def test_an_engine_error_run_does_not_shift_later_runs():
-    # A drive of round(Infinity) mm makes the simulator overflow. That run must
-    # still take its run index (and just not be stored), or every later run's
-    # goal evidence would be joined to the wrong edit-distance run.
-    overflow = CC_XML.replace(
-        '<shadow type="math_number"><field name="NUM">300</field></shadow>',
-        '<block type="pg_operator_round"><value name="NUM"><shadow type="math_number">'
-        '<field name="NUM">Infinity</field></shadow></value></block>',
-    )
+def test_an_engine_error_run_does_not_shift_later_runs(monkeypatch):
+    # An engine defect on one program must still take its run index (and just not
+    # be stored), or every later run's goal evidence would be joined to the wrong
+    # edit-distance run. The engine survives every input we know breaks it (a
+    # round(Infinity) drive used to overflow), so the defect is forced here.
+    import goal_strategy.adapter as adapter
+
+    overflow = CC_XML.replace("300</field>", "301</field>")
     assert overflow != CC_XML
+    real = adapter.prepare_execution
+
+    def broken_on_overflow(xml, *args, **kwargs):
+        if xml == overflow:
+            raise OverflowError("simulated engine defect")
+        return real(xml, *args, **kwargs)
+
+    monkeypatch.setattr(adapter, "prepare_execution", broken_on_overflow)
     w = StudentWorker("cobra15")
     for i, xml in enumerate([CC_XML, overflow, SENSING_XML]):
         w.ingest(_raw_run("cobra15", xml, "CasteCrasherPlus", i))

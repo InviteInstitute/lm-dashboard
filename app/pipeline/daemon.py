@@ -19,9 +19,9 @@ import random
 import time
 from datetime import datetime, timedelta
 
-from app import db
+from app import db, zany
 from app.constants import PAUSED_POLL_S, VIEWER_PRESENT_SECONDS  # pause cadence + dead-man's window
-from app.pipeline import poller, triggers, workers
+from app.pipeline import poller, triggers, workers, zany_source
 from app.pipeline.client import ProdClient, ProdClientError
 
 log = logging.getLogger("pipeline")
@@ -139,6 +139,34 @@ def main(argv=None):
     # Hide any prior session without deleting it: workers rehydrate from
     # session-only events, and we re-materialize every tracked student now so their
     # card reads empty at startup (the raw vex_log stays intact and recoverable).
+    # ZANY (app/zany.py): rebuild every ZANY student from ATLAS's store, so nothing ATLAS
+    # deleted while the daemon was down survives; start the cursor at the newest row (tracked
+    # students are backfilled on their own); listen for ATLAS's notifications.
+    zcursor = listener = None
+    if zany.enabled():
+        db.forget_all_zany()
+        zcursor = zany_source.get_cursor()
+        if not zcursor.last_source_id:
+            with zany.connect() as con:
+                zcursor.last_source_id = zany.max_seq(con)
+            zcursor.save()
+        listener = zany.Listener()
+        log.info("ZANY source on, from store row %s", zcursor.last_source_id)
+
+    def pause(seconds):
+        """Sleep until the next tick, waking at once when ATLAS says ZANY records were kept
+        or deleted. Deleted ones drop the student's mirror and models at once; they are
+        backfilled again from what the store still has."""
+        if listener is None:
+            time.sleep(seconds)
+            return
+        for channel, who in listener.wait(seconds):
+            if channel == zany.FORGOTTEN:
+                sid = zany.key(who["study"], who["participant"])
+                db.forget_student(sid)
+                workers.evict(sid)
+                log.info("ZANY records deleted for a student; their models are rebuilt")
+
     workers.start_session(session_start)
     for r in db.tracked_union():
         try:
@@ -150,6 +178,8 @@ def main(argv=None):
     while True:
         t0 = time.monotonic()
         backfilled_now = False
+        new = znew = 0
+        backoff = 0.0
 
         # disabled_triggers stays a global setting (which alert TYPES are active);
         # polling on/off and viewer presence are per-workspace. Compute the live
@@ -170,7 +200,7 @@ def main(argv=None):
             last_live = live
         if not live_ids:  # no board wants polling right now
             idle = 0  # resume responsive
-            time.sleep(PAUSED_POLL_S)
+            pause(PAUSED_POLL_S)
             continue
 
         try:
@@ -186,8 +216,13 @@ def main(argv=None):
             for r in union:
                 if r["backfilled"] or r["studentID"] not in active_tracked:
                     continue
+                if zany.is_zany(r["studentID"]) and zcursor is None:
+                    continue  # a ZANY student, but this deployment cannot reach the store
                 try:
-                    poller.backfill_student(client, r["studentID"], since=session_start)
+                    if zany.is_zany(r["studentID"]):
+                        zany_source.backfill_student(r["studentID"], since=session_start)
+                    else:
+                        poller.backfill_student(client, r["studentID"], since=session_start)
                     # Backfill only stores the history (prod pages it newest-first);
                     # rebuild the worker from the log so runs replay oldest-first.
                     workers.evict(r["studentID"])
@@ -198,6 +233,11 @@ def main(argv=None):
                 except Exception as e:
                     log.warning("backfill failed for %s: %s", r["studentID"], e)
 
+            if zcursor is not None:
+                try:
+                    znew = zany_source.drain(zcursor, active_tracked, since=session_start)
+                except Exception as e:  # the store or the network; Reflecks carries on
+                    log.warning("ZANY drain failed: %s", e)
             new = poller.drain(
                 client,
                 cursor,
@@ -213,8 +253,8 @@ def main(argv=None):
             log.warning("drain failed (%d): %s -- backoff %.1fs", fails, e, delay)
             if fails >= 5:
                 log.error("UNHEALTHY: %d consecutive poll failures", fails)
-            time.sleep(delay)
-            continue
+            # Back off from Reflecks, but still model what ZANY brought in this tick.
+            new, backoff = 0, delay
         except Exception:
             # Anything that isn't a known-transient prod error is almost
             # certainly a bug on our side. Backing off would just hide it in a
@@ -243,7 +283,7 @@ def main(argv=None):
         # tick finds nothing to do, grow the wait exponentially toward --idle-max
         # so quiet stretches don't keep hammering prod with empty polls. The
         # first sign of activity snaps the interval straight back to responsive.
-        busy = bool(new or changed or backfilled_now)
+        busy = bool(new or znew or changed or backfilled_now)
         idle = 0 if busy else idle + 1
         target = interval if busy else min(idle_max, interval * (2 ** min(idle, 6)))
 
@@ -256,7 +296,7 @@ def main(argv=None):
             )
 
         elapsed = time.monotonic() - t0
-        time.sleep(max(0.0, target - elapsed))
+        pause(max(backoff, target - elapsed))
 
 
 if __name__ == "__main__":

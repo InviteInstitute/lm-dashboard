@@ -27,6 +27,8 @@ Configuration is split across two gitignored files:
 | `PIPELINE_PAGE_LIMIT` | daemon | `500` | events fetched per page |
 | `PIPELINE_BACKFILL_HOURS` | daemon | `24` | on the first run only, how far back the initial drain goes (`<= 0` = replay all history) |
 | `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (dev) / `1` (prod compose) | arms the per-board dead-man's switch (below) |
+| `ZANY_LOG_DSN` | API and daemon | (none: ZANY off) | ATLAS-invite's ZANY log store, read-only (role `lmdash_reader`, table `log_record`), e.g. `postgresql://lmdash_reader:...@/zany?host=/var/run/postgresql`. Prod keeps it in `/etc/lm-dashboard/zany.env`, which compose reads when it exists, and mounts the host's Postgres socket read-only |
+| `ATLAS_URL` | API | `https://zany.inviteai.org` | ATLAS-invite, which checks the research login that unlocks ZANY's logs |
 
 ## Access
 

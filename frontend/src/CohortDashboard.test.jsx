@@ -1194,4 +1194,73 @@ describe("CohortDashboard", () => {
     );
     expect(await screen.findByText("Not saved")).toBeInTheDocument();
   });
+
+  describe("ZANY source", () => {
+    const zanyRoutes =
+      (unlocked, source = "reflecks") =>
+      (url) => {
+        if (url === "/api/zany/")
+          return Promise.resolve({
+            data: {
+              enabled: true,
+              unlocked,
+              studies: unlocked ? [{ study: "STUDY-0001", code: "DEMO", participants: 2 }] : [],
+            },
+          });
+        if (url === "/api/source/") return Promise.resolve({ data: { source } });
+        if (url === "/api/zany/participants/")
+          return Promise.resolve({ data: { participants: ["R01", "R02"] } });
+        return Promise.resolve({ data: ROUTES[url] ?? {} });
+      };
+
+    it("unlocks ZANY with the research login, then lists its studies", async () => {
+      api.get.mockImplementation(zanyRoutes(false));
+      api.post.mockImplementation((url) =>
+        url === "/api/zany/unlock/"
+          ? Promise.resolve({
+              data: {
+                unlocked: true,
+                studies: [{ study: "STUDY-0001", code: "DEMO", participants: 2 }],
+              },
+            })
+          : Promise.resolve({ data: {} }),
+      );
+      render(<CohortDashboard />);
+      fireEvent.change(await screen.findByRole("combobox", { name: /Listening to/ }), {
+        target: { value: "unlock" },
+      });
+      fireEvent.change(await screen.findByLabelText("Email"), {
+        target: { value: "research@example.org" },
+      });
+      fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+      fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
+      await waitFor(() =>
+        expect(api.post).toHaveBeenCalledWith("/api/zany/unlock/", {
+          email: "research@example.org",
+          password: "secret",
+        }),
+      );
+      expect(
+        await screen.findByRole("option", { name: "ZANY: DEMO (STUDY-0001)" }),
+      ).toBeInTheDocument();
+    });
+
+    it("asks for the research login again when the server says the board is locked", async () => {
+      api.get.mockImplementation(zanyRoutes(true));
+      render(<CohortDashboard />);
+      await screen.findByRole("combobox", { name: /Listening to/ });
+      act(() => window.dispatchEvent(new CustomEvent("zany:locked")));
+      expect(await screen.findByText("Sign in with the research login")).toBeVisible();
+    });
+
+    it("tracks everyone in a ZANY study", async () => {
+      api.get.mockImplementation(zanyRoutes(true, "zany:STUDY-0001"));
+      render(<CohortDashboard />);
+      fireEvent.click(await screen.findByRole("button", { name: "Track everyone in DEMO" }));
+      await waitFor(() => {
+        expect(api.post).toHaveBeenCalledWith("/api/tracked/", { studentID: "R01" });
+        expect(api.post).toHaveBeenCalledWith("/api/tracked/", { studentID: "R02" });
+      });
+    });
+  });
 });

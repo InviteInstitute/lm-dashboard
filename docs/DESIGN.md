@@ -189,9 +189,13 @@ as JSON text).
 - **Look.** IBM Carbon (`@carbon/react`) in INVITE's theme, shared with ATLAS-invite's
   researcher pages: `frontend/src/styles/carbon.scss` builds only the components the
   dashboard uses, and `_invite-theme.scss` puts INVITE's palette on Carbon's g10 and g100
-  themes. Carbon draws the controls (header, buttons, tags, toggles, fields, toasts,
-  modal); the run track, episode strip and goal evidence are the dashboard's own, drawn
-  in Carbon's tokens through the `--lmd-*` names in `index.css`.
+  themes. Carbon draws every control and container it has a component for: the header
+  and its panel, buttons, icon buttons with tooltips, tags (status, flags, runs, Present
+  and Picked), toggles, fields, toasts, the reset modal, the program as a code snippet,
+  notes and trigger history as contained lists, the goal trajectory as a data table,
+  evidence and sensor-test families as accordions, and skeletons while loading. Only the
+  run track, the episode strip, rung ladders and pips are the dashboard's own, drawn in
+  Carbon's tokens through the `--lmd-*` names in `index.css`.
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
 rows), so the edit-distance and episode work already happened on the write side. It

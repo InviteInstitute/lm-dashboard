@@ -194,7 +194,7 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     // an alert row renders its own dismiss (✕) button -- proof the alert surfaced
-    expect(await screen.findByTitle(/Dismiss alert/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Dismiss alert/ })).toBeInTheDocument();
   });
 
   it("suppresses alerts for a student marked absent", async () => {
@@ -239,7 +239,7 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     // the absent kid's alert is filtered out -> empty column, no dismiss button
     expect(await screen.findByText(/No active alerts/)).toBeInTheDocument();
-    expect(screen.queryByTitle(/Dismiss alert/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Dismiss alert/ })).toBeNull();
   });
 
   it("posts a roster pick (source roster, no trigger) from the student card", async () => {
@@ -297,7 +297,7 @@ describe("CohortDashboard", () => {
 
   it("toggles daemon polling via the pause button", async () => {
     render(<CohortDashboard />);
-    const pause = await screen.findByText(/Pause Polling/);
+    const pause = await screen.findByRole("button", { name: /^Pause polling/ });
     fireEvent.click(pause);
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/polling/", { enabled: false });
@@ -317,13 +317,13 @@ describe("CohortDashboard", () => {
       render(<CohortDashboard />);
       await act(() => vi.advanceTimersByTimeAsync(0)); // mount fetch -> "on"
 
-      fireEvent.click(screen.getByText(/Pause Polling/)); // optimistic -> off
-      expect(screen.getByText(/Resume Polling/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /^Pause polling/ })); // optimistic -> off
+      expect(screen.getByRole("button", { name: /^Resume polling/ })).toBeInTheDocument();
 
       // advance well past several poll intervals: the other feeds re-poll, but the
       // pause state is NOT on a timer, so nothing can flip it back to "on".
       await act(() => vi.advanceTimersByTimeAsync(5000));
-      expect(screen.getByText(/Resume Polling/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Resume polling/ })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -353,7 +353,7 @@ describe("CohortDashboard", () => {
       return Promise.resolve({ data: ROUTES[url] ?? {} });
     });
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByTitle(/Dismiss alert/));
+    fireEvent.click(await screen.findByRole("button", { name: /^Dismiss alert/ }));
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/triggers/ack/", { id: 7 });
     });
@@ -394,7 +394,9 @@ describe("CohortDashboard", () => {
     });
     render(<CohortDashboard />);
     // both linger in the feed -> two alert rows
-    await waitFor(() => expect(screen.getAllByTitle(/Dismiss alert/)).toHaveLength(2));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /^Dismiss alert/ })).toHaveLength(2),
+    );
   });
 
   it("opens the detail modal and fetches the heavy payload on click", async () => {
@@ -820,8 +822,8 @@ describe("CohortDashboard", () => {
       },
     });
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText(/Triggers/)); // open the panel
-    const offButtons = await screen.findAllByText("On");
+    fireEvent.click(await screen.findByRole("button", { name: /^Triggers/ })); // open the panel
+    const offButtons = await screen.findAllByRole("switch");
     fireEvent.click(offButtons[0]); // turn the first one off
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith(
@@ -838,7 +840,7 @@ describe("CohortDashboard", () => {
       headers: { "content-disposition": 'attachment; filename="snap.zip"' },
     });
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText(/Export/));
+    fireEvent.click(await screen.findByRole("button", { name: /^Export/ }));
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/api/export/", null, { responseType: "blob" }),
     );
@@ -863,7 +865,8 @@ describe("CohortDashboard", () => {
 
   it("resets after confirmation", async () => {
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText(/Reset/));
+    fireEvent.click(await screen.findByRole("button", { name: /^Reset:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset" })); // the modal's confirm
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/reset/"));
   });
 
@@ -872,10 +875,9 @@ describe("CohortDashboard", () => {
       url === "/api/reset/" ? Promise.reject(new Error("boom")) : Promise.resolve({ data: {} }),
     );
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText(/Reset/));
-    await waitFor(() =>
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Reset failed")),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: /^Reset:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect(await screen.findByText("Reset failed")).toBeInTheDocument();
   });
 
   it('shows "waiting for activity" for a tracked student with no state yet', async () => {
@@ -920,7 +922,7 @@ describe("CohortDashboard", () => {
 
   it("untracks a student from the roster chip", async () => {
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByTitle("Stop tracking"));
+    fireEvent.click(await screen.findByRole("button", { name: /^Stop tracking/ }));
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith("/api/tracked/", { studentID: "alice", remove: true }),
     );
@@ -947,7 +949,7 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // open the modal
     await screen.findByText("LLM prompt");
-    fireEvent.click(screen.getByTitle("Stop tracking")); // untrack the open student
+    fireEvent.click(screen.getByRole("button", { name: /^Stop tracking/ })); // untrack the open student
     await waitFor(() => expect(screen.queryByText("LLM prompt")).not.toBeInTheDocument());
   });
 
@@ -967,8 +969,8 @@ describe("CohortDashboard", () => {
       url === "/api/export/" ? Promise.reject(new Error("boom")) : Promise.resolve({ data: {} }),
     );
     render(<CohortDashboard />);
-    fireEvent.click(await screen.findByText(/Export/));
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith("Export failed."));
+    fireEvent.click(await screen.findByRole("button", { name: /^Export/ }));
+    expect(await screen.findByText("Export failed")).toBeInTheDocument();
   });
 
   it("toggles presence from a card", async () => {
@@ -1049,7 +1051,7 @@ describe("CohortDashboard", () => {
     render(<CohortDashboard />);
     expect(await screen.findByText(/Identity Switches/)).toBeInTheDocument();
     expect(await screen.findByText("FPFVDH -> AFURRR")).toBeInTheDocument();
-    fireEvent.click(await screen.findByTitle("Dismiss switch"));
+    fireEvent.click(await screen.findByRole("button", { name: /^Dismiss switch/ }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/switches/ack/", { id: 5 }));
   });
 
@@ -1160,7 +1162,7 @@ describe("CohortDashboard", () => {
       { timeout: 3000 },
     );
     // ...and the failure is loud: a sticky toast naming the action.
-    expect(await screen.findByText("NOT saved")).toBeInTheDocument();
+    expect(await screen.findByText("Not saved")).toBeInTheDocument();
     expect(screen.getByText("absent: alice")).toBeInTheDocument();
   });
 
@@ -1190,6 +1192,6 @@ describe("CohortDashboard", () => {
       },
       { timeout: 3000 },
     );
-    expect(await screen.findByText("NOT saved")).toBeInTheDocument();
+    expect(await screen.findByText("Not saved")).toBeInTheDocument();
   });
 });

@@ -5,6 +5,8 @@
 # Docker targets honor COMPOSE, so on a host where docker needs sudo run e.g.
 #   make dev COMPOSE='sudo docker compose'
 COMPOSE ?= docker compose
+# IBM Carbon's packages report each npm install to IBM unless this is set.
+export IBM_TELEMETRY_DISABLED := true
 
 .DEFAULT_GOAL := help
 

@@ -16,7 +16,7 @@ have to think about it.
 
 ## Track A Student
 
-Type a student ID into **Track a student**. The daemon backfills their recent
+Type a student ID into **Track student IDs**, beside the Students heading. The daemon backfills their recent
 history, materializes their state, and their card shows up within a tick or two.
 Removing a student takes them off *your* board. Their shared mirror is only purged
 once no board is tracking them any more.
@@ -81,8 +81,8 @@ observation right against the alert.
     for another 10 minutes, the daemon closes the acked row and opens a fresh one, so
     someone who never came back keeps resurfacing in the feed.
 
-You can also turn whole trigger types on or off from the **⚙ Triggers** button in the
-top bar. Switching one off tells the daemon to stop firing it and clear its open
+You can also turn whole trigger types on or off from **Triggers** (the sliders icon) in
+the header: it opens a panel with a switch for each type. Switching one off tells the daemon to stop firing it and clear its open
 alerts.
 
 ## Identity Switches
@@ -107,11 +107,11 @@ you see one, the outbox has the details.
 
 ## Pause / Resume Polling
 
-The top bar has a **⏸ Pause polling** toggle. Pausing tells the daemon to stop hitting
+The header has a **Pause polling** button (the pause icon). Pausing tells the daemon to stop hitting
 the production server completely. It makes zero requests to prod while paused, keeps
 showing the last data it pulled, and picks back up within about a second of you
-clicking **▶ Resume polling**. While it's off, the status dot turns amber and a
-"Daemon Paused" label shows up next to the title.
+clicking **Resume polling** (the play icon). While it's off, the green **Live** tag next to
+the title turns grey and reads **Polling paused**.
 
 !!! tip
     Use this between sessions. While your board is being watched the daemon polls
@@ -145,7 +145,7 @@ while the modal is up, following the same live stream as the rest of the board.
 
 ## Export
 
-The **⬇ Export** button downloads a **zip of CSV snapshots** of your board (its
+**Export** (the download icon in the header) downloads a **zip of CSV snapshots** of your board (its
 roster, notes, and picks, plus the shared events, materialized state, and triggers for
 the students it tracks) straight to your computer. It's built in memory and is
 read-only, so the database is never touched and nothing is written to the server - you
@@ -153,7 +153,8 @@ can run it any time. The file is named `lm-dashboard_export_<timestamp>.zip`.
 
 ## Reset
 
-The **↺ Reset** button starts **your board** fresh. Every part of each student tile
+**Reset** (the circular arrow in the header) starts **your board** fresh, after you
+confirm it in a dialog. Every part of each student tile
 then shows only what happens after the reset: the runs and episodes, the goal
 evidence, the alerts, the trigger history and the switches. It also clears your
 board's notes, the picked toggles and pick history, and its trigger dismissals. Your

@@ -1,31 +1,23 @@
-/* INVITE Institute palette. Light is the default (their brand); dark keeps the
-   dashboard's original near-black look. Flipping [data-theme] on <html> is all
-   a theme switch has to do -- every style in CohortDashboard.jsx reads these
-   through T (see constants.js), so nothing else needs to react. */
+/* The dashboard runs on IBM Carbon in INVITE's theme (styles/carbon.scss, shared with ATLAS-invite's
+   researcher pages). The --lmd-* names below are what CohortDashboard.jsx's inline styles read
+   (through T, see constants.js); they point at Carbon's tokens, so flipping [data-theme] on <html>
+   switches Carbon and the dashboard's own marks together. */
 :root {
   --lmd-font:
     "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --lmd-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --lmd-bg: #f4f6f8;
-  --lmd-panel: #ffffff;
-  --lmd-border: #e3e8ec;
-  --lmd-ink: #1c3947;
-  --lmd-sub: #5b6b78;
-  --lmd-faint: #8b98a3;
-  --lmd-track: #eef1f4;
-  --lmd-code: #24292f;
+  --lmd-bg: var(--cds-background);
+  --lmd-panel: var(--cds-layer-01);
+  --lmd-border: var(--cds-border-subtle-01);
+  --lmd-ink: var(--cds-text-primary);
+  --lmd-sub: var(--cds-text-secondary);
+  --lmd-faint: var(--cds-text-placeholder);
+  --lmd-track: var(--cds-layer-02);
+  --lmd-code: var(--cds-text-primary);
   --lmd-hatch-red-bg: #fde3e3;
   --lmd-hatch-amber-bg: #fdecd0;
 }
 :root[data-theme="dark"] {
-  --lmd-bg: #0b0e13;
-  --lmd-panel: #0f131a;
-  --lmd-border: #1f2530;
-  --lmd-ink: #e6e9ef;
-  --lmd-sub: #7d8694;
-  --lmd-faint: #5a626e;
-  --lmd-track: #0d1117;
-  --lmd-code: #c9d1d9;
   --lmd-hatch-red-bg: #3a1416;
   --lmd-hatch-amber-bg: #3a2a10;
 }
@@ -44,26 +36,13 @@ code {
   font-family: var(--lmd-mono);
 }
 
-/* Switch-notification toast: slide up + fade in on arrival. */
-@keyframes toastIn {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* Semantic text colors stay separate from timeline fills. */
+/* Semantic text colours are Carbon's; the trigger signals keep their own hues (constants.js),
+   with a lighter step for dark. */
 :root {
-  color-scheme: light;
-  --lmd-faint: #627380;
-  --lmd-success: #187544;
-  --lmd-warning: #916000;
+  --lmd-success: var(--cds-support-success);
+  --lmd-warning: var(--cds-support-caution-major);
   --lmd-purple: #8040b5;
-  --lmd-accent: #354bb5;
+  --lmd-accent: var(--cds-interactive);
   --lmd-signal-2f9467: #187544;
   --lmd-signal-d0433c: #c12d35;
   --lmd-signal-d38b12: #916000;
@@ -71,13 +50,7 @@ code {
   --lmd-signal-3a6ea5: #2463b9;
 }
 :root[data-theme="dark"] {
-  color-scheme: dark;
-  --lmd-sub: #a5afbd;
-  --lmd-faint: #98a4b4;
-  --lmd-success: #65d895;
-  --lmd-warning: #f6bf58;
   --lmd-purple: #cf9bf6;
-  --lmd-accent: #a5b4fc;
   --lmd-signal-2f9467: #65d895;
   --lmd-signal-d0433c: #ff858b;
   --lmd-signal-d38b12: #f6bf58;
@@ -92,38 +65,17 @@ code {
 .dashboard {
   height: 100dvh;
 }
-.dashboard button,
-.student-dialog button {
-  min-height: 36px;
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease;
-}
-.dashboard button:hover,
-.student-dialog button:hover {
-  filter: brightness(0.92);
-}
+/* The dashboard's own buttons (IDs, flags, runs); Carbon styles its own. */
 .dashboard button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
 }
-.dashboard :focus-visible,
-.student-dialog :focus-visible {
-  outline: 2px solid var(--lmd-accent);
-  outline-offset: 3px;
-}
-input,
-textarea {
-  caret-color: var(--lmd-accent);
-}
-input::placeholder,
-textarea::placeholder {
-  color: var(--lmd-faint);
-  opacity: 1;
+:where(.dashboard, .student-dialog) :focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
 }
 ::selection {
-  background: var(--lmd-accent);
-  color: var(--lmd-panel);
+  background: var(--cds-interactive);
+  color: var(--cds-text-on-color);
 }
 /* Themed scrollbars: the board, roster, feed, and modal all scroll, and a
    default OS scrollbar is the giveaway that no one styled the surface. */
@@ -151,134 +103,47 @@ textarea::placeholder {
 .student-dialog *::-webkit-scrollbar-thumb:hover {
   background: var(--lmd-faint);
 }
-/* ---- header ---- */
-.dashboard-header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px 20px;
-  padding: 14px 28px;
-  background: var(--lmd-panel);
-  border-bottom: 1px solid var(--lmd-border);
+/* ---- header: Carbon's UI shell, in the page's flow ---- */
+.lmd-header.cds--header {
+  position: sticky;
   flex-shrink: 0;
+  background: var(--cds-layer-01);
 }
-.brand {
+.lmd-header .live-state {
+  margin-left: 0.5rem;
+}
+.lmd-header .cds--header__global {
+  margin-left: auto;
+}
+.trigger-panel.cds--header-panel--expanded {
+  inline-size: 18rem;
+  padding: 1rem;
+  border-left: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+}
+.trigger-panel h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.trigger-panel .cds--toggle {
+  display: block;
+  margin-bottom: 1rem;
+}
+.reset-modal .cds--modal-content p + p {
+  margin-top: 1rem;
+}
+.toast-stack {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 60;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-right: auto;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
 }
-.brand h1 {
+.toast-stack .cds--toast-notification {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--lmd-ink);
-}
-/* The one status dot on the page: it reports whether the daemon is polling. */
-.live-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--lmd-success);
-}
-.live-state::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.live-state.is-paused {
-  color: var(--lmd-warning);
-}
-.track-form {
-  display: flex;
-}
-.track-form input {
-  width: 220px;
-  min-width: 0;
-  padding: 0 12px;
-  border: 1px solid var(--lmd-border);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
-  background: var(--lmd-panel);
-  color: var(--lmd-ink);
-  font: inherit;
-  font-size: 14px;
-}
-.track-form input:focus-visible {
-  outline: 2px solid var(--lmd-accent);
-  outline-offset: -1px;
-}
-.track-submit,
-.empty-action {
-  border: 1px solid var(--lmd-ink);
-  border-radius: 8px;
-  background: var(--lmd-ink);
-  color: var(--lmd-panel);
-  padding: 0 16px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.track-form .track-submit {
-  border-radius: 0 8px 8px 0;
-}
-.dashboard .track-submit:disabled {
-  opacity: 1;
-  background: var(--lmd-track);
-  border-color: var(--lmd-border);
-  color: var(--lmd-faint);
-}
-.empty-action {
-  min-height: 40px;
-}
-.dashboard-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.hdr-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--lmd-sub);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.dashboard .hdr-btn:hover {
-  filter: none;
-  background: var(--lmd-track);
-  color: var(--lmd-ink);
-}
-.hdr-btn[aria-expanded="true"] {
-  background: var(--lmd-track);
-  color: var(--lmd-ink);
-}
-.dashboard .hdr-danger:hover {
-  color: var(--lmd-signal-d0433c);
-}
-.hdr-icon {
-  width: 36px;
-  padding: 0;
-  justify-content: center;
-}
-.hdr-sep {
-  width: 1px;
-  height: 20px;
-  margin: 0 6px;
-  background: var(--lmd-border);
 }
 
 /* ---- board ---- */
@@ -289,9 +154,16 @@ textarea::placeholder {
 .board-heading {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 12px 16px;
   margin-bottom: 16px;
+}
+.track-form {
+  display: flex;
+  margin-left: auto;
+}
+.track-form .cds--text-input-wrapper {
+  inline-size: 14rem;
 }
 .board-heading h2 {
   margin: 0;
@@ -311,25 +183,22 @@ textarea::placeholder {
 }
 /* A card only changes colour when the student is in an alert state: the tint
    is the trigger's own colour, so the board reads by colour at a glance. */
-.student-card {
+.student-card.cds--tile {
   display: flex;
   flex-direction: column;
-  padding: 14px 16px 12px;
-  border: 1px solid var(--lmd-border);
-  border-radius: 10px;
-  background: var(--lmd-panel);
+  padding: 1rem 1rem 0.75rem;
   cursor: pointer;
-  transition: border-color 160ms ease;
+  transition: background-color 110ms cubic-bezier(0.2, 0, 0.38, 0.9);
 }
-.student-card:hover {
-  border-color: var(--lmd-faint);
+.student-card.cds--tile:hover {
+  background: var(--cds-layer-hover-01);
 }
 .student-card.is-alert {
-  background: color-mix(in srgb, var(--tone) 7%, var(--lmd-panel));
-  border-color: color-mix(in srgb, var(--tone) 45%, var(--lmd-border));
+  background: color-mix(in srgb, var(--tone) 7%, var(--cds-layer-01));
+  box-shadow: inset 3px 0 0 var(--tone);
 }
 .student-card.is-alert:hover {
-  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 12%, var(--cds-layer-01));
 }
 .student-card.is-absent {
   opacity: 0.55;
@@ -391,54 +260,19 @@ textarea::placeholder {
   gap: 6px;
   margin-top: 12px;
 }
-.chip-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  border: 1px solid var(--lmd-border);
-  border-radius: 6px;
-  background: var(--lmd-panel);
-  color: var(--lmd-sub);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.dashboard .chip-btn {
-  min-height: 30px;
-}
-.dashboard .chip-btn:hover {
-  filter: none;
-  border-color: var(--lmd-faint);
-  color: var(--lmd-ink);
-}
-/* Present is everyone's default, so it stays quiet (the label says it); a pick
-   is the researcher's own mark, so it is the one toggle that lights up. */
-.chip-btn.is-pick[aria-pressed="true"] {
-  color: var(--lmd-purple);
-  font-weight: 500;
-  background: var(--lmd-track);
-}
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
+.card-actions .card-remove {
   margin-left: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
+}
+.card-actions .cds--tag,
+.feed-actions .cds--tag {
+  margin: 0;
+}
+/* Present is everyone's default, so it stays quiet when on (the label says it); a pick is the
+   researcher's own mark, so it is the one toggle that fills. */
+.card-actions .cds--tag--selectable-selected:not(.is-pick) {
+  border: 1px solid var(--cds-border-strong-01);
   background: transparent;
-  color: var(--lmd-faint);
-  cursor: pointer;
-}
-.dashboard .icon-btn {
-  min-height: 30px;
-}
-.dashboard .icon-btn:hover {
-  filter: none;
-  background: var(--lmd-track);
-  color: var(--lmd-ink);
+  color: var(--cds-text-secondary);
 }
 .student-open {
   appearance: none;
@@ -520,14 +354,13 @@ textarea::placeholder {
   gap: 8px;
 }
 .feed-item {
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--lmd-border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--tone) 6%, var(--lmd-panel));
+  padding: 0.75rem 0.5rem 0.75rem 1rem;
+  background: color-mix(in srgb, var(--tone) 6%, var(--cds-layer-01));
+  box-shadow: inset 3px 0 0 var(--tone);
   cursor: pointer;
 }
 .feed-item:hover {
-  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 11%, var(--cds-layer-01));
 }
 .feed-row {
   display: flex;
@@ -544,9 +377,6 @@ textarea::placeholder {
   font-size: 12px;
   color: var(--lmd-sub);
   font-variant-numeric: tabular-nums;
-}
-.feed-row .icon-btn {
-  margin-left: 0;
 }
 .feed-what {
   display: flex;
@@ -575,36 +405,14 @@ textarea::placeholder {
 .feed-note {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-right: 0.5rem;
 }
-.feed-note textarea {
-  min-height: 64px;
-  resize: vertical;
-  padding: 8px 10px;
-  border: 1px solid var(--lmd-border);
-  border-radius: 8px;
-  background: var(--lmd-panel);
-  color: var(--lmd-ink);
-  font: inherit;
-  font-size: 14px;
+.feed-note .cds--form-item {
+  align-self: stretch;
 }
-.feed-note button {
-  align-self: flex-end;
-  padding: 0 14px;
-  border: 1px solid var(--lmd-ink);
-  border-radius: 6px;
-  background: var(--lmd-ink);
-  color: var(--lmd-panel);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.dashboard .feed-note button {
-  min-height: 32px;
-}
-
 /* Student detail: a sheet over the right edge of the board, so the cohort stays
    in view behind it. The dialog is the frame; .student-detail is the one scroll
    container (the header sticks inside it). */
@@ -661,6 +469,9 @@ textarea::placeholder {
   background: var(--lmd-panel);
   border-bottom: 1px solid var(--lmd-border);
 }
+#sd-title:focus {
+  outline: none;
+}
 .sd-who {
   display: flex;
   align-items: center;
@@ -694,23 +505,6 @@ textarea::placeholder {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
-}
-.student-dialog .sd-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--lmd-sub);
-  cursor: pointer;
-}
-.student-dialog .sd-close:hover {
-  filter: none;
-  background: var(--lmd-track);
-  color: var(--lmd-ink);
 }
 .sd-body {
   display: grid;
@@ -773,38 +567,15 @@ textarea::placeholder {
   color: var(--lmd-sub);
   line-height: 28px;
 }
-/* Program / Playground switch */
-.sd-switch {
-  display: inline-flex;
-  padding: 2px;
-  gap: 2px;
-  border-radius: 8px;
-  background: var(--lmd-track);
-  border: 1px solid var(--lmd-border);
-}
-.student-dialog .sd-switch button {
-  min-height: 28px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--lmd-sub);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.student-dialog .sd-switch button[aria-selected="true"] {
-  background: var(--lmd-panel);
-  color: var(--lmd-ink);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgb(3 5 9 / 12%);
+/* Program view switch: Carbon's content switcher, at its own width. */
+.sd-switch.cds--content-switcher {
+  inline-size: 16rem;
 }
 .sd-code {
   margin: 0;
   padding: 14px 16px;
   background: var(--lmd-track);
-  border: 1px solid var(--lmd-border);
-  border-radius: 8px;
+  border: 0;
   font-family: var(--lmd-mono);
   font-size: 13px;
   line-height: 1.6;
@@ -1347,6 +1118,24 @@ button.flag-chip {
   align-items: center;
   gap: 6px;
 }
+/* The goal run picker's buttons. */
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--lmd-border);
+  background: var(--lmd-panel);
+  color: var(--lmd-sub);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip-btn:hover {
+  border-color: var(--lmd-faint);
+  color: var(--lmd-ink);
+}
 .dashboard .chip-btn.goal-run {
   min-width: 36px;
   justify-content: center;
@@ -1564,52 +1353,11 @@ button.flag-chip {
 .sd-composer {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--lmd-border);
-  border-radius: 8px;
-  background: var(--lmd-panel);
+  align-items: flex-end;
+  gap: 0.5rem;
 }
-.sd-composer:focus-within {
-  border-color: var(--lmd-accent);
-}
-.sd-composer textarea {
-  min-height: 88px;
-  resize: vertical;
-  padding: 12px;
-  border: 0;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--lmd-ink);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.45;
-}
-.student-dialog .sd-composer textarea:focus-visible {
-  outline: none;
-}
-.sd-composer-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 8px 8px 12px;
-  font-size: 12px;
-  color: var(--lmd-faint);
-}
-.student-dialog .sd-composer-foot button {
-  min-height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--lmd-ink);
-  border-radius: 6px;
-  background: var(--lmd-ink);
-  color: var(--lmd-panel);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.student-dialog .sd-composer-foot button:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
+.sd-composer .cds--form-item {
+  align-self: stretch;
 }
 .sd-notes,
 .sd-history {
@@ -1690,41 +1438,24 @@ button.flag-chip {
   .dashboard {
     height: auto;
   }
-  .dashboard-header {
-    padding: 14px 16px;
+  /* The header keeps the product name and the actions; the long name gives way first. */
+  .lmd-header .cds--header__name {
+    overflow: hidden;
+    padding-inline: 1rem 0.5rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .brand h1 {
-    font-size: 16px;
+  .lmd-header .cds--header__name--prefix + span,
+  .lmd-header .live-state {
+    display: none;
   }
   .track-form {
     width: 100%;
+    margin-left: 0;
   }
-  .track-form input {
+  .track-form .cds--text-input-wrapper {
     flex: 1;
-    width: auto;
-    font-size: 16px;
-  }
-  .dashboard-actions {
-    width: 100%;
-  }
-  .dashboard-actions button {
-    min-height: 44px;
-  }
-  .dashboard-actions {
-    flex-wrap: nowrap;
-    justify-content: space-between;
-    gap: 0;
-  }
-  .hdr-btn {
-    padding: 0 8px;
-    font-size: 13px;
-  }
-  .hdr-sep {
-    display: none;
-  }
-  /* Icon sets display inline; on a phone the labels alone fit one row. */
-  .hdr-btn:not(.hdr-icon) svg {
-    display: none !important;
+    inline-size: auto;
   }
   .dashboard-main {
     flex-direction: column;
@@ -1732,13 +1463,6 @@ button.flag-chip {
   .student-board {
     padding: 24px 16px;
     overflow: visible;
-  }
-  .dashboard .chip-btn,
-  .dashboard .icon-btn {
-    min-height: 44px;
-  }
-  .dashboard .icon-btn {
-    width: 44px;
   }
   .intervention-feed {
     width: 100%;
@@ -1772,9 +1496,7 @@ button.flag-chip {
   .traj .traj-now {
     display: none;
   }
-  .student-dialog .sd-switch button,
-  .student-dialog .goal-runs button,
-  .student-dialog .sd-composer-foot button {
+  .student-dialog .goal-runs button {
     min-height: 40px;
   }
 }

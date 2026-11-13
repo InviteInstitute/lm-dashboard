@@ -226,10 +226,18 @@ code {
   color: var(--lmd-faint);
   white-space: nowrap;
 }
-.is-alert .card-status {
-  color: var(--tone-text);
+/* Status: Carbon's tag, tinted with the trigger's colour so it matches the tracks. */
+.status-tag.cds--tag {
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  color: var(--tone);
   font-weight: 600;
-  align-self: center;
+}
+.card-head .status-tag.cds--tag {
+  margin: 0 0 0 auto;
+  --tone: var(--tone-text);
+}
+.status-tag .cds--tag__custom-icon svg {
+  fill: none;
 }
 .card-strips {
   display: grid;
@@ -252,6 +260,9 @@ code {
   margin: 4px 0 8px;
   font-size: 13px;
   color: var(--lmd-faint);
+}
+.card-wait .cds--skeleton__text {
+  margin-bottom: 0.5rem;
 }
 .card-actions,
 .feed-actions {
@@ -571,27 +582,13 @@ code {
 .sd-switch.cds--content-switcher {
   inline-size: 16rem;
 }
-.sd-code {
-  margin: 0;
-  padding: 14px 16px;
-  background: var(--lmd-track);
-  border: 0;
-  font-family: var(--lmd-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre;
-  color: var(--lmd-code);
-  max-height: 320px;
-  overflow: auto;
+.sd-code.cds--snippet--multi {
+  max-inline-size: none;
 }
 .sd-code-note {
   margin: -4px 0 8px;
   font-size: 13px;
   color: var(--lmd-sub);
-}
-.sd-code-wrap {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 /* Goal evidence */
 .goal-intro {
@@ -611,8 +608,25 @@ code {
   font-size: 13px;
   color: var(--lmd-sub);
 }
-.student-dialog .goal-runs button {
-  min-height: 28px;
+.goal-runs .cds--tag {
+  margin: 0;
+  min-inline-size: 2.25rem;
+  justify-content: center;
+  font-family: var(--lmd-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* A run that left the island: a red tick under its number. */
+.goal-run.is-exit {
+  position: relative;
+}
+.goal-run.is-exit::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: 2px;
+  height: 2px;
+  background: var(--lmd-signal-d0433c);
 }
 .goal-part {
   margin-top: 24px;
@@ -663,45 +677,9 @@ h5 {
 }
 
 /* One flag chip per row: the lead flag, a +N count, the full list on click. */
-.flag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 0 7px;
-  border: 1px solid var(--lmd-border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--lmd-sub);
-  font: inherit;
-  font-size: 12px;
-  line-height: 20px;
-  white-space: nowrap;
-}
-.flag-chip.is-uncertain {
-  color: var(--lmd-warning);
-  border-color: color-mix(in srgb, var(--lmd-warning) 45%, transparent);
-  background: color-mix(in srgb, var(--lmd-warning) 8%, transparent);
-}
-.flag-name {
-  min-width: 0;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.flag-more {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-button.flag-chip {
-  cursor: pointer;
-}
-.student-dialog button.flag-chip {
-  min-height: 22px;
-}
-.student-dialog button.flag-chip:hover {
-  filter: none;
-  border-color: currentColor;
+.flag-chip.cds--tag {
+  margin: 0;
+  max-inline-size: 100%;
 }
 .flag-list {
   display: flex;
@@ -824,10 +802,26 @@ button.flag-chip {
   margin: 4px 0 16px;
   padding-bottom: 4px;
 }
-.traj table {
+.traj .cds--data-table {
+  inline-size: auto;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
+}
+.traj .cds--data-table thead th,
+.traj .cds--data-table tbody td,
+.traj .cds--data-table tbody th {
+  block-size: auto;
+  border-top: 0;
+  border-bottom: 0;
+  background: var(--lmd-panel);
+}
+.traj .cds--data-table tbody tr:hover td,
+.traj .cds--data-table tbody tr:hover th {
+  background: var(--cds-layer-hover-01);
+}
+.traj .cds--table-header-label {
+  padding: 0;
 }
 .traj th[scope="row"] {
   position: sticky;
@@ -1018,22 +1012,20 @@ button.flag-chip {
 .goal-evidence {
   margin-top: 10px;
 }
-.goal-evidence summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  list-style: none;
-  cursor: pointer;
+.goal > .goal-evidence.cds--accordion {
+  inline-size: auto;
+}
+/* Carbon keeps a quarter of the width clear for prose; evidence needs it. */
+.goal-evidence .cds--accordion__content,
+.battery-families .cds--accordion__content {
+  padding-inline-end: 0;
+}
+.goal-evidence .cds--accordion__title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--lmd-ink);
-}
-.goal-evidence summary:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 .goal-evidence-count {
+  margin-left: 6px;
   font-weight: 400;
   color: var(--lmd-sub);
 }
@@ -1118,7 +1110,7 @@ button.flag-chip {
   align-items: center;
   gap: 6px;
 }
-/* The goal run picker's buttons. */
+/* Small inline buttons in goal evidence. */
 .chip-btn {
   display: inline-flex;
   align-items: center;
@@ -1135,32 +1127,6 @@ button.flag-chip {
 .chip-btn:hover {
   border-color: var(--lmd-faint);
   color: var(--lmd-ink);
-}
-.dashboard .chip-btn.goal-run {
-  min-width: 36px;
-  justify-content: center;
-  font-family: var(--lmd-mono);
-  font-variant-numeric: tabular-nums;
-}
-.chip-btn.goal-run.is-exit {
-  position: relative;
-}
-/* A run that left the island: a red tick under its number. */
-.chip-btn.goal-run.is-exit::after {
-  content: "";
-  position: absolute;
-  left: 30%;
-  right: 30%;
-  bottom: 3px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--lmd-signal-d0433c);
-}
-.chip-btn.goal-run[aria-pressed="true"] {
-  background: var(--lmd-ink);
-  border-color: var(--lmd-ink);
-  color: var(--lmd-panel);
-  font-weight: 600;
 }
 .goal-summary {
   display: flex;
@@ -1258,23 +1224,15 @@ button.flag-chip {
   font-size: 13px;
   color: var(--lmd-sub);
 }
-.battery-family {
-  border-top: 1px solid var(--lmd-border);
-}
-.battery-family:last-child {
-  border-bottom: 1px solid var(--lmd-border);
-}
-.battery-family summary {
+.battery-family-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 10px;
-  padding: 10px 0;
-  list-style: none;
-  cursor: pointer;
+  inline-size: 100%;
   font-size: 13px;
 }
-.battery-family summary:hover .battery-family-name {
+.battery-family-name {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -1359,15 +1317,8 @@ button.flag-chip {
 .sd-composer .cds--form-item {
   align-self: stretch;
 }
-.sd-notes,
-.sd-history {
-  list-style: none;
-  margin: 16px 0 0;
-  padding: 0;
-}
-.sd-notes li {
-  padding: 12px 0;
-  border-top: 1px solid var(--lmd-border);
+.sd-notes.cds--contained-list {
+  margin-top: 1rem;
 }
 .sd-note-meta {
   display: flex;
@@ -1384,26 +1335,22 @@ button.flag-chip {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.sd-history {
-  margin-top: 0;
-}
-.sd-history li {
+.sd-history.cds--contained-list .cds--contained-list-item__content > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--lmd-border);
   font-size: 13px;
-}
-.sd-history li:first-child {
-  border-top: 0;
-  padding-top: 0;
 }
 .sd-history-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-weight: 600;
+}
+.sd-history.cds--contained-list .cds--contained-list__label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--lmd-ink);
 }
 .sd-history time,
 .sd-history-status {
@@ -1496,9 +1443,6 @@ button.flag-chip {
   .traj .traj-now {
     display: none;
   }
-  .student-dialog .goal-runs button {
-    min-height: 40px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .dashboard *,
@@ -1527,17 +1471,6 @@ button.flag-chip {
   }
 }
 
-/* Goal battery families: a native <details> with our own caret. */
-details > summary::-webkit-details-marker {
-  display: none;
-}
-.goal-fam-caret {
-  display: inline-block;
-  transition: transform 0.12s ease;
-}
-details[open] > summary .goal-fam-caret {
-  transform: rotate(90deg);
-}
 @media (max-width: 640px) {
   .traj th[scope="row"] {
     width: 132px;

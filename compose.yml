@@ -33,7 +33,14 @@ services:
     build: .
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    env_file: .env.mirror
+    env_file: &env
+      - .env.mirror
+      # ZANY's study logs (app/zany.py): ZANY_LOG_DSN for ATLAS-invite's log store, read-only over
+      # the host's Postgres socket below. Without the file the ZANY source is off.
+      - path: /etc/lm-dashboard/zany.env
+        required: false
+    volumes: &pgsocket
+      - /var/run/postgresql:/var/run/postgresql:ro
     environment:
       DATABASE_URL: postgresql://lmdash:${POSTGRES_PASSWORD}@db:5432/lm_dashboard
     depends_on:
@@ -46,7 +53,8 @@ services:
     build: .
     restart: unless-stopped
     command: python -m app.pipeline
-    env_file: .env.mirror
+    env_file: *env
+    volumes: *pgsocket
     environment:
       DATABASE_URL: postgresql://lmdash:${POSTGRES_PASSWORD}@db:5432/lm_dashboard
       PIPELINE_REQUIRE_VIEWER: "1"     # prod: only poll a board while its dashboard is open

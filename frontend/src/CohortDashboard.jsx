@@ -14,6 +14,7 @@ import {
   AccordionItem,
   Button,
   CodeSnippet,
+  InlineNotification,
   ContainedList,
   ContainedListItem,
   ContentSwitcher,
@@ -25,6 +26,8 @@ import {
   IconButton,
   Modal,
   OperationalTag,
+  Select,
+  SelectItem,
   SelectableTag,
   SkeletonText,
   Switch,
@@ -37,6 +40,7 @@ import {
   Tag,
   TextArea,
   TextInput,
+  PasswordInput,
   Tile,
   ToastNotification,
   Toggle,
@@ -1912,6 +1916,11 @@ const CohortDashboard = () => {
   });
   const [triggerPanel, setTriggerPanel] = React.useState(false);
   const [resetOpen, setResetOpen] = React.useState(false);
+  // Where this board listens: Reflecks (VEXcode VR), or one ZANY study ("zany:STUDY-0001"),
+  // which needs the research login (the server checks it with ATLAS).
+  const [source, setSource] = React.useState("reflecks");
+  const [zany, setZany] = React.useState({ enabled: false, unlocked: false, studies: [] });
+  const [unlock, setUnlock] = React.useState(null); // {email, password, error, busy} while open
   // Light (INVITE brand) or dark (the dashboard's original look); persisted
   // per-browser like boardId(). No stored preference -> follow the OS.
   const [theme, setTheme] = React.useState(() => {
@@ -1933,6 +1942,32 @@ const CohortDashboard = () => {
     }
   }, [theme]);
   const visible = usePageVisible(); // gates every poll loop below; hidden tab -> no polling
+
+  const fetchZany = React.useCallback(async () => {
+    try {
+      setZany({
+        enabled: false,
+        unlocked: false,
+        studies: [],
+        ...(await api.get("/api/zany/")).data,
+      });
+    } catch {
+      /* the store is down: Reflecks keeps working */
+    }
+  }, []);
+  React.useEffect(() => {
+    fetchZany();
+    api
+      .get("/api/source/")
+      .then((r) => setSource(r.data.source || "reflecks"))
+      .catch(() => {});
+    const locked = () => {
+      setZany((z) => ({ ...z, unlocked: false }));
+      setUnlock((u) => u || { email: "", password: "", error: null, busy: false });
+    };
+    window.addEventListener("zany:locked", locked);
+    return () => window.removeEventListener("zany:locked", locked);
+  }, [fetchZany]);
 
   const fetchStates = React.useCallback(async () => {
     try {
@@ -2309,6 +2344,89 @@ const CohortDashboard = () => {
   // Track one or many: split on ';', strip ALL whitespace from each id (ids
   // never contain spaces, so any whitespace is just noise), drop blanks, and
   // de-dupe. Each is added independently so one failure doesn't sink the rest.
+  // ---- sources ----
+  const zanyStudy = source.startsWith("zany:")
+    ? zany.studies.find((s) => `zany:${s.study}` === source) || {
+        study: source.slice(5),
+        code: source.slice(5),
+      }
+    : null;
+  const sourceItems = [
+    { id: "reflecks", text: "Reflecks (VEXcode VR)" },
+    ...(zany.unlocked
+      ? zany.studies.map((s) => ({ id: `zany:${s.study}`, text: `ZANY: ${s.code} (${s.study})` }))
+      : [{ id: "unlock", text: "ZANY: sign in to see studies" }]),
+  ];
+  // A ZANY board already set, but this browser locked: keep it in the list so it shows.
+  if (zanyStudy && !sourceItems.some((it) => it.id === source)) {
+    sourceItems.push({ id: source, text: `ZANY: ${zanyStudy.code} (locked)` });
+  }
+  const refetchBoard = () => {
+    setSelected(null);
+    setStates({});
+    setTriggers([]);
+    setSwitches([]);
+    fetchStates();
+    fetchRoster();
+    fetchTriggers();
+    fetchSwitches();
+  };
+  const pickSource = async (id) => {
+    if (id === "unlock") {
+      setUnlock({ email: "", password: "", error: null, busy: false });
+      return;
+    }
+    if (id === source) return;
+    try {
+      setSource((await api.post("/api/source/", { source: id })).data.source || id);
+      refetchBoard();
+    } catch (err) {
+      if (err.response?.status !== 403) notify("error", "Source not changed", "Try again.");
+    }
+  };
+  const submitUnlock = async () => {
+    if (!unlock || unlock.busy || !unlock.email || !unlock.password) return;
+    setUnlock((u) => ({ ...u, busy: true, error: null }));
+    try {
+      const { data } = await api.post("/api/zany/unlock/", {
+        email: unlock.email,
+        password: unlock.password,
+      });
+      setZany((z) => ({ ...z, unlocked: true, studies: data.studies || [] }));
+      setUnlock(null);
+      notify("success", "ZANY unlocked", "Pick a study from the source list.");
+      if (source.startsWith("zany:")) refetchBoard();
+    } catch (err) {
+      setUnlock(
+        (u) =>
+          u && {
+            ...u,
+            busy: false,
+            password: "",
+            error: err.response?.data?.detail || "Not checked. Try again.",
+          },
+      );
+    }
+  };
+  const trackEveryone = async () => {
+    if (!zanyStudy) return;
+    try {
+      const { data } = await api.get("/api/zany/participants/", {
+        params: { study: zanyStudy.study },
+      });
+      await Promise.all(
+        data.participants.map((pid) =>
+          submitWrite(`track: ${pid}`, { studentID: pid }, () =>
+            api.post("/api/tracked/", { studentID: pid }),
+          ).catch(() => {}),
+        ),
+      );
+      fetchRoster();
+    } catch {
+      notify("error", "Not tracked", "ZANY's participant list didn't load. Try again.");
+    }
+  };
+
   const addTracked = async () => {
     const ids = [
       ...new Set(
@@ -2503,6 +2621,49 @@ const CohortDashboard = () => {
       </Header>
 
       <Modal
+        open={!!unlock}
+        modalLabel="ZANY's logs"
+        modalHeading="Sign in with the research login"
+        primaryButtonText={unlock?.busy ? "Checking..." : "Unlock"}
+        primaryButtonDisabled={!unlock?.email || !unlock?.password || unlock?.busy}
+        secondaryButtonText="Cancel"
+        onRequestClose={() => setUnlock(null)}
+        onRequestSubmit={submitUnlock}
+      >
+        <p className="unlock-intro">
+          ZANY's logs are for the research team. Use the same login as ATLAS's research pages; ATLAS
+          checks it. This browser stays unlocked for 12 hours.
+        </p>
+        <TextInput
+          id="unlock-email"
+          labelText="Email"
+          type="email"
+          autoComplete="username"
+          value={unlock?.email || ""}
+          onChange={(e) => setUnlock((u) => ({ ...u, email: e.target.value, error: null }))}
+        />
+        <PasswordInput
+          id="unlock-password"
+          labelText="Password"
+          autoComplete="current-password"
+          value={unlock?.password || ""}
+          onChange={(e) => setUnlock((u) => ({ ...u, password: e.target.value, error: null }))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submitUnlock();
+          }}
+        />
+        {unlock?.error && (
+          <InlineNotification
+            kind="error"
+            lowContrast
+            hideCloseButton
+            title="Not unlocked"
+            subtitle={unlock.error}
+          />
+        )}
+      </Modal>
+
+      <Modal
         open={resetOpen}
         danger
         className="reset-modal"
@@ -2533,6 +2694,21 @@ const CohortDashboard = () => {
         <section className="student-board" aria-label="Students" style={S.board}>
           <div className="board-heading">
             <h2>Students</h2>
+            {zany.enabled && (
+              <Select
+                id="board-source"
+                className="source-pick"
+                inline
+                size="md"
+                labelText="Listening to"
+                value={source}
+                onChange={(e) => pickSource(e.target.value)}
+              >
+                {sourceItems.map((it) => (
+                  <SelectItem key={it.id} value={it.id} text={it.text} />
+                ))}
+              </Select>
+            )}
             <span>
               {boxes.length} tracked, {boxes.filter((b) => b.present).length} present,{" "}
               {boxes.filter((b) => b.picked).length} picked
@@ -2550,9 +2726,11 @@ const CohortDashboard = () => {
               <TextInput
                 id="track-ids"
                 size="md"
-                labelText="Track student IDs"
+                labelText={zanyStudy ? "Track participant IDs" : "Track student IDs"}
                 hideLabel
-                placeholder="Track student IDs"
+                placeholder={
+                  zanyStudy ? `Track participant IDs in ${zanyStudy.code}` : "Track student IDs"
+                }
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
@@ -2560,6 +2738,11 @@ const CohortDashboard = () => {
                 Track
               </Button>
             </form>
+            {zanyStudy && (
+              <Button kind="ghost" size="md" onClick={trackEveryone}>
+                Track everyone in {zanyStudy.code}
+              </Button>
+            )}
           </div>
           {boxes.length === 0 ? (
             <div className="board-empty" style={S.empty}>

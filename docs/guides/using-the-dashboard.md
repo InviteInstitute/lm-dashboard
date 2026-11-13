@@ -14,6 +14,25 @@ view stays in sync with itself and updates land in about a quarter second. If th
 stream ever drops, it silently falls back to polling until it reconnects. You never
 have to think about it.
 
+## Reflecks Or ZANY
+
+A board listens to one source, picked in **Listening to** beside the Students heading:
+
+- **Reflecks (VEXcode VR)**, the classroom logs, as always.
+- **ZANY: a study**, the logs ZANY sends to ATLAS-invite (zany.inviteai.org) for one study. ATLAS
+  keeps only what a participant's consent allows, and lm-dashboard reads them from ATLAS's store
+  read-only, within about a second of ATLAS keeping them.
+
+ZANY's logs are for the research team. Picking ZANY the first time asks for the research login,
+the same one as ATLAS's research pages; ATLAS checks it, and the browser stays unlocked for 12
+hours. Five wrong tries lock it for ten minutes.
+
+On a ZANY board, track participants by the IDs they typed (R01, R02), or **Track everyone in**
+the study. Cards show those IDs. When ATLAS deletes some of a participant's records (a researcher
+deleted or reset them), lm-dashboard drops what it made from them at once and rebuilds it from what
+is left. Each board keeps its own roster per source, so switching back to Reflecks shows the
+Reflecks students again.
+
 ## Track A Student
 
 Type a student ID into **Track student IDs**, beside the Students heading. The daemon backfills their recent

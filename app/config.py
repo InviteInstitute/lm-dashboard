@@ -53,6 +53,11 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET") or "dev-insecure-session-secre
 # means the gate can't verify anyone (see app/turnstile.py).
 TURNSTILE_SECRET = os.environ.get("TURNSTILE_SECRET")
 
+# ZANY's study logs (app/zany.py): ATLAS-invite's log store, read-only, and ATLAS itself, which
+# checks the research login. Without a DSN the ZANY source is off.
+ZANY_LOG_DSN = os.environ.get("ZANY_LOG_DSN")
+ATLAS_URL = os.environ.get("ATLAS_URL", "https://zany.inviteai.org").rstrip("/")
+
 # Cross-origin allowlist for the browser. Defaults cover the Vite dev server's
 # usual ports; comma-separated, blanks dropped.
 CORS_ORIGINS = [

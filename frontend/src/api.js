@@ -45,6 +45,10 @@ api.interceptors.response.use(
     if (err.response?.status === 403 && err.response?.data?.error === "turnstile_required") {
       window.dispatchEvent(new CustomEvent("turnstile:required"));
     }
+    // A board on a ZANY study whose unlock ran out: the dashboard asks for the research login.
+    if (err.response?.status === 403 && err.response?.data?.detail === "zany_locked") {
+      window.dispatchEvent(new CustomEvent("zany:locked"));
+    }
     return Promise.reject(err);
   },
 );

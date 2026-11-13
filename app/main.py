@@ -12,18 +12,20 @@ toggles, and the reset and polling control flags.
 import asyncio
 import functools
 import json
+import time
 from datetime import timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
+from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from learner_models import extract_workspace_xml
 from log_parser_delta_engine import generate_readable_text
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db
+from app import config, db, zany
 from app.constants import (
     TRIGGER_LABELS,
     TRIGGER_RECENT_SECONDS,
@@ -91,6 +93,11 @@ def _since_reset(runs, episodes, since):
     )
 
 
+def _shown(student_id):
+    """The ID a researcher knows a student by: a ZANY student's is the participant ID they typed."""
+    return zany.split(student_id)[1] if zany.is_zany(student_id) else student_id
+
+
 def _shape_state(s, heavy=False, since=None):
     """Turn a materialized student_state row into the dashboard's JSON payload.
 
@@ -102,7 +109,7 @@ def _shape_state(s, heavy=False, since=None):
     hides the runs and episodes from before it, so the tile starts fresh."""
     out = {
         "studentID": s["studentID"],
-        "display": s.get("display_id") or s["studentID"],  # most-recent casing for the UI
+        "display": _shown(s.get("display_id") or s["studentID"]),  # most-recent casing for the UI
         "classCode": s["classCode"],
         "run_count": s["run_count"],
         "event_count": s["event_count"],
@@ -384,6 +391,50 @@ async def turnstile_verify(body: TurnstileVerifyRequest, request: Request, respo
     return {"ok": True}
 
 
+# --------------------------------------------------------------------------
+# sources: each board listens to Reflecks (VEXcode VR) or to one ZANY study
+# --------------------------------------------------------------------------
+# ZANY's logs come from ATLAS-invite's store (app/zany.py) and are for the research team only:
+# a browser unlocks them with the research login, which ATLAS checks, for UNLOCK_HOURS. A board
+# set to a ZANY study answers nothing until its browser is unlocked.
+REFLECKS = "reflecks"
+UNLOCK_COOKIE = "zany_unlocked"
+UNLOCK_HOURS = 12
+UNLOCK_TRIES = 5  # wrong logins a browser may try ...
+UNLOCK_WINDOW = 600  # ... in this many seconds
+_unlock_signer = TimestampSigner(config.SESSION_SECRET, salt="zany-unlock")
+_unlock_failures: dict[str, list[float]] = {}
+
+
+def _client_ip(request):
+    return (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or (
+        request.client.host if request.client else ""
+    )
+
+
+def zany_unlocked(request: Request) -> bool:
+    value = request.cookies.get(UNLOCK_COOKIE)
+    if not value:
+        return False
+    try:
+        _unlock_signer.unsign(value, max_age=UNLOCK_HOURS * 3600)
+        return True
+    except (BadSignature, SignatureExpired):
+        return False
+
+
+def board_source(wsid):
+    return db.get_workspace_setting(wsid, "source") or REFLECKS
+
+
+def _in_source(student_id, source):
+    """Whether a student belongs on a board listening to `source`."""
+    sid = db.canon_id(student_id)
+    if source.startswith(zany.PREFIX):
+        return sid.startswith(db.canon_id(source) + ":")
+    return not zany.is_zany(sid)
+
+
 async def current_workspace_id(request: Request) -> int:
     """The workspace this request acts in, so every data route scopes to the
     caller's own board. Prefers the per-browser board the SPA names via the
@@ -398,8 +449,106 @@ async def current_workspace_id(request: Request) -> int:
         wsid = await run_in_threadpool(db.workspace_for_client_key, board)
     else:
         wsid = await run_in_threadpool(db.default_workspace_id)
+    # A board on a ZANY study needs an unlocked browser for everything but changing its
+    # source or unlocking.
+    path = request.url.path
+    if not path.startswith(("/api/source/", "/api/zany/")):
+        source = await run_in_threadpool(board_source, wsid)
+        if source != REFLECKS and not zany_unlocked(request):
+            raise HTTPException(status_code=403, detail="zany_locked")
     request.state.workspace_id = wsid
     return wsid
+
+
+class UnlockBody(BaseModel):
+    email: str
+    password: str
+
+
+class SourceBody(BaseModel):
+    source: str
+
+
+def _studies():
+    try:
+        return zany.studies()
+    except Exception as e:  # the store is down or unreachable: say so, keep Reflecks working
+        raise HTTPException(status_code=503, detail="ZANY's log store isn't answering.") from e
+
+
+@app.get("/api/zany/")
+def zany_status(request: Request):
+    """Whether ZANY's logs can be read here, whether this browser has unlocked them, and the
+    studies with records once it has."""
+    unlocked = zany.enabled() and zany_unlocked(request)
+    return {
+        "enabled": zany.enabled(),
+        "unlocked": unlocked,
+        "studies": _studies() if unlocked else [],
+    }
+
+
+@app.post("/api/zany/unlock/")
+def zany_unlock(body: UnlockBody, request: Request, response: Response):
+    """Unlock ZANY's logs in this browser with the research login, which ATLAS checks."""
+    if not zany.enabled():
+        raise HTTPException(status_code=404, detail="ZANY's logs aren't connected here.")
+    ip, now = _client_ip(request), time.monotonic()
+    recent = [t for t in _unlock_failures.get(ip, []) if now - t < UNLOCK_WINDOW]
+    if len(recent) >= UNLOCK_TRIES:
+        raise HTTPException(status_code=429, detail="Too many tries. Wait ten minutes.")
+    try:
+        zany.researcher_login(body.email.strip(), body.password)
+    except zany.LoginFailed as e:
+        _unlock_failures[ip] = [*recent, now]
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    _unlock_failures.pop(ip, None)
+    response.set_cookie(
+        UNLOCK_COOKIE,
+        _unlock_signer.sign(b"ok").decode(),
+        max_age=UNLOCK_HOURS * 3600,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+    return {"unlocked": True, "studies": _studies()}
+
+
+@app.post("/api/zany/lock/")
+def zany_lock(response: Response):
+    response.delete_cookie(UNLOCK_COOKIE)
+    return {"unlocked": False}
+
+
+@app.get("/api/zany/participants/")
+def zany_participants(study: str, request: Request):
+    """The participant IDs with records in one study, for "Track everyone"."""
+    if not zany_unlocked(request):
+        raise HTTPException(status_code=403, detail="zany_locked")
+    try:
+        return {"participants": zany.participants(study)}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="ZANY's log store isn't answering.") from e
+
+
+@app.get("/api/source/")
+def source_get(wsid: int = Depends(current_workspace_id)):
+    return {"source": board_source(wsid)}
+
+
+@app.post("/api/source/")
+def source_set(body: SourceBody, request: Request, wsid: int = Depends(current_workspace_id)):
+    """Point this board at Reflecks or at one ZANY study (`zany:<study>`)."""
+    source = body.source.strip()
+    if source != REFLECKS:
+        if not source.startswith(zany.PREFIX) or not zany.enabled():
+            raise HTTPException(status_code=400, detail="Unknown source.")
+        if not zany_unlocked(request):
+            raise HTTPException(status_code=403, detail="zany_locked")
+        if source[len(zany.PREFIX) :] not in {s["study"] for s in _studies()}:
+            raise HTTPException(status_code=400, detail="No such study with records.")
+    db.set_workspace_setting(wsid, "source", source)
+    return {"source": source}
 
 
 @app.get("/api/student_states/")
@@ -415,9 +564,11 @@ def student_states(classCode: str | None = None, wsid: int = Depends(current_wor
     # has polled for VIEWER_PRESENT_SECONDS.
     db.set_workspace_setting(wsid, "viewer_last_seen", db.now().isoformat())
     since = db.reset_since(wsid)
+    source = board_source(wsid)
     rows = [
         _shape_state(s, since=since)
         for s in db.list_student_states(class_code=classCode, workspace_id=wsid)
+        if _in_source(s["studentID"], source)
     ]
     rows.sort(key=lambda s: s["last_seen"] or "", reverse=True)
     return {"students": rows, "student_count": len(rows)}
@@ -542,7 +693,12 @@ def triggers(wsid: int = Depends(current_workspace_id)):
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
     since = db.reset_since(wsid)
-    feed = db.triggers_feed(cutoff, workspace_id=wsid, since=since)
+    source = board_source(wsid)
+    feed = [
+        t
+        for t in db.triggers_feed(cutoff, workspace_id=wsid, since=since)
+        if _in_source(t["studentID"], source)
+    ]
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
     # the card can say "last: Wheel-spinning | 10:24". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
@@ -657,6 +813,7 @@ def switches(wsid: int = Depends(current_workspace_id)):
             "acknowledged": bool(r["acknowledged"]),
         }
         for r in db.list_switches(limit=100, workspace_id=wsid, since=db.reset_since(wsid))
+        if _in_source(r["studentID"], board_source(wsid))
     ]
     return {"switches": items, "unacked": sum(1 for i in items if not i["acknowledged"])}
 
@@ -705,8 +862,13 @@ class TrackBody(BaseModel):
 
 @app.get("/api/tracked/")
 def tracked_list(wsid: int = Depends(current_workspace_id)):
-    rows = db.tracked_list(workspace_id=wsid)
-    return {"tracked": rows, "count": len(rows)}
+    source = board_source(wsid)
+    rows = [
+        {**r, "display": _shown(r["display"])}
+        for r in db.tracked_list(workspace_id=wsid)
+        if _in_source(r["studentID"], source)
+    ]
+    return {"tracked": rows, "count": len(rows), "source": source}
 
 
 @app.post("/api/tracked/")
@@ -720,6 +882,10 @@ def tracked_mutate(body: TrackBody, wsid: int = Depends(current_workspace_id)):
     if body.remove:
         db.tracked_remove(sid, workspace_id=wsid)
         return {"removed": sid}
+    # On a ZANY board, an ID typed is a participant ID in that board's study.
+    source = board_source(wsid)
+    if source.startswith(zany.PREFIX) and not zany.is_zany(sid):
+        sid = zany.key(source[len(zany.PREFIX) :], sid)
     db.tracked_add(sid, workspace_id=wsid)
     return {"added": sid}
 

@@ -162,6 +162,17 @@ code {
   display: flex;
   margin-left: auto;
 }
+/* Which logs the board listens to: Reflecks, or one ZANY study. */
+.source-pick .cds--select-input {
+  font-weight: 600;
+}
+.unlock-intro {
+  margin-bottom: 1rem;
+}
+.cds--modal-content .cds--form-item + .cds--form-item,
+.cds--modal-content .cds--form-item + .cds--inline-notification {
+  margin-top: 1rem;
+}
 .track-form .cds--text-input-wrapper {
   inline-size: 14rem;
 }

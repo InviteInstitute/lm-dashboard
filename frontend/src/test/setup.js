@@ -24,3 +24,6 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+
+// jsdom has no scrollIntoView; Carbon's Dropdown scrolls its highlighted item into view.
+Element.prototype.scrollIntoView ??= function () {};

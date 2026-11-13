@@ -178,7 +178,8 @@ def main(argv=None):
     while True:
         t0 = time.monotonic()
         backfilled_now = False
-        znew = 0
+        new = znew = 0
+        backoff = 0.0
 
         # disabled_triggers stays a global setting (which alert TYPES are active);
         # polling on/off and viewer presence are per-workspace. Compute the live
@@ -252,8 +253,8 @@ def main(argv=None):
             log.warning("drain failed (%d): %s -- backoff %.1fs", fails, e, delay)
             if fails >= 5:
                 log.error("UNHEALTHY: %d consecutive poll failures", fails)
-            time.sleep(delay)
-            continue
+            # Back off from Reflecks, but still model what ZANY brought in this tick.
+            new, backoff = 0, delay
         except Exception:
             # Anything that isn't a known-transient prod error is almost
             # certainly a bug on our side. Backing off would just hide it in a
@@ -295,7 +296,7 @@ def main(argv=None):
             )
 
         elapsed = time.monotonic() - t0
-        pause(max(0.0, target - elapsed))
+        pause(max(backoff, target - elapsed))
 
 
 if __name__ == "__main__":

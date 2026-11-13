@@ -10,7 +10,12 @@ import React from "react";
 import api, { API_URL, boardId } from "./api";
 import { Icon } from "./icons";
 import {
+  Accordion,
+  AccordionItem,
   Button,
+  CodeSnippet,
+  ContainedList,
+  ContainedListItem,
   ContentSwitcher,
   Header,
   HeaderGlobalAction,
@@ -19,8 +24,16 @@ import {
   HeaderPanel,
   IconButton,
   Modal,
+  OperationalTag,
   SelectableTag,
+  SkeletonText,
   Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Tag,
   TextArea,
   TextInput,
@@ -38,6 +51,7 @@ import {
   Play,
   Reset,
   SettingsAdjust,
+  WarningAlt,
 } from "@carbon/icons-react";
 import {
   T,
@@ -458,29 +472,9 @@ const _title = (s) =>
 // segmented bar, weaker (left) to stronger (right), filled up to the reached
 // rung, with the rung names underneath. A rung reads as a position on a scale,
 // never as good/bad. Abstentions and meaningful absences get an honest note
-// instead of a fake rung; uncertainty is an amber flag, provenance a quiet one.
-const goalChip = {
-  display: "inline-flex",
-  alignItems: "center",
-  fontSize: 12,
-  lineHeight: "18px",
-  borderRadius: 6,
-  padding: "0 7px",
-  whiteSpace: "nowrap",
-};
-const goalFlagChip = {
-  ...goalChip,
-  color: "var(--lmd-warning)",
-  border: "1px solid color-mix(in srgb, var(--lmd-warning) 45%, transparent)",
-  background: "color-mix(in srgb, var(--lmd-warning) 8%, transparent)",
-};
-const goalProvenanceChip = {
-  ...goalChip,
-  color: T.sub,
-  border: `1px solid ${T.border}`,
-};
-// Uncertainty flags qualify the reading (amber); every other flag is provenance
-// (where the reading came from). The engine names its hedges by what they are,
+// instead of a fake rung. Flags are Carbon tags: an uncertainty flag qualifies the
+// reading (warm grey, with a warning icon); every other flag is provenance (cool
+// grey, where the reading came from). The engine names its hedges by what they are,
 // so classify on those words rather than a list that goes stale.
 const UNCERTAIN_FLAG =
   /unverified|assumed|estimated|stale|fallback|marginal|defaulted|disagreement|sparse|invalid|fabricated|capped|override|unknown|certainty/;
@@ -518,29 +512,34 @@ function useFlags(flags, allUncertain = false) {
   const unc = all.filter((f) => allUncertain || UNCERTAIN_FLAG.test(f));
   const prov = all.filter((f) => !unc.includes(f));
   const ordered = [...unc, ...prov];
-  const cls = `flag-chip${unc.length ? " is-uncertain" : ""}`;
+  // Carbon's warm grey marks a hedge, cool grey a note on where a value came from.
+  const type = unc.length ? "warm-gray" : "cool-gray";
   const chip =
     ordered.length === 1 ? (
-      <span
-        className={cls}
+      <Tag
+        as="span"
+        size="sm"
+        type={type}
+        renderIcon={unc.length ? WarningAlt : undefined}
+        className="flag-chip"
         title={`${unc.length ? "Uncertain" : "Where this came from"} (${ordered[0]})`}
       >
-        <span className="flag-name">{_flagText(ordered[0])}</span>
-      </span>
+        {_flagText(ordered[0])}
+      </Tag>
     ) : (
-      <button
-        type="button"
-        className={cls}
+      <OperationalTag
+        size="sm"
+        type={type}
+        renderIcon={unc.length ? WarningAlt : undefined}
+        className="flag-chip"
         aria-expanded={open}
         title={open ? "Hide flags" : `All flags: ${ordered.map(_flagText).join(", ")}`}
+        text={`${_flagText(ordered[0])} +${ordered.length - 1}`}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-      >
-        <span className="flag-name">{_flagText(ordered[0])}</span>
-        <span className="flag-more">+{ordered.length - 1}</span>
-      </button>
+      />
     );
   const list = open && ordered.length > 1 && (
     <dl className="flag-list">
@@ -918,35 +917,39 @@ const GoalBattery = ({ battery }) => {
   return (
     <div className="battery">
       {sensors.length > 0 && <p className="battery-reads">Sensor blocks: {sensors.join(", ")}</p>}
-      {families.map((fam) => (
-        <details key={fam.key} className="battery-family">
-          <summary>
-            <span aria-hidden="true" className="goal-fam-caret">
-              <Icon name="chevron" size={14} />
-            </span>
-            <span className="battery-family-name">{_familyLabel(fam.key)}</span>
-            <span className="battery-family-count">
-              {fam.scenarios.length} {fam.scenarios.length === 1 ? "test world" : "test worlds"}
-            </span>
-            <BatteryTally scenarios={fam.scenarios} />
-          </summary>
-          <ul className="battery-scenarios">
-            {fam.scenarios.map((sc, si) => (
-              <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
-                <div className="battery-scenario-head">
-                  <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
-                  {_scenarioBlurb(sc) && <span title={sc.description}>{_scenarioBlurb(sc)}</span>}
-                </div>
-                <div className="battery-checks">
-                  {(sc.checks || []).map((c, ci) => (
-                    <BatteryCheck key={ci} c={c} />
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ))}
+      <Accordion size="sm" align="start" className="battery-families">
+        {families.map((fam) => (
+          <AccordionItem
+            key={fam.key}
+            className="battery-family"
+            title={
+              <span className="battery-family-head">
+                <span className="battery-family-name">{_familyLabel(fam.key)}</span>
+                <span className="battery-family-count">
+                  {fam.scenarios.length} {fam.scenarios.length === 1 ? "test world" : "test worlds"}
+                </span>
+                <BatteryTally scenarios={fam.scenarios} />
+              </span>
+            }
+          >
+            <ul className="battery-scenarios">
+              {fam.scenarios.map((sc, si) => (
+                <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
+                  <div className="battery-scenario-head">
+                    <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
+                    {_scenarioBlurb(sc) && <span title={sc.description}>{_scenarioBlurb(sc)}</span>}
+                  </div>
+                  <div className="battery-checks">
+                    {(sc.checks || []).map((c, ci) => (
+                      <BatteryCheck key={ci} c={c} />
+                    ))}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </AccordionItem>
+        ))}
+      </Accordion>
     </div>
   );
 };
@@ -1005,16 +1008,15 @@ const GoalRunPicker = ({ runs, current, onPick }) => (
     {runs.map((r) => {
       const out = r.summary && r.summary.boundary_exceeded;
       return (
-        <button
+        <SelectableTag
           key={r.index}
-          type="button"
-          onClick={() => onPick(r.index)}
-          className={`chip-btn goal-run${out ? " is-exit" : ""}`}
-          aria-pressed={r.index === current}
+          size="sm"
+          className={`goal-run${out ? " is-exit" : ""}`}
+          text={String(r.index)}
+          selected={r.index === current}
           title={`Show run ${r.index}${out ? " (left the island)" : ""}`}
-        >
-          {r.index}
-        </button>
+          onClick={() => onPick(r.index)}
+        />
       );
     })}
   </div>
@@ -1026,9 +1028,9 @@ const GoalRunPicker = ({ runs, current, onPick }) => (
 const TrajNow = ({ g }) => {
   const lvl = _rungLevel(g);
   return (
-    <td className="traj-now">
+    <TableCell className="traj-now">
       {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>not assessed</i>}
-    </td>
+    </TableCell>
   );
 };
 
@@ -1040,17 +1042,17 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
   const anyExit = runs.some((r) => r.summary && r.summary.boundary_exceeded);
   return (
     <div className="traj" ref={wrap}>
-      <table>
+      <Table size="sm" className="traj-table">
         <caption className="visually-hidden">
           Rung each goal's claim reached on every profiled run
         </caption>
-        <thead>
-          <tr>
-            <th scope="col" className="traj-corner">
+        <TableHead>
+          <TableRow>
+            <TableHeader scope="col" className="traj-corner">
               Run
-            </th>
+            </TableHeader>
             {runs.map((r) => (
-              <th
+              <TableHeader
                 key={r.index}
                 scope="col"
                 className={r.index === current ? "is-current" : undefined}
@@ -1063,23 +1065,23 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                 >
                   {r.index}
                 </button>
-              </th>
+              </TableHeader>
             ))}
-            <th scope="col" className="traj-now">
+            <TableHeader scope="col" className="traj-now">
               On Run {current}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
+            </TableHeader>
+          </TableRow>
+        </TableHead>
+        <TableBody>
           {goals.map((goal) => (
-            <tr key={goal}>
+            <TableRow key={goal}>
               <th scope="row">{_title(goal)}</th>
               {runs.map((r) => {
                 const g = _claimOn(r, goal);
                 const lvl = _rungLevel(g);
                 const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "not assessed";
                 return (
-                  <td
+                  <TableCell
                     key={r.index}
                     className={r.index === current ? "is-current" : undefined}
                     title={`${_title(goal)}, run ${r.index}: ${text}`}
@@ -1091,19 +1093,19 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                       <span className="traj-bar" style={{ "--lvl": lvl }} />
                     )}
                     <span className="visually-hidden">{text}</span>
-                  </td>
+                  </TableCell>
                 );
               })}
               <TrajNow g={_claimOn(runs.find((r) => r.index === current) || {}, goal)} />
-            </tr>
+            </TableRow>
           ))}
           {anyExit && (
-            <tr className="traj-exit">
+            <TableRow className="traj-exit">
               <th scope="row">Left the Island</th>
               {runs.map((r) => {
                 const out = r.summary && r.summary.boundary_exceeded;
                 return (
-                  <td
+                  <TableCell
                     key={r.index}
                     className={r.index === current ? "is-current" : undefined}
                     title={out ? `Run ${r.index}: left the island` : `Run ${r.index}: stayed on`}
@@ -1111,20 +1113,20 @@ const GoalTrajectory = ({ runs, goals, current, onPick }) => {
                   >
                     {out && <Icon name="alert" size={14} />}
                     <span className="visually-hidden">{out ? "yes" : "no"}</span>
-                  </td>
+                  </TableCell>
                 );
               })}
-              <td className="traj-now">
+              <TableCell className="traj-now">
                 {(runs.find((r) => r.index === current) || {}).summary?.boundary_exceeded ? (
                   "yes"
                 ) : (
                   <i>no</i>
                 )}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           )}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
   );
 };
@@ -1342,21 +1344,24 @@ const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }
       {flags.list}
       {claim && <GoalFacts facts={claimFacts(claim)} />}
       {summary.length > 0 && (
-        <details className="goal-evidence" open={!claim || undefined}>
-          <summary>
-            <span aria-hidden="true" className="goal-fam-caret">
-              <Icon name="chevron" size={14} />
-            </span>
-            Evidence
-            <span className="goal-evidence-count">{summary.join(", ")}</span>
-          </summary>
-          <GoalEvidenceBody
-            indicators={indicators}
-            changes={changes}
-            laterChanges={laterChanges}
-            scenarios={scenarios}
-          />
-        </details>
+        <Accordion size="sm" align="start" className="goal-evidence">
+          <AccordionItem
+            open={!claim || undefined}
+            title={
+              <>
+                Evidence
+                <span className="goal-evidence-count">{summary.join(", ")}</span>
+              </>
+            }
+          >
+            <GoalEvidenceBody
+              indicators={indicators}
+              changes={changes}
+              laterChanges={laterChanges}
+              scenarios={scenarios}
+            />
+          </AccordionItem>
+        </Accordion>
       )}
     </article>
   );
@@ -1371,14 +1376,25 @@ const RubricRow = ({ d }) => {
   const chips = (
     <>
       {d.borderline && (
-        <span style={goalFlagChip} title="within the borderline margin of the next level">
+        <Tag
+          as="span"
+          size="sm"
+          type="warm-gray"
+          renderIcon={WarningAlt}
+          title="within the borderline margin of the next level"
+        >
           borderline
-        </span>
+        </Tag>
       )}
       {d.ceiling != null && d.ceiling < d.max_level && (
-        <span style={goalProvenanceChip} title="the highest level this program's code can show">
+        <Tag
+          as="span"
+          size="sm"
+          type="cool-gray"
+          title="the highest level this program's code can show"
+        >
           code allows up to {d.ceiling}
-        </span>
+        </Tag>
       )}
     </>
   );
@@ -1543,12 +1559,14 @@ export const GoalEvidence = ({ runs, enabled }) => {
         <GoalPart
           title="Execution Rubric"
           aside={
-            <span
-              style={goalFlagChip}
+            <Tag
+              size="sm"
+              type="warm-gray"
+              renderIcon={WarningAlt}
               title={`Still being checked by people, so treat it as a draft (${run.rubric.status || "provisional"})`}
             >
               provisional
-            </span>
+            </Tag>
           }
         >
           <p className="goal-intro">
@@ -1586,25 +1604,13 @@ const Section = ({ title, aside, children }) => (
 );
 
 const StatusBadge = ({ status }) => (
-  <span
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 7,
-      color: `var(--lmd-signal-${status.c.slice(1)}, ${status.c})`,
-      border: "1px solid currentColor",
-      borderRadius: 6,
-      padding: "3px 10px",
-      fontSize: 13,
-      fontWeight: 600,
-      whiteSpace: "nowrap",
-    }}
+  <Tag
+    size="md"
+    className="status-tag"
+    style={{ "--tone": `var(--lmd-signal-${status.c.slice(1)}, ${status.c})` }}
   >
-    <span
-      style={{ width: 7, height: 7, borderRadius: "50%", background: status.c, flexShrink: 0 }}
-    />
     {status.label}
-  </span>
+  </Tag>
 );
 
 // The student's latest program, in two renderings of the same blocks behind a
@@ -1650,7 +1656,16 @@ const CodePane = ({ block }) => {
       <p className="sd-code-note">{cur.note}</p>
       {text ? (
         // the listing keeps its indentation (scrolls sideways); the prompt is one long line, so wrap it
-        <pre className={view === "readable" ? "sd-code" : "sd-code sd-code-wrap"}>{text}</pre>
+        <CodeSnippet
+          type="multi"
+          className="sd-code"
+          wrapText={view !== "readable"}
+          feedback="Copied"
+          maxCollapsedNumberOfRows={16}
+          aria-label={`${cur.label} program`}
+        >
+          {text}
+        </CodeSnippet>
       ) : (
         <p className="sd-empty">{cur.empty}</p>
       )}
@@ -1660,42 +1675,42 @@ const CodePane = ({ block }) => {
 
 // Newest trigger first; the label keeps its trigger colour, everything else is quiet.
 const TriggerHistory = ({ history }) => (
-  <Section
-    title="Trigger History"
-    aside={history.length > 0 && <span className="sd-count">{history.length}</span>}
+  <ContainedList
+    label={
+      <>
+        Trigger History {history.length > 0 && <span className="sd-count">{history.length}</span>}
+      </>
+    }
+    kind="on-page"
+    className="sd-section sd-history"
   >
     {history.length === 0 ? (
-      <p className="sd-empty">No triggers yet this session.</p>
+      <ContainedListItem>
+        <span className="sd-empty">No triggers yet this session.</span>
+      </ContainedListItem>
     ) : (
-      <ol className="sd-history">
-        {history.map((h) => {
-          const m = triggerMeta(h.trigger_type);
-          const active = h.status === "active";
-          return (
-            <li key={h.id}>
-              <span
-                className="sd-history-label"
-                style={{ color: `var(--lmd-signal-${m.c.slice(1)}, ${m.c})` }}
-              >
-                <Icon name={m.icon} size={14} />
-                {h.label}
-              </span>
-              <time dateTime={h.started_at} title={h.started_at}>
-                {clockTime(h.started_at)}
-              </time>
-              <span className="sd-history-value">{h.value || "-"}</span>
-              <span
-                className="sd-history-status"
-                style={active ? { color: `var(--lmd-signal-${m.c.slice(1)}, ${m.c})` } : null}
-              >
-                {h.status}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      history.map((h) => {
+        const m = triggerMeta(h.trigger_type);
+        const active = h.status === "active";
+        const tone = `var(--lmd-signal-${m.c.slice(1)}, ${m.c})`;
+        return (
+          <ContainedListItem key={h.id}>
+            <span className="sd-history-label" style={{ color: tone }}>
+              <Icon name={m.icon} size={14} />
+              {h.label}
+            </span>
+            <time dateTime={h.started_at} title={h.started_at}>
+              {clockTime(h.started_at)}
+            </time>
+            <span className="sd-history-value">{h.value || "-"}</span>
+            <span className="sd-history-status" style={active ? { color: tone } : null}>
+              {h.status}
+            </span>
+          </ContainedListItem>
+        );
+      })
     )}
-  </Section>
+  </ContainedList>
 );
 
 const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, onClose }) => {
@@ -1741,16 +1756,20 @@ const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, 
       <div className="sd-body">
         <div className="sd-main">
           {!s ? (
-            <p className="sd-empty sd-empty-lead">
+            <div className="sd-empty sd-empty-lead">
               {loading ? (
-                "Loading activity..."
+                <>
+                  <span className="visually-hidden">Loading activity...</span>
+                  <SkeletonText heading width="30%" />
+                  <SkeletonText paragraph lineCount={4} />
+                </>
               ) : (
                 <>
                   No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>. Notes can still be
                   added.
                 </>
               )}
-            </p>
+            </div>
           ) : (
             <>
               <Section title="Activity">
@@ -1836,9 +1855,9 @@ const NotesPanel = ({ notes, onAdd }) => {
       {notes.length === 0 ? (
         <p className="sd-empty">No notes on this student yet.</p>
       ) : (
-        <ol className="sd-notes">
+        <ContainedList label="Saved, newest first" kind="on-page" size="sm" className="sd-notes">
           {[...notes].reverse().map((n) => (
-            <li key={n.id}>
+            <ContainedListItem key={n.id}>
               <div className="sd-note-meta">
                 <time dateTime={parseTs(n.ts)?.toISOString()} title={fullTime(n.ts)}>
                   {noteTime(n.ts)}
@@ -1846,9 +1865,9 @@ const NotesPanel = ({ notes, onAdd }) => {
                 {n.trigger_type && <span>during {triggerMeta(n.trigger_type).label}</span>}
               </div>
               <p>{n.text}</p>
-            </li>
+            </ContainedListItem>
           ))}
-        </ol>
+        </ContainedList>
       )}
     </Section>
   );
@@ -2570,10 +2589,13 @@ const CohortDashboard = () => {
                       >
                         {b.display}
                       </button>
-                      <span className="card-status">
-                        {trig && <Icon name={triggerMeta(trig).icon} size={14} />}
-                        {sm.label}
-                      </span>
+                      {trig ? (
+                        <Tag size="sm" className="status-tag card-status">
+                          {sm.label}
+                        </Tag>
+                      ) : (
+                        <span className="card-status">{sm.label}</span>
+                      )}
                     </div>
                     {b.st ? (
                       <>
@@ -2595,9 +2617,13 @@ const CohortDashboard = () => {
                         </div>
                       </>
                     ) : (
-                      <p className="card-wait">
-                        {b.has_data ? "Loading..." : "Waiting for activity..."}
-                      </p>
+                      <div className="card-wait">
+                        {b.has_data ? (
+                          <SkeletonText paragraph lineCount={2} />
+                        ) : (
+                          "Waiting for activity..."
+                        )}
+                      </div>
                     )}
                     <div className="card-actions">
                       <SelectableTag

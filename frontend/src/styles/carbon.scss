@@ -24,5 +24,11 @@
 @use '@carbon/styles/scss/components/tile';
 @use '@carbon/styles/scss/components/popover';
 @use '@carbon/styles/scss/components/tooltip';
+@use '@carbon/styles/scss/components/accordion';
+@use '@carbon/styles/scss/components/code-snippet';
+@use '@carbon/styles/scss/components/contained-list';
+@use '@carbon/styles/scss/components/data-table';
+@use '@carbon/styles/scss/components/skeleton-styles';
+@use '@carbon/styles/scss/components/copy-button';
 
 @include invite-theme.themes;

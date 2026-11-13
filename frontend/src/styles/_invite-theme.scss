@@ -1,0 +1,199 @@
+// INVITE's research tools theme for IBM Carbon: Carbon's g10 and g100 themes with INVITE's
+// palette on top. The same file is in lm-dashboard (frontend/src/styles/_invite-theme.scss) and
+// ATLAS-invite (carbon/_invite-theme.scss); change both together.
+//
+// `@include invite-theme.light` and `@include invite-theme.dark` emit every Carbon token as a
+// custom property, as Carbon's own zones do (styles/scss/_zone.scss), so a page switches theme
+// by flipping one selector.
+
+@use 'sass:map';
+@use 'sass:meta';
+@use '@carbon/styles/scss/themes';
+@use '@carbon/styles/scss/theme';
+@use '@carbon/styles/scss/layer/layer-tokens';
+@use '@carbon/styles/scss/utilities/custom-property';
+@use '@carbon/styles/scss/components/button/tokens' as button;
+@use '@carbon/styles/scss/components/notification/tokens' as notification;
+@use '@carbon/styles/scss/components/tag/tokens' as tag;
+@use '@carbon/styles/scss/components/content-switcher/tokens' as content-switcher;
+
+$light: (
+  background: #f4f6f8,
+  background-hover: #e3e8ec,
+  background-brand: #354bb5,
+  layer-01: #ffffff,
+  layer-02: #f4f6f8,
+  layer-03: #ffffff,
+  layer-hover-01: #eef1f4,
+  layer-hover-02: #e3e8ec,
+  layer-hover-03: #eef1f4,
+  layer-accent-01: #e3e8ec,
+  layer-accent-02: #e3e8ec,
+  layer-accent-03: #e3e8ec,
+  field-01: #ffffff,
+  field-02: #f4f6f8,
+  field-03: #ffffff,
+  field-hover-01: #eef1f4,
+  field-hover-02: #e3e8ec,
+  field-hover-03: #eef1f4,
+  border-subtle-00: #e3e8ec,
+  border-subtle-01: #d5dde3,
+  border-subtle-02: #e3e8ec,
+  border-subtle-03: #d5dde3,
+  border-tile-01: #c9d2da,
+  border-strong-01: #627380,
+  border-strong-02: #627380,
+  border-strong-03: #627380,
+  text-primary: #1c3947,
+  text-secondary: #5b6b78,
+  text-helper: #5b6b78,
+  text-placeholder: #627380,
+  text-error: #c12d35,
+  icon-primary: #1c3947,
+  icon-secondary: #5b6b78,
+  interactive: #354bb5,
+  border-interactive: #354bb5,
+  focus: #354bb5,
+  highlight: #e0e5fa,
+  link-primary: #354bb5,
+  link-primary-hover: #26388f,
+  link-visited: #354bb5,
+  support-error: #c12d35,
+  support-success: #187544,
+  support-info: #2463b9,
+  support-caution-major: #916000,
+  button-primary: #354bb5,
+  button-primary-hover: #2d409c,
+  button-primary-active: #233280,
+  button-tertiary: #354bb5,
+  button-tertiary-hover: #2d409c,
+  button-tertiary-active: #233280,
+  button-danger-primary: #c12d35,
+  button-danger-secondary: #c12d35,
+  button-danger-hover: #a3242b,
+);
+
+$dark: (
+  background: #0b0e13,
+  background-hover: #1c222c,
+  background-brand: #4b5fd6,
+  layer-01: #131820,
+  layer-02: #1c222c,
+  layer-03: #262d39,
+  layer-hover-01: #1c222c,
+  layer-hover-02: #262d39,
+  layer-hover-03: #303846,
+  layer-accent-01: #262d39,
+  layer-accent-02: #303846,
+  layer-accent-03: #3a4352,
+  field-01: #131820,
+  field-02: #1c222c,
+  field-03: #262d39,
+  field-hover-01: #1c222c,
+  field-hover-02: #262d39,
+  field-hover-03: #303846,
+  border-subtle-00: #1f2530,
+  border-subtle-01: #2a313d,
+  border-subtle-02: #353d4a,
+  border-subtle-03: #353d4a,
+  border-tile-01: #353d4a,
+  border-strong-01: #7d8694,
+  border-strong-02: #8a93a1,
+  border-strong-03: #98a4b4,
+  text-primary: #e6e9ef,
+  text-secondary: #a5afbd,
+  text-helper: #a5afbd,
+  text-placeholder: #98a4b4,
+  text-error: #ff858b,
+  icon-primary: #e6e9ef,
+  icon-secondary: #a5afbd,
+  interactive: #a5b4fc,
+  border-interactive: #a5b4fc,
+  focus: #a5b4fc,
+  highlight: #232a4d,
+  link-primary: #a5b4fc,
+  link-primary-hover: #c7d0fe,
+  link-visited: #a5b4fc,
+  support-error: #ff858b,
+  support-success: #65d895,
+  support-info: #80b5ff,
+  support-caution-major: #f6bf58,
+  button-primary: #4b5fd6,
+  button-primary-hover: #4153c4,
+  button-primary-active: #3546ad,
+  button-tertiary: #a5b4fc,
+  button-tertiary-hover: #c7d0fe,
+  button-tertiary-active: #8f9ff5,
+  button-danger-primary: #d63c45,
+  button-danger-secondary: #ff858b,
+  button-danger-hover: #b8323a,
+);
+
+$-components: (
+  button.$button-tokens,
+  notification.$notification-tokens,
+  tag.$tag-tokens,
+  content-switcher.$content-switcher-tokens
+);
+
+// Carbon's zone body (styles/scss/_zone.scss), with INVITE's overrides winning over both the
+// base theme and the component tokens chosen for it.
+@mixin -emit($base, $overrides) {
+  $theme: map.merge($base, $overrides);
+
+  @each $key, $value in $theme {
+    @if $key == 'color-scheme' {
+      @include custom-property.declaration($key, $value);
+
+      color-scheme: custom-property.get-var($key, $value);
+    } @else if meta.type-of($value) == color {
+      @include custom-property.declaration($key, $value);
+    }
+  }
+
+  @include layer-tokens.emit-layer-tokens(1);
+
+  @each $group in $-components {
+    @each $key, $value in $group {
+      @if not map.has-key($overrides, $key) {
+        @if meta.type-of($value) == map {
+          @each $theme-value in map.get($value, values) {
+            $v: map.get($theme-value, value);
+
+            @if theme.matches(map.get($theme-value, theme), $base) and meta.type-of($v) == color {
+              @include custom-property.declaration($key, $v);
+            }
+          }
+        } @else if meta.type-of($value) == color {
+          @include custom-property.declaration($key, $value);
+        }
+      }
+    }
+  }
+}
+
+@mixin light {
+  @include -emit(themes.$g10, $light);
+}
+
+@mixin dark {
+  @include -emit(themes.$g100, $dark);
+}
+
+// Light by default; dark when the person picks it, or when their system is dark and they have
+// not picked light. Pages set data-theme on <html>.
+@mixin themes {
+  :root {
+    @include light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      @include dark;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    @include dark;
+  }
+}

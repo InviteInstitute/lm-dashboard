@@ -6,6 +6,8 @@
 # ---- Stage 1: build the React SPA ----
 FROM node:20-slim AS web
 WORKDIR /web
+# IBM Carbon's packages report each install to IBM unless this is set.
+ENV IBM_TELEMETRY_DISABLED=true
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend/ ./

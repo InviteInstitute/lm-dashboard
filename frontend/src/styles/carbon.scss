@@ -1,0 +1,28 @@
+// The IBM Carbon styles the dashboard uses, in INVITE's theme (shared with ATLAS-invite's
+// researcher pages). Only the components the dashboard renders; Carbon loads no fonts, since
+// index.html loads IBM Plex.
+
+@use '@carbon/styles/scss/config' with (
+  $css--font-face: false,
+  $prefix: 'cds'
+);
+@use '@carbon/styles/scss/reset';
+@use '@carbon/styles/scss/type';
+@use '@carbon/styles/scss/layout';
+@use '@carbon/styles/scss/layer';
+@use 'invite-theme';
+@use '@carbon/styles/scss/components/ui-shell';
+@use '@carbon/styles/scss/components/button';
+@use '@carbon/styles/scss/components/tag';
+@use '@carbon/styles/scss/components/toggle';
+@use '@carbon/styles/scss/components/form';
+@use '@carbon/styles/scss/components/text-input';
+@use '@carbon/styles/scss/components/text-area';
+@use '@carbon/styles/scss/components/content-switcher';
+@use '@carbon/styles/scss/components/notification';
+@use '@carbon/styles/scss/components/modal';
+@use '@carbon/styles/scss/components/tile';
+@use '@carbon/styles/scss/components/popover';
+@use '@carbon/styles/scss/components/tooltip';
+
+@include invite-theme.themes;

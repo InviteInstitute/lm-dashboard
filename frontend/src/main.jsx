@@ -4,6 +4,7 @@
 // the moment the API first 403s a request; see api.js and TurnstileGate.jsx).
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./styles/carbon.scss";
 import "./index.css";
 import CohortDashboard from "./CohortDashboard";
 import TurnstileGate from "./TurnstileGate";

@@ -79,6 +79,11 @@ def rows_after(con, seq, limit=PAGE):
     ).fetchall()
 
 
+def max_seq(con):
+    """The newest row's seq, or 0 for an empty store."""
+    return con.execute("SELECT coalesce(max(seq), 0) FROM log_record").fetchone()[0]
+
+
 def student_rows(con, student_id, since=None):
     """One ZANY student's rows, oldest first, optionally only those stored from `since` on.
     ponytail: matches the participant ID inside the record (no index on it); fine for a class,
@@ -104,7 +109,12 @@ def studies():
             " max(stored_at) FROM log_record GROUP BY research_study ORDER BY max(stored_at) DESC"
         ).fetchall()
     return [
-        {"study": s, "code": code or "", "participants": n, "last": last.isoformat() if last else None}
+        {
+            "study": s,
+            "code": code or "",
+            "participants": n,
+            "last": last.isoformat() if last else None,
+        }
         for s, code, n, last in rows
     ]
 

@@ -186,6 +186,12 @@ as JSON text).
   Cards are ordered by `studentID` (stable) so a card never jumps when its own data
   updates. Researcher writes go through a resilient path: optimistic UI, short
   retries, then a loud red toast plus the input parked verbatim in the outbox.
+- **Look.** IBM Carbon (`@carbon/react`) in INVITE's theme, shared with ATLAS-invite's
+  researcher pages: `frontend/src/styles/carbon.scss` builds only the components the
+  dashboard uses, and `_invite-theme.scss` puts INVITE's palette on Carbon's g10 and g100
+  themes. Carbon draws the controls (header, buttons, tags, toggles, fields, toasts,
+  modal); the run track, episode strip and goal evidence are the dashboard's own, drawn
+  in Carbon's tokens through the `--lmd-*` names in `index.css`.
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
 rows), so the edit-distance and episode work already happened on the write side. It

@@ -10,6 +10,36 @@ import React from "react";
 import api, { API_URL, boardId } from "./api";
 import { Icon } from "./icons";
 import {
+  Button,
+  ContentSwitcher,
+  Header,
+  HeaderGlobalAction,
+  HeaderGlobalBar,
+  HeaderName,
+  HeaderPanel,
+  IconButton,
+  Modal,
+  SelectableTag,
+  Switch,
+  Tag,
+  TextArea,
+  TextInput,
+  Tile,
+  ToastNotification,
+  Toggle,
+} from "@carbon/react";
+import {
+  Asleep,
+  Checkmark,
+  Close,
+  Download,
+  Light,
+  Pause,
+  Play,
+  Reset,
+  SettingsAdjust,
+} from "@carbon/icons-react";
+import {
   T,
   FONT,
   HEADFONT,
@@ -1604,19 +1634,17 @@ const CodePane = ({ block }) => {
     <Section
       title="Latest Program"
       aside={
-        <div className="sd-switch" role="tablist" aria-label="Program view">
+        <ContentSwitcher
+          size="sm"
+          className="sd-switch"
+          aria-label="Program view"
+          selectedIndex={CODE_VIEWS.findIndex((v) => v.key === view)}
+          onChange={({ index }) => setView(CODE_VIEWS[index].key)}
+        >
           {CODE_VIEWS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              role="tab"
-              aria-selected={view === v.key}
-              onClick={() => setView(v.key)}
-            >
-              {v.label}
-            </button>
+            <Switch key={v.key} name={v.key} text={v.label} />
           ))}
-        </div>
+        </ContentSwitcher>
       }
     >
       <p className="sd-code-note">{cur.note}</p>
@@ -1676,7 +1704,9 @@ const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, 
     <>
       <header className="sd-head">
         <div className="sd-who">
-          <h2 id="sd-title">{(s && s.display) || sid}</h2>
+          <h2 id="sd-title" tabIndex={-1}>
+            {(s && s.display) || sid}
+          </h2>
           {s && <StatusBadge status={cur} />}
         </div>
         {s && (
@@ -1697,15 +1727,16 @@ const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, 
             )}
           </dl>
         )}
-        <button
-          type="button"
+        <IconButton
+          kind="ghost"
+          size="lg"
+          align="left"
           className="sd-close"
-          aria-label="Close student details"
-          autoFocus
+          label="Close student details"
           onClick={onClose}
         >
-          <Icon name="close" size={18} />
-        </button>
+          <Close size={20} />
+        </IconButton>
       </header>
       <div className="sd-body">
         <div className="sd-main">
@@ -1750,8 +1781,8 @@ const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, 
 };
 
 // ---------------- layout ----------------
-// One big style object for the whole screen. Plain inline-style dicts (some are
-// functions of an accent color), no CSS framework.
+// The few inline styles the page shell still needs; Carbon (styles/carbon.scss) and index.css
+// style the rest.
 const S = {
   page: {
     background: T.bg,
@@ -1761,112 +1792,8 @@ const S = {
     fontFamily: FONT,
     color: T.ink,
   },
-  popOverlay: { position: "fixed", inset: 0, background: "transparent", zIndex: 40 },
-  popPanel: {
-    position: "fixed",
-    top: 64,
-    right: 28,
-    width: 240,
-    background: T.panel,
-    border: `1px solid ${T.border}`,
-    borderRadius: 12,
-    padding: 12,
-    boxShadow: "0 12px 32px -8px rgb(3 5 9 / 30%)",
-    zIndex: 41,
-  },
-  popTitle: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: T.ink,
-    marginBottom: 8,
-  },
-  popRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "6px 0",
-    fontSize: 13,
-    color: T.ink,
-  },
-  tgOn: {
-    background: "var(--lmd-track)",
-    color: "var(--lmd-success)",
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "4px 14px",
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
-  tgOff: {
-    background: "transparent",
-    color: T.faint,
-    border: `1px solid ${T.border}`,
-    borderRadius: 8,
-    padding: "4px 14px",
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
   main: { display: "flex", flex: 1, minHeight: 0 }, // two-pane shell
   board: { flex: 1, minWidth: 0 },
-  toastWrap: {
-    position: "fixed",
-    bottom: 24,
-    right: 24,
-    display: "flex",
-    gap: 10,
-    zIndex: 60,
-    alignItems: "flex-end",
-    flexDirection: "column-reverse",
-    pointerEvents: "none",
-  },
-  toast: {
-    display: "flex",
-    alignItems: "center",
-    gap: 11,
-    minWidth: 250,
-    maxWidth: "92vw",
-    background: T.panel,
-    border: `1px solid ${T.border}`,
-    borderRadius: 10,
-    padding: "11px 13px",
-    boxShadow: "0 12px 30px rgba(15, 23, 42, 0.22)",
-    animation: "toastIn .3s cubic-bezier(.2,.8,.25,1)",
-    pointerEvents: "auto",
-  },
-  toastIcon: {
-    flexShrink: 0,
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    background: "var(--lmd-track)",
-    border: `1px solid ${T.border}`,
-    color: "var(--lmd-warning)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  toastBody: { display: "flex", flexDirection: "column", gap: 2, lineHeight: 1.25 },
-  toastTitle: { fontFamily: MONO, fontSize: 14, fontWeight: 600, color: T.ink },
-  toastSub: { fontSize: 12, color: T.sub, whiteSpace: "nowrap" },
-  toastArrow: { fontFamily: MONO },
-  toastClose: {
-    flexShrink: 0,
-    marginLeft: "auto",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    border: "none",
-    background: "transparent",
-    color: T.faint,
-    lineHeight: 1,
-    cursor: "pointer",
-    fontFamily: FONT,
-  },
-
   empty: { color: T.sub, fontSize: 14, textAlign: "center", marginTop: 60 },
 };
 
@@ -1886,10 +1813,14 @@ const NotesPanel = ({ notes, onAdd }) => {
       aside={notes.length > 0 && <span className="sd-count">{notes.length}</span>}
     >
       <div className="sd-composer">
-        <textarea
-          aria-label="New note"
+        <TextArea
+          id="sd-new-note"
+          labelText="New note"
+          hideLabel
+          rows={4}
           value={draft}
           placeholder="What did you see or hear?"
+          helperText="Ctrl+Enter to save"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -1898,12 +1829,9 @@ const NotesPanel = ({ notes, onAdd }) => {
             }
           }}
         />
-        <div className="sd-composer-foot">
-          <span>Ctrl+Enter to save</span>
-          <button type="button" onClick={save} disabled={!draft.trim()}>
-            Save Note
-          </button>
-        </div>
+        <Button size="sm" onClick={save} disabled={!draft.trim()}>
+          Save Note
+        </Button>
       </div>
       {notes.length === 0 ? (
         <p className="sd-empty">No notes on this student yet.</p>
@@ -1948,6 +1876,9 @@ const CohortDashboard = () => {
     if (selected && detailDialog.current && !detailDialog.current.open) {
       const opener = document.activeElement;
       detailDialog.current.showModal();
+      // Start on the student's name, so a screen reader announces it first; the close button's
+      // tooltip would otherwise open over the facts.
+      detailDialog.current.querySelector("#sd-title")?.focus();
       return () => {
         if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
       };
@@ -1961,6 +1892,7 @@ const CohortDashboard = () => {
     iterative: true,
   });
   const [triggerPanel, setTriggerPanel] = React.useState(false);
+  const [resetOpen, setResetOpen] = React.useState(false);
   // Light (INVITE brand) or dark (the dashboard's original look); persisted
   // per-browser like boardId(). No stored preference -> follow the OS.
   const [theme, setTheme] = React.useState(() => {
@@ -2060,7 +1992,7 @@ const CohortDashboard = () => {
     const add = fresh.map((s) => ({
       id: s.id,
       title: displayFor(s.studentID),
-      kind: s.kind,
+      change: s.kind,
       from: s.from,
       to: s.to,
     }));
@@ -2080,6 +2012,13 @@ const CohortDashboard = () => {
     WRITE_RETRY_MS = 250,
     LS_OUTBOX = "lmdOutbox";
   const errSeq = React.useRef(0);
+  // A Carbon toast for an outcome the researcher should see: errors stay until dismissed,
+  // anything else goes after 6s.
+  const notify = React.useCallback((kind, title, sub) => {
+    const id = `note-${++errSeq.current}`;
+    setToasts((t) => [...t, { id, kind, title, sub, error: kind === "error" }]);
+    if (kind !== "error") setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+  }, []);
   const failLoud = React.useCallback((op, payload, err) => {
     const error = err?.message || "request failed";
     api.post("/api/outbox/", { op, payload, error }).catch(() => {
@@ -2095,7 +2034,7 @@ const CohortDashboard = () => {
     });
     setToasts((t) => [
       ...t,
-      { id: `err-${++errSeq.current}`, error: true, title: "NOT saved", sub: op },
+      { id: `err-${++errSeq.current}`, kind: "error", error: true, title: "Not saved", sub: op },
     ]);
   }, []);
   const submitWrite = async (op, payload, post) => {
@@ -2393,16 +2332,11 @@ const CohortDashboard = () => {
         "lm-dashboard_export.zip";
       triggerDownload(res.data, name);
     } catch {
-      window.alert("Export failed.");
+      notify("error", "Export failed", "Nothing was downloaded. Try again.");
     }
   };
+  // Asked first in the Reset modal.
   const resetAll = async () => {
-    if (
-      !window.confirm(
-        "Reset the board?\n\nEvery student starts fresh on this board: runs, episodes, goal evidence, alerts, trigger history and switches from before now are hidden, and your notes, picks and pick history are cleared. A CSV backup (notes and picks included) is saved to exports/ first, so nothing is lost.\n\nStudents stay tracked and present/absent is kept. Other boards are not affected, and production is untouched.",
-      )
-    )
-      return;
     try {
       const { data } = await api.post("/api/reset/");
       // Clear the local views at once so nothing lingers until the refetch
@@ -2417,9 +2351,9 @@ const CohortDashboard = () => {
       setToasts([]);
       setNoteOpen(null);
       setNoteText("");
-      window.alert("Reset done. Backup saved to:\n" + (data.backup || "exports/"));
+      notify("success", "Board reset", `Backup saved to ${data.backup || "exports/"}`);
     } catch {
-      window.alert("Reset failed, data was NOT cleared.");
+      notify("error", "Reset failed", "Nothing was cleared.");
     }
     fetchStates();
     fetchRoster();
@@ -2473,129 +2407,148 @@ const CohortDashboard = () => {
 
   return (
     <div className="dashboard" style={S.page}>
-      <header className="dashboard-header">
-        <div className="brand">
-          <h1>Learner Modeling Dashboard</h1>
-          <span
-            className={pollingOn ? "live-state" : "live-state is-paused"}
-            title={
-              pollingOn
-                ? "Fetching new activity from production"
-                : "The daemon is making no requests to production"
-            }
-          >
-            {pollingOn ? "Live" : "Polling paused"}
-          </span>
-        </div>
-        <form
-          className="track-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            addTracked();
-          }}
+      <Header aria-label="Learner Modeling Dashboard" className="lmd-header">
+        <HeaderName href="#" prefix="INVITE" onClick={(e) => e.preventDefault()}>
+          Learner Modeling Dashboard
+        </HeaderName>
+        <Tag
+          type={pollingOn ? "green" : "warm-gray"}
+          size="sm"
+          className="live-state"
+          title={
+            pollingOn
+              ? "Fetching new activity from production"
+              : "The daemon is making no requests to production"
+          }
         >
-          <input
-            aria-label="Track student IDs"
-            placeholder="Track student IDs"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <button className="track-submit" type="submit" disabled={!query.trim()}>
-            Track
-          </button>
-        </form>
-        <div className="dashboard-actions">
-          <button
-            className="hdr-btn"
-            onClick={togglePolling}
-            title={
+          {pollingOn ? "Live" : "Polling paused"}
+        </Tag>
+        <HeaderGlobalBar>
+          <HeaderGlobalAction
+            aria-label={
               pollingOn
-                ? "Pause the daemon: stop ALL polling of the production server. The board keeps showing the last data. No new events are fetched until you resume. Use this between sessions to stop loading prod."
-                : "Polling is paused. The daemon is making no requests to production. Click to resume fetching new events."
+                ? "Pause polling: stop all requests to the production server. The board keeps the last data."
+                : "Resume polling: fetch new events from production again."
             }
+            tooltipAlignment="end"
+            onClick={togglePolling}
           >
-            <Icon name={pollingOn ? "pause" : "play"} />
-            <span>{pollingOn ? "Pause Polling" : "Resume Polling"}</span>
-          </button>
-          <button
-            className="hdr-btn"
+            {pollingOn ? <Pause size={20} /> : <Play size={20} />}
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
+            aria-label="Triggers: turn trigger types on or off"
             aria-expanded={triggerPanel}
+            isActive={triggerPanel}
+            tooltipAlignment="end"
             onClick={() => setTriggerPanel((p) => !p)}
-            title="Turn trigger types on or off"
           >
-            <Icon name="sliders" />
-            <span>Triggers</span>
-          </button>
-          <button
-            className="hdr-btn"
+            <SettingsAdjust size={20} />
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
+            aria-label="Export: download a zip of CSV snapshots of all data"
+            tooltipAlignment="end"
             onClick={exportData}
-            title="Download a zip of CSV snapshots of all data"
           >
-            <Icon name="download" />
-            <span>Export</span>
-          </button>
-          <button
-            className="hdr-btn hdr-danger"
-            onClick={resetAll}
-            title="Clear this board's session data. A CSV backup is saved first."
+            <Download size={20} />
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
+            aria-label="Reset: clear this board's session data. A CSV backup is saved first."
+            tooltipAlignment="end"
+            onClick={() => setResetOpen(true)}
           >
-            <Icon name="reset" />
-            <span>Reset</span>
-          </button>
-          <span className="hdr-sep" aria-hidden="true" />
-          <button
-            className="hdr-btn hdr-icon"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            <Reset size={20} />
+          </HeaderGlobalAction>
+          <HeaderGlobalAction
             aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            tooltipAlignment="end"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
           >
-            <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
-          </button>
-        </div>
-      </header>
+            {theme === "dark" ? <Light size={20} /> : <Asleep size={20} />}
+          </HeaderGlobalAction>
+        </HeaderGlobalBar>
+        <HeaderPanel expanded={triggerPanel} aria-label="Triggers" className="trigger-panel">
+          <h2>Triggers</h2>
+          {TRIGGER_ROWS.map(([type, label]) => (
+            <Toggle
+              key={type}
+              id={`trigger-${type}`}
+              size="sm"
+              labelText={label}
+              labelA="Off"
+              labelB="On"
+              toggled={triggerCfg[type] !== false}
+              onToggle={() => toggleTrigger(type)}
+            />
+          ))}
+        </HeaderPanel>
+      </Header>
 
-      {triggerPanel && (
-        <div style={S.popOverlay} onClick={() => setTriggerPanel(false)}>
-          <div style={S.popPanel} onClick={(e) => e.stopPropagation()}>
-            <div style={S.popTitle}>Triggers</div>
-            {TRIGGER_ROWS.map(([type, label]) => {
-              const on = triggerCfg[type] !== false;
-              return (
-                <div key={type} style={S.popRow}>
-                  <span>{label}</span>
-                  <button style={on ? S.tgOn : S.tgOff} onClick={() => toggleTrigger(type)}>
-                    {on ? "On" : "Off"}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <Modal
+        open={resetOpen}
+        danger
+        className="reset-modal"
+        modalLabel="This board"
+        modalHeading="Reset the board?"
+        primaryButtonText="Reset"
+        secondaryButtonText="Cancel"
+        onRequestClose={() => setResetOpen(false)}
+        onRequestSubmit={() => {
+          setResetOpen(false);
+          resetAll();
+        }}
+      >
+        <p>
+          Every student starts fresh on this board: runs, episodes, goal evidence, alerts, trigger
+          history and switches from before now are hidden, and your notes, picks and pick history
+          are cleared. A CSV backup, notes and picks included, is saved to exports/ first, so
+          nothing is lost.
+        </p>
+        <p>
+          Students stay tracked and present or absent is kept. Other boards are not affected, and
+          production is untouched.
+        </p>
+      </Modal>
 
       <main className="dashboard-main" style={S.main}>
         {/* left: a box per tracked student */}
         <section className="student-board" aria-label="Students" style={S.board}>
           <div className="board-heading">
             <h2>Students</h2>
-            <a className="feed-jump" href="#interventions">
-              View Alerts ({alerts.length})
-            </a>
             <span>
               {boxes.length} tracked, {boxes.filter((b) => b.present).length} present,{" "}
               {boxes.filter((b) => b.picked).length} picked
             </span>
+            <a className="feed-jump cds--link" href="#interventions">
+              View Alerts ({alerts.length})
+            </a>
+            <form
+              className="track-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addTracked();
+              }}
+            >
+              <TextInput
+                id="track-ids"
+                size="md"
+                labelText="Track student IDs"
+                hideLabel
+                placeholder="Track student IDs"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <Button type="submit" size="md" disabled={!query.trim()}>
+                Track
+              </Button>
+            </form>
           </div>
           {boxes.length === 0 ? (
             <div className="board-empty" style={S.empty}>
               <h3>Start with Your First Student</h3>
-              <p>No students added yet. Enter student IDs up top to start.</p>
-              <button
-                className="empty-action"
-                onClick={() => document.querySelector(".track-form input").focus()}
-              >
+              <p>No students added yet. Enter student IDs above to start.</p>
+              <Button kind="tertiary" onClick={() => document.getElementById("track-ids").focus()}>
                 Track a Student
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="student-grid">
@@ -2603,7 +2556,7 @@ const CohortDashboard = () => {
                 const trig = statusBy[b.studentID];
                 const sm = statusMeta(trig, !!b.st);
                 return (
-                  <article
+                  <Tile
                     key={b.studentID}
                     className={`student-card${trig ? " is-alert" : ""}${b.present ? "" : " is-absent"}`}
                     style={trig ? toneVars(sm.c) : undefined}
@@ -2647,48 +2600,49 @@ const CohortDashboard = () => {
                       </p>
                     )}
                     <div className="card-actions">
-                      <button
-                        className="chip-btn"
-                        aria-pressed={b.present}
+                      <SelectableTag
+                        size="md"
+                        text={b.present ? "Present" : "Absent"}
+                        selected={b.present}
+                        title={
+                          b.present ? "Mark absent (drops to the bottom, dimmed)" : "Mark present"
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           setPresence(b.studentID, !b.present);
                         }}
-                        title={
-                          b.present ? "Mark absent (drops to the bottom, dimmed)" : "Mark present"
-                        }
-                      >
-                        {b.present ? "Present" : "Absent"}
-                      </button>
-                      <button
-                        className="chip-btn is-pick"
-                        aria-pressed={b.picked}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPicked(b.studentID, !b.picked, "roster");
-                        }}
+                      />
+                      <SelectableTag
+                        size="md"
+                        className="is-pick"
+                        text={b.picked ? "Picked" : "Mark Picked"}
+                        renderIcon={b.picked ? Checkmark : undefined}
+                        selected={b.picked}
                         title={
                           b.picked
                             ? "Picked / interviewed - click to unmark"
                             : "Mark as picked / interviewed"
                         }
-                      >
-                        {b.picked && <Icon name="check" size={14} />}
-                        <span>{b.picked ? "Picked" : "Mark Picked"}</span>
-                      </button>
-                      <button
-                        className="icon-btn"
-                        title="Stop tracking"
-                        aria-label={`Stop tracking ${b.display}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPicked(b.studentID, !b.picked, "roster");
+                        }}
+                      />
+                      <IconButton
+                        kind="ghost"
+                        size="sm"
+                        align="top-end"
+                        className="card-remove"
+                        label={`Stop tracking ${b.display}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           removeTracked(b.studentID);
                         }}
                       >
-                        <Icon name="close" size={15} />
-                      </button>
+                        <Close />
+                      </IconButton>
                     </div>
-                  </article>
+                  </Tile>
                 );
               })}
             </div>
@@ -2725,6 +2679,18 @@ const CohortDashboard = () => {
                       <span className="feed-age" title="How long this alert has been active">
                         {t.age_seconds != null ? fmtDur(t.age_seconds) : "-"}
                       </span>
+                      <IconButton
+                        kind="ghost"
+                        size="sm"
+                        align="left"
+                        label={`Dismiss alert for ${displayFor(t.studentID)} (also closes the note box)`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          ackTrigger(t.id);
+                        }}
+                      >
+                        <Close />
+                      </IconButton>
                     </div>
                     <div className="feed-what">
                       <Icon name={meta.icon} size={14} />
@@ -2738,9 +2704,12 @@ const CohortDashboard = () => {
                       </div>
                     )}
                     <div className="feed-actions">
-                      <button
-                        className="chip-btn is-pick"
-                        aria-pressed={picked}
+                      <SelectableTag
+                        size="md"
+                        className="is-pick"
+                        text={picked ? "Picked" : "Mark Picked"}
+                        renderIcon={picked ? Checkmark : undefined}
+                        selected={picked}
                         title={
                           picked
                             ? "Picked / interviewed - click to unmark"
@@ -2750,12 +2719,10 @@ const CohortDashboard = () => {
                           e.stopPropagation();
                           setPicked(t.studentID, !picked, "intervention", t);
                         }}
-                      >
-                        {picked && <Icon name="check" size={14} />}
-                        <span>{picked ? "Picked" : "Mark Picked"}</span>
-                      </button>
-                      <button
-                        className="chip-btn"
+                      />
+                      <Button
+                        kind="ghost"
+                        size="sm"
                         aria-expanded={noteOpen === t.id}
                         title="Add a note for this learner"
                         onClick={(e) => {
@@ -2765,30 +2732,22 @@ const CohortDashboard = () => {
                         }}
                       >
                         Add Note
-                      </button>
-                      <button
-                        className="icon-btn"
-                        title="Dismiss alert (also closes the note box)"
-                        aria-label={`Dismiss alert for ${displayFor(t.studentID)}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          ackTrigger(t.id);
-                        }}
-                      >
-                        <Icon name="close" size={15} />
-                      </button>
+                      </Button>
                     </div>
                     {noteOpen === t.id && (
                       <div className="feed-note" onClick={(e) => e.stopPropagation()}>
-                        <textarea
-                          aria-label={`Note on ${displayFor(t.studentID)}`}
+                        <TextArea
+                          id={`note-${t.id}`}
+                          labelText={`Note on ${displayFor(t.studentID)}`}
+                          hideLabel
+                          rows={2}
                           value={noteText}
                           autoFocus
                           placeholder="What did you see during this alert?"
                           onChange={(e) => setNoteText(e.target.value)}
                         />
-                        <button
-                          type="button"
+                        <Button
+                          size="sm"
                           disabled={!noteText.trim()}
                           onClick={() => {
                             addNote(t.studentID, noteText, t);
@@ -2797,7 +2756,7 @@ const CohortDashboard = () => {
                           }}
                         >
                           Save Note
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </li>
@@ -2830,17 +2789,18 @@ const CohortDashboard = () => {
                       <span className="feed-age" title={fullTime(s.ts)}>
                         {relTime(s.ts)} ago
                       </span>
-                      <button
-                        className="icon-btn"
-                        title="Dismiss switch"
-                        aria-label={`Dismiss switch for ${displayFor(s.studentID)}`}
+                      <IconButton
+                        kind="ghost"
+                        size="sm"
+                        align="left"
+                        label={`Dismiss switch for ${displayFor(s.studentID)}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           ackSwitch(s.id);
                         }}
                       >
-                        <Icon name="close" size={15} />
-                      </button>
+                        <Close />
+                      </IconButton>
                     </div>
                     <div className="feed-what">
                       <Icon name="swap" size={14} />
@@ -2858,48 +2818,26 @@ const CohortDashboard = () => {
       </main>
 
       {toasts.length > 0 && (
-        <div style={S.toastWrap}>
+        <div className="toast-stack">
           {toasts.map((t) => (
-            // Two flavors share the card: amber switch toasts
-            // (auto-dismiss) and red failed-write toasts, which are
-            // sticky -- an error that vanishes on its own isn't loud.
-            <div
+            // Switch toasts (warning) and outcomes go on their own; a failed write (error) is
+            // sticky, since an error that vanishes on its own isn't loud.
+            <ToastNotification
               key={t.id}
-              style={t.error ? { ...S.toast, borderColor: "var(--lmd-signal-d0433c)" } : S.toast}
-            >
-              <div
-                style={
-                  t.error ? { ...S.toastIcon, color: "var(--lmd-signal-d0433c)" } : S.toastIcon
-                }
-              >
-                <Icon name={t.error ? "alert" : "swap"} size={16} />
-              </div>
-              <div style={S.toastBody}>
-                <span style={t.error ? { ...S.toastTitle, color: "#d0433c" } : S.toastTitle}>
-                  {t.title}
-                </span>
-                <span style={S.toastSub}>
-                  {t.error ? (
-                    t.sub
-                  ) : (
-                    <>
-                      {t.kind === "casing" ? "casing changed" : "new class"}
-                      {"  "}
-                      <span style={{ ...S.toastArrow, color: T.faint }}>{t.from}</span>
-                      <span style={S.toastArrow}>{" -> "}</span>
-                      <span style={{ ...S.toastArrow, color: "#d38b12" }}>{t.to}</span>
-                    </>
-                  )}
-                </span>
-              </div>
-              <button
-                style={S.toastClose}
-                title="Dismiss"
-                onClick={() => setToasts((ts) => ts.filter((x) => x.id !== t.id))}
-              >
-                <Icon name="close" size={16} />
-              </button>
-            </div>
+              kind={t.kind || "warning"}
+              lowContrast
+              timeout={0}
+              title={t.title}
+              subtitle={
+                t.change
+                  ? `${t.change === "casing" ? "casing changed" : "new class"}: ${t.from} -> ${t.to}`
+                  : t.sub
+              }
+              onClose={() => {
+                setToasts((ts) => ts.filter((x) => x.id !== t.id));
+                return false;
+              }}
+            />
           ))}
         </div>
       )}

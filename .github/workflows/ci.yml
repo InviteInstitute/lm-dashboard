@@ -51,6 +51,8 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    env:
+      IBM_TELEMETRY_DISABLED: "true" # IBM Carbon's packages report installs unless this is set
     defaults:
       run:
         working-directory: frontend

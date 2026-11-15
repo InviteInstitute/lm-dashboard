@@ -90,6 +90,32 @@ def test_drain_stores_and_routes_only_tracked_students_and_passes_every_row():
     assert workers.has_worker(r01)
 
 
+def test_drain_rereads_the_overlap_so_a_row_that_commits_late_is_seen():
+    sid = db.canon_id(zany.key(STUDY, "R01"))
+    now = datetime.now(UTC)
+    keep("R01", 0, at=now)
+    cursor = zany_source.get_cursor()
+    assert zany_source.drain(cursor, {sid}) == 1
+    # Stamped before the row above, committed after the drain, as a slow ATLAS request does.
+    keep("R01", 1, at=now - timedelta(seconds=2))
+    assert zany_source.drain(cursor, {sid}) == 1
+    keep("R01", 2, at=now - zany_source.OVERLAP - timedelta(seconds=1))  # later than the overlap
+    assert zany_source.drain(cursor, {sid}) == 0
+    assert cursor.last_event_time == now
+
+
+def test_drain_reads_only_tracked_studies_and_keeps_its_connection():
+    keep("X1", 0, study="STUDY-0002", code="OTHER")
+    cursor = zany_source.get_cursor()
+    assert zany_source.drain(cursor, {"cobra3"}) == 0  # no ZANY student tracked: no query
+    assert zany_source.drain(cursor, {db.canon_id(zany.key(STUDY, "R01"))}) == 0
+    assert cursor.last_event_time is None  # STUDY-0002's row was never read
+    con = zany_source._store()
+    keep("R01", 1)
+    assert zany_source.drain(cursor, {db.canon_id(zany.key(STUDY, "R01"))}) == 1
+    assert zany_source._store() is con
+
+
 def test_drain_skips_rows_from_before_the_session():
     sid = db.canon_id(zany.key(STUDY, "R01"))
     keep("R01", 0, at=datetime.now(UTC) - timedelta(hours=3))

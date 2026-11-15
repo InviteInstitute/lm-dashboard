@@ -1240,9 +1240,7 @@ describe("CohortDashboard", () => {
           password: "secret",
         }),
       );
-      expect(
-        await screen.findByRole("option", { name: "ZANY: DEMO (STUDY-0001)" }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole("option", { name: "ZANY (DEMO)" })).toBeInTheDocument();
     });
 
     it("asks for the research login again when the server says the board is locked", async () => {

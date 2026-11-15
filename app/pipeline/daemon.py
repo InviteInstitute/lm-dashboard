@@ -140,23 +140,19 @@ def main(argv=None):
     # session-only events, and we re-materialize every tracked student now so their
     # card reads empty at startup (the raw vex_log stays intact and recoverable).
     # ZANY (app/zany.py): rebuild every ZANY student from ATLAS's store, so nothing ATLAS
-    # deleted while the daemon was down survives; start the cursor at the newest row (tracked
-    # students are backfilled on their own); listen for ATLAS's notifications.
+    # deleted while the daemon was down survives (tracked students are backfilled on their own);
+    # poll it every tick from the session cutoff on; listen for ATLAS's deletions.
     zcursor = listener = None
     if zany.enabled():
         db.forget_all_zany()
         zcursor = zany_source.get_cursor()
-        if not zcursor.last_source_id:
-            with zany.connect() as con:
-                zcursor.last_source_id = zany.max_seq(con)
-            zcursor.save()
         listener = zany.Listener()
-        log.info("ZANY source on, from store row %s", zcursor.last_source_id)
+        log.info("ZANY source on")
 
     def pause(seconds):
-        """Sleep until the next tick, waking at once when ATLAS says ZANY records were kept
-        or deleted. Deleted ones drop the student's mirror and models at once; they are
-        backfilled again from what the store still has."""
+        """Sleep until the next tick, waking at once when ATLAS says ZANY records were deleted.
+        That drops the student's mirror and models at once; they are backfilled again from what
+        the store still has."""
         if listener is None:
             time.sleep(seconds)
             return

@@ -14,12 +14,12 @@ view stays in sync with itself and updates land in about a quarter second. If th
 stream ever drops, it silently falls back to polling until it reconnects. You never
 have to think about it.
 
-## Reflecks Or ZANY
+## VEXcode VR Or ZANY
 
 A board listens to one source, picked in **Listening to** beside the Students heading:
 
-- **Reflecks (VEXcode VR)**, the classroom logs, as always.
-- **ZANY: a study**, the logs ZANY sends to ATLAS-invite (zany.inviteai.org) for one study. ATLAS
+- **VEXcode VR**, the classroom logs Reflecks collects, as always.
+- **ZANY (class code)**, the logs ZANY sends to ATLAS-invite (zany.inviteai.org) for one study. ATLAS
   keeps only what a participant's consent allows, and lm-dashboard reads them from ATLAS's store
   read-only, within about a second of ATLAS keeping them.
 

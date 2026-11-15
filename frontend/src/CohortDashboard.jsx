@@ -2352,14 +2352,14 @@ const CohortDashboard = () => {
       }
     : null;
   const sourceItems = [
-    { id: "reflecks", text: "Reflecks (VEXcode VR)" },
+    { id: "reflecks", text: "VEXcode VR" },
     ...(zany.unlocked
-      ? zany.studies.map((s) => ({ id: `zany:${s.study}`, text: `ZANY: ${s.code} (${s.study})` }))
-      : [{ id: "unlock", text: "ZANY: sign in to see studies" }]),
+      ? zany.studies.map((s) => ({ id: `zany:${s.study}`, text: `ZANY (${s.code})` }))
+      : [{ id: "unlock", text: "ZANY (sign in to see studies)" }]),
   ];
   // A ZANY board already set, but this browser locked: keep it in the list so it shows.
   if (zanyStudy && !sourceItems.some((it) => it.id === source)) {
-    sourceItems.push({ id: source, text: `ZANY: ${zanyStudy.code} (locked)` });
+    sourceItems.push({ id: source, text: `ZANY (${zanyStudy.code}, locked)` });
   }
   const refetchBoard = () => {
     setSelected(null);

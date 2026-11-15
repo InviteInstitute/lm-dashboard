@@ -2,14 +2,15 @@
 
 ZANY sends its learner logs to ATLAS-invite (zany.inviteai.org), which keeps only the records a
 participant's consent allows, in a PostgreSQL store of its own. lm-dashboard reads that store
-read-only (role lmdash_reader, table log_record only) and listens for the two notifications ATLAS
-sends when the store commits: `zany_records` when records are kept, `zany_forgotten` when some are
-deleted. The records have Reflecks' fields (VEXcode VR's log format), so the rest of the pipeline
+read-only (role lmdash_reader, table log_record only). The daemon polls it for new rows every tick,
+as it polls Reflecks (app/pipeline/zany_source.py), and listens for the one notification ATLAS
+sends when the store commits a deletion, `zany_forgotten`, since a poll cannot see a deleted row.
+The records have Reflecks' fields (VEXcode VR's log format), so the rest of the pipeline
 treats them as it treats Reflecks events.
 
 A ZANY student is keyed `zany:<study>:<participant ID>` (STUDY-0001 is ATLAS's name for the
 study), so they never collide with a Reflecks student ID. A store row is keyed by its `seq`, which
-counts up as ATLAS stores rows; a record's own `id` only counts within one page session.
+ATLAS numbers as it stores rows; a record's own `id` only counts within one page session.
 
 Reading ZANY's logs needs the research login: lm-dashboard signs in to ATLAS with what a person
 typed, asks whether the account is a researcher, and signs out (`researcher_login`).
@@ -27,7 +28,6 @@ from app import config
 log = logging.getLogger(__name__)
 
 PREFIX = "zany:"
-KEPT = "zany_records"
 FORGOTTEN = "zany_forgotten"
 PAGE = 1000
 
@@ -71,17 +71,19 @@ def _event(seq, study, stored_at, record):
     }
 
 
-def rows_after(con, seq, limit=PAGE):
-    """Every study row stored after `seq`, oldest first."""
-    return con.execute(
-        "SELECT seq, research_study, stored_at, record FROM log_record WHERE seq > %s ORDER BY seq LIMIT %s",
-        (seq, limit),
-    ).fetchall()
-
-
-def max_seq(con):
-    """The newest row's seq, or 0 for an empty store."""
-    return con.execute("SELECT coalesce(max(seq), 0) FROM log_record").fetchone()[0]
+def rows_since(con, studies, start, after=None, limit=PAGE):
+    """The rows of `studies` (ATLAS's names, STUDY-0001) stored from `start` on, oldest first, by
+    (stored_at, seq); `after` is the last (stored_at, seq) of the page before. Walks the store's
+    index log_record_recent (research_study, stored_at, seq)."""
+    sql = (
+        "SELECT seq, research_study, stored_at, record FROM log_record"
+        " WHERE research_study = ANY(%s) AND stored_at >= %s"
+    )
+    params = [list(studies), start]
+    if after:
+        sql += " AND (stored_at, seq) > (%s, %s)"
+        params += list(after)
+    return con.execute(sql + " ORDER BY stored_at, seq LIMIT %s", [*params, limit]).fetchall()
 
 
 def student_rows(con, student_id, since=None):
@@ -137,7 +139,6 @@ class Listener:
 
     def _open(self):
         self.con = connect()
-        self.con.execute(f"LISTEN {KEPT}")
         self.con.execute(f"LISTEN {FORGOTTEN}")
 
     def wait(self, timeout):

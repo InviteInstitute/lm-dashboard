@@ -37,14 +37,14 @@ test: ## Run backend (pytest) and frontend (vitest) tests
 	npm --prefix frontend test
 
 lint: ## Lint the backend with ruff
-	ruff check app tests
+	ruff check app tests scripts
 
 format: ## Format the backend (ruff) and frontend (prettier)
-	ruff format app tests
+	ruff format app tests scripts
 	npm --prefix frontend run format
 
 format-check: ## Check formatting without writing changes
-	ruff format --check app tests
+	ruff format --check app tests scripts
 	npm --prefix frontend run format:check
 
 build: ## Build the frontend bundle

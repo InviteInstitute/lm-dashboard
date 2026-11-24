@@ -41,10 +41,10 @@ jobs:
         run: pip install -e ./vendor/agent-lm-packages && pip install -e '.[dev]' ruff==0.16.2
 
       - name: Lint
-        run: ruff check app tests
+        run: ruff check app tests scripts
 
       - name: Format check
-        run: ruff format --check app tests
+        run: ruff format --check app tests scripts
 
       - name: Test
         run: pytest -q

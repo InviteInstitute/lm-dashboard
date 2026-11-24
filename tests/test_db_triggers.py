@@ -15,13 +15,6 @@ def test_resolved_trigger_is_not_open():
     assert db.current_open_trigger("s1", "inactive") is None
 
 
-def test_resolve_trigger_sets_resolved_at():
-    db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {})
-    ev = db.current_open_trigger("s1", "wheel_spin")
-    db.resolve_trigger(ev["id"], db.now())
-    assert db.current_open_trigger("s1", "wheel_spin") is None
-
-
 def test_ack_by_id_and_by_student():
     db.create_trigger("s1", "wheel_spin", db.now(), db.now(), None, {})
     ev = db.current_open_trigger("s1", "wheel_spin")

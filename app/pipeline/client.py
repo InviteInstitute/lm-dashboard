@@ -96,11 +96,6 @@ class ProdClient:
             params["dateFrom"] = date_from_iso
         return self._get(params)
 
-    def page_by_id(self, since_id, limit):
-        """A page using a proper id cursor (?since). Not used yet; here for when
-        prod supports it."""
-        return self._get({"since": since_id, "limit": limit})
-
     def page_student(self, student_id, limit, offset):
         """A page of one student's events, newest first. Used to backfill a
         student's history when they're added to the roster."""

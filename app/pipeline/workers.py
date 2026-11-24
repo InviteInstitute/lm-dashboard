@@ -324,9 +324,9 @@ def evict(student_id):
 
 
 def reset():
-    """Evict every cached worker. The daemon calls this on a dashboard reset, so
-    that buffered events can't immediately re-materialize the state that was
-    just wiped. Also drop the APTED score cache so it doesn't outlive the data."""
+    """Evict every cached worker and the APTED score cache. Tests call this
+    between cases. A dashboard reset doesn't: it is per board and hides old
+    activity by time instead of wiping shared state (see db.reset_workspace)."""
     _workers.clear()
     clear_score_cache()
 

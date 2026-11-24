@@ -547,11 +547,6 @@ def workspace_for_client_key(client_key):
     return _query("SELECT id FROM workspace WHERE client_key = ?", (client_key,))[0]["id"]
 
 
-def all_workspace_ids():
-    """Every workspace id (the daemon fans out over these)."""
-    return [r["id"] for r in _query("SELECT id FROM workspace ORDER BY id")]
-
-
 def tracked_union():
     """Distinct students tracked by ANY workspace, with whether any of their
     roster rows still needs a one-time history backfill (MIN(backfilled)=0). The
@@ -616,22 +611,6 @@ def get_workspace_setting(workspace_id, key):
     return rows[0]["value"] if rows else None
 
 
-def get_workspace_settings_many(workspace_id, keys):
-    """Fetch several control flags for one workspace in a single query; missing
-    keys read as None (matching get_meta_many's contract)."""
-    keys = list(keys)
-    if not keys:
-        return {}
-    placeholders = ",".join("?" * len(keys))
-    rows = _query(
-        f"SELECT key, value FROM workspace_setting "
-        f"WHERE workspace_id = ? AND key IN ({placeholders})",
-        (_ws(workspace_id), *keys),
-    )
-    present = {r["key"]: r["value"] for r in rows}
-    return {k: present.get(k) for k in keys}
-
-
 # --------------------------------------------------------------------------
 # meta: a tiny key/value store the two processes use to signal each other
 # (the reset trigger, the polling pause flag, the disabled-trigger list)
@@ -687,44 +666,6 @@ def get_meta_cached(key):
         value = get_meta(key)
         _meta_cache[key] = (value, time.monotonic() + _meta_ttl_s)
         return value
-
-
-def get_meta_many(keys):
-    """Fetch several control flags at once. Serves whatever is still within its
-    TTL from the cache and reads only the rest in a single query, so a tick that
-    wants all three flags costs at most one round-trip."""
-    out = {}
-    missing = []
-    now_t = time.monotonic()
-    for k in keys:
-        c = _meta_cache.get(k)
-        if c is not None and c[1] > now_t:
-            out[k] = c[0]
-        else:
-            missing.append(k)
-    if missing:
-        with _meta_lock:
-            # re-check after lock (another thread may have filled it)
-            now_t = time.monotonic()
-            still_missing = []
-            for k in missing:
-                c = _meta_cache.get(k)
-                if c is not None and c[1] > now_t:
-                    out[k] = c[0]
-                else:
-                    still_missing.append(k)
-            if still_missing:
-                placeholders = ",".join("?" * len(still_missing))
-                rows = _query(
-                    f"SELECT key, value FROM meta WHERE key IN ({placeholders})",
-                    tuple(still_missing),
-                )
-                present = {r["key"]: r["value"] for r in rows}
-                for k in still_missing:
-                    value = present.get(k)
-                    out[k] = value
-                    _meta_cache[k] = (value, time.monotonic() + _meta_ttl_s)
-    return out
 
 
 RESET_AT_KEY = "reset_at"
@@ -1613,20 +1554,6 @@ def create_trigger(student_id, trigger_type, started_at, last_seen_at, resolved_
             _jdump(detail),
             dt_to_db(now()),
         ),
-    )
-
-
-def touch_trigger(trigger_id, last_seen_at, detail):
-    _execute(
-        "UPDATE trigger_event SET last_seen_at = ?, detail = ? WHERE id = ?",
-        (dt_to_db(last_seen_at), _jdump(detail), trigger_id),
-    )
-
-
-def resolve_trigger(trigger_id, resolved_at):
-    _execute(
-        "UPDATE trigger_event SET resolved_at = ? WHERE id = ?",
-        (dt_to_db(resolved_at), trigger_id),
     )
 
 

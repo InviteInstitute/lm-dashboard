@@ -39,15 +39,6 @@ def test_get_meta_cached_serves_from_cache_and_busts_on_write():
     assert db.get_meta_cached("polling_enabled") == "0"
 
 
-def test_get_meta_many_mixes_cache_and_query():
-    db.set_meta("a", "1")
-    db.set_meta("b", "2")
-    got = db.get_meta_many(("a", "b", "missing"))
-    assert got == {"a": "1", "b": "2", "missing": None}
-    # second call serves from cache and still returns the same mapping
-    assert db.get_meta_many(("a", "b", "missing")) == got
-
-
 def test_write_txn_rolls_back_on_error():
     db.tracked_add("s1")
     with pytest.raises(ValueError):

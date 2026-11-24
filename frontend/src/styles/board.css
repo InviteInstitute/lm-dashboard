@@ -1,0 +1,293 @@
+/* ---- board ---- */
+.student-board {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 28px;
+  overflow: auto;
+}
+.board-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+.track-form {
+  display: flex;
+  margin-left: auto;
+}
+/* Which logs the board listens to: Reflecks, or one ZANY study. */
+.source-pick .cds--select-input {
+  font-weight: 600;
+}
+.track-form .cds--text-input-wrapper {
+  inline-size: 14rem;
+}
+.board-heading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.board-heading > span {
+  color: var(--lmd-sub);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.student-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 272px), 1fr));
+  gap: 12px;
+  align-content: start;
+}
+/* A card only changes colour when the student is in an alert state: the tint
+   is the trigger's own colour, so the board reads by colour at a glance. */
+.student-card.cds--tile {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 110ms cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+.student-card.cds--tile:hover {
+  background: var(--cds-layer-hover-01);
+}
+.student-card.is-alert {
+  background: color-mix(in srgb, var(--tone) 7%, var(--cds-layer-01));
+  box-shadow: inset 3px 0 0 var(--tone);
+}
+.student-card.is-alert:hover {
+  background: color-mix(in srgb, var(--tone) 12%, var(--cds-layer-01));
+}
+.student-card.is-absent {
+  opacity: 0.55;
+}
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.student-open.card-id {
+  font-family: var(--lmd-mono);
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--lmd-faint);
+  white-space: nowrap;
+}
+/* Status: Carbon's tag, tinted with the trigger's colour so it matches the tracks. */
+.status-tag.cds--tag {
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  color: var(--tone);
+  font-weight: 600;
+}
+.card-head .status-tag.cds--tag {
+  margin: 0 0 0 auto;
+  --tone: var(--tone-text);
+}
+.status-tag .cds--tag__custom-icon svg {
+  fill: none;
+}
+.card-strips {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.card-wait {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--lmd-faint);
+}
+.card-wait .cds--skeleton__text {
+  margin-bottom: 0.5rem;
+}
+.card-actions,
+.feed-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+.card-actions .card-remove {
+  margin-left: auto;
+}
+.card-actions .cds--tag,
+.feed-actions .cds--tag {
+  margin: 0;
+}
+/* Present is everyone's default, so it stays quiet when on (the label says it); a pick is the
+   researcher's own mark, so it is the one toggle that fills. */
+.card-actions .cds--tag--selectable-selected:not(.is-pick) {
+  border: 1px solid var(--cds-border-strong-01);
+  background: transparent;
+  color: var(--cds-text-secondary);
+}
+.student-open {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dashboard .student-open {
+  min-height: 0;
+}
+.student-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.board-empty {
+  max-width: 480px;
+  margin: 24px auto;
+  padding: 40px 20px;
+  color: var(--lmd-sub);
+  font-size: 14px;
+  text-align: center;
+}
+.board-empty h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+  margin: 0 0 12px;
+}
+.board-empty p {
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+.feed-jump {
+  display: none;
+  color: var(--lmd-accent);
+  font-size: 14px;
+  text-underline-offset: 3px;
+}
+
+/* Activity strips: one tile per run or episode. Tiles in a card share the width
+   equally; in the sheet they keep a minimum width and the strip scrolls. */
+.track {
+  display: flex;
+  gap: 2px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--lmd-border);
+  border-radius: 8px;
+  background: var(--lmd-track);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.track.is-compact {
+  height: 18px;
+  border-radius: 6px;
+  overflow-x: hidden;
+}
+.track-tile {
+  flex: 1 0 14px;
+  min-width: 3px;
+  border-radius: 2px;
+}
+.track.is-compact .track-tile {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.track-tile.is-faint {
+  opacity: 0.4;
+}
+.track-pause {
+  flex: 0 0 9px;
+  border-radius: 2px;
+}
+.track.is-compact .track-pause {
+  flex-basis: 5px;
+}
+/* Episodes sit edge to edge; a pause is the only break, with room either side. */
+.track.is-flush {
+  gap: 0;
+  overflow-y: hidden;
+}
+.track.is-flush .track-tile,
+.track.is-flush .track-pause {
+  border-radius: 0;
+}
+.track.is-flush .track-pause {
+  margin-inline: 5px;
+}
+.track.is-flush.is-compact .track-pause {
+  margin-inline: 3px;
+}
+.track-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.track-legend i {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+.track-empty {
+  color: var(--lmd-sub);
+  font-size: 13px;
+}
+.track-empty.is-compact {
+  font-size: 11.5px;
+}
+
+@media (max-width: 1100px) {
+  .student-board {
+    padding: 24px 20px;
+  }
+}
+@media (max-width: 760px) {
+  .track-form {
+    width: 100%;
+    margin-left: 0;
+  }
+  .track-form .cds--text-input-wrapper {
+    flex: 1;
+    inline-size: auto;
+  }
+  .student-board {
+    padding: 24px 16px;
+    overflow: visible;
+  }
+  .feed-jump {
+    display: inline-block;
+    margin-left: auto;
+    padding: 10px 0;
+  }
+  .board-heading > span {
+    flex-basis: 100%;
+  }
+}

@@ -1,0 +1,773 @@
+/* Goal evidence */
+.goal-intro {
+  margin: 0 0 12px;
+  max-width: 68ch;
+  color: var(--lmd-sub);
+  font-size: 13px;
+}
+.goal-runs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.goal-runs > span {
+  margin-right: 6px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-runs .cds--tag {
+  margin: 0;
+  min-inline-size: 2.25rem;
+  justify-content: center;
+  font-family: var(--lmd-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* A run that left the island: a red tick under its number. */
+.goal-run.is-exit {
+  position: relative;
+}
+.goal-run.is-exit::after {
+  content: "";
+  position: absolute;
+  left: 30%;
+  right: 30%;
+  bottom: 2px;
+  height: 2px;
+  background: var(--lmd-signal-d0433c);
+}
+.goal-part {
+  margin-top: 24px;
+}
+.goal-part > h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--lmd-border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.goal-role {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+}
+.goal-role-label {
+  font-size: 12px;
+  color: var(--lmd-faint);
+  line-height: 20px;
+}
+/* One flag chip per row: the lead flag, a +N count, the full list on click. */
+.flag-chip.cds--tag {
+  margin: 0;
+  max-inline-size: 100%;
+}
+.flag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-basis: 100%;
+  margin: 2px 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--lmd-track);
+  font-size: 12px;
+}
+.flag-list div {
+  display: flex;
+  gap: 8px;
+}
+.flag-list dt {
+  flex: 0 0 72px;
+  color: var(--lmd-sub);
+}
+.flag-list dd {
+  margin: 0;
+  color: var(--lmd-ink);
+}
+
+/* Goal board: one row per goal (or rubric dimension). Name | reading. */
+.goal-cols,
+.goal-row {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
+}
+.goal-cols {
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--lmd-border);
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.goal-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.goal-name h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--lmd-ink);
+}
+.goal-reading {
+  min-width: 0;
+}
+.goal-now {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  min-height: 22px;
+  font-size: 14px;
+  color: var(--lmd-ink);
+}
+.goal-now strong {
+  font-weight: 600;
+}
+.goal-of {
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.goal-none {
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-next {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.goal-next b {
+  font-weight: 500;
+  color: var(--lmd-ink);
+}
+.goal-now .flag-chip {
+  margin-left: auto;
+}
+/* The ladder as pips: reached solid ink, climbed-past a lighter ink, ahead empty. */
+.pips {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.pips i {
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--lmd-track);
+  box-shadow: inset 0 0 0 1px var(--lmd-border);
+}
+.pips i.is-climbed {
+  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
+  box-shadow: none;
+}
+.pips i.is-reached {
+  background: var(--lmd-ink);
+  box-shadow: none;
+}
+.pips.is-none i {
+  background: transparent;
+  box-shadow: none;
+  border: 1px dashed var(--lmd-faint);
+}
+/* Goal trajectory: where each goal's claim landed on every run. One hue
+   (ink), ordinal: the bar's fill height is the rung's place on its ladder. */
+.traj {
+  overflow-x: auto;
+  margin: 4px 0 16px;
+  padding-bottom: 4px;
+}
+.traj .cds--data-table {
+  inline-size: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.traj .cds--data-table thead th,
+.traj .cds--data-table tbody td,
+.traj .cds--data-table tbody th {
+  block-size: auto;
+  border-top: 0;
+  border-bottom: 0;
+  background: var(--lmd-panel);
+}
+.traj .cds--data-table tbody tr:hover td,
+.traj .cds--data-table tbody tr:hover th {
+  background: var(--cds-layer-hover-01);
+}
+.traj .cds--table-header-label {
+  padding: 0;
+}
+.traj th[scope="row"] {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 176px;
+  min-width: 176px;
+  padding: 0 20px 0 0;
+  background: var(--lmd-panel);
+  font-weight: 500;
+  color: var(--lmd-ink);
+  text-align: left;
+  white-space: nowrap;
+}
+.traj-corner {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--lmd-panel);
+  padding-right: 20px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj thead th {
+  padding-bottom: 6px;
+  font-weight: 400;
+}
+.traj thead th button {
+  width: 32px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lmd-sub);
+  font: inherit;
+  font-family: var(--lmd-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.student-dialog .traj thead th button {
+  min-height: 26px;
+}
+.traj thead th button:hover {
+  filter: none;
+  background: var(--lmd-track);
+  color: var(--lmd-ink);
+}
+.traj thead th button[aria-pressed="true"] {
+  background: var(--lmd-ink);
+  color: var(--lmd-panel);
+  font-weight: 600;
+}
+.traj td {
+  width: 36px;
+  height: 32px;
+  padding: 0 2px;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.traj td.is-current,
+.traj th.is-current {
+  background: var(--lmd-track);
+}
+.traj tbody tr:first-child td.is-current {
+  border-radius: 6px 6px 0 0;
+}
+.traj tbody tr:last-child td.is-current {
+  border-radius: 0 0 6px 6px;
+}
+/* The mark: an 8px-wide track with the rung level filled from the bottom. */
+.traj-bar {
+  display: inline-block;
+  position: relative;
+  width: 8px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--lmd-track);
+  box-shadow: inset 0 0 0 1px var(--lmd-border);
+  vertical-align: middle;
+  overflow: hidden;
+}
+.traj td.is-current .traj-bar {
+  background: var(--lmd-panel);
+}
+.traj-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: max(3px, calc(var(--lvl) * 100%));
+  background: color-mix(in srgb, var(--lmd-ink) 40%, var(--lmd-track));
+}
+.traj td.is-current .traj-bar::after {
+  background: var(--lmd-ink);
+}
+.traj-none {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--lmd-border);
+  vertical-align: middle;
+}
+.traj-none.is-abstained {
+  height: 22px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--lmd-faint);
+  border-radius: 2px;
+  -webkit-mask: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
+  mask: repeating-linear-gradient(0deg, #000 0 3px, transparent 3px 5px);
+}
+.traj-exit th[scope="row"] {
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj-exit td {
+  height: 26px;
+  color: var(--lmd-signal-d0433c);
+}
+/* The picked run's rung, written out: the one direct label per row. */
+.traj .traj-now {
+  width: auto;
+  padding: 0 0 0 16px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lmd-ink);
+}
+.traj thead .traj-now {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.traj .traj-now i {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--lmd-faint);
+}
+.traj-exit .traj-now {
+  color: var(--lmd-signal-d0433c);
+}
+.traj-exit td svg {
+  margin: 0 auto;
+}
+/* One goal on the selected run. */
+.goals {
+  display: flex;
+  flex-direction: column;
+}
+.goal {
+  padding: 14px 0;
+  border-top: 1px solid var(--lmd-border);
+}
+.goal-cols + .goal {
+  border-top: 0;
+}
+.goal-noclaim {
+  margin: 0;
+  line-height: 22px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-evidence {
+  margin-top: 10px;
+}
+.goal > .goal-evidence.cds--accordion {
+  inline-size: auto;
+}
+/* Carbon keeps a quarter of the width clear for prose; evidence needs it. */
+.goal-evidence .cds--accordion__content,
+.battery-families .cds--accordion__content {
+  padding-inline-end: 0;
+}
+.goal-evidence .cds--accordion__title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.goal-evidence-count {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--lmd-sub);
+}
+.goal-evidence-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px 0 4px 20px;
+  border-left: 1px solid var(--lmd-border);
+}
+.goal-evidence-body .battery-scenarios {
+  padding: 0;
+}
+.battery-family-tag {
+  font-size: 12px;
+  color: var(--lmd-faint);
+}
+
+/* Rung ladder: a segmented bar filled up to the reached rung, names below. */
+.rungs {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rungs li {
+  min-width: 0;
+  padding-top: 10px;
+  position: relative;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--lmd-faint);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.rungs li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--lmd-track);
+  box-shadow: inset 0 0 0 1px var(--lmd-border);
+}
+.rungs li:first-child::before {
+  border-radius: 3px 2px 2px 3px;
+}
+.rungs li:last-child::before {
+  border-radius: 2px 3px 3px 2px;
+}
+.rungs li.is-climbed {
+  color: var(--lmd-sub);
+}
+.rungs li.is-climbed::before {
+  background: color-mix(in srgb, var(--lmd-ink) 32%, var(--lmd-track));
+  box-shadow: none;
+}
+.rungs li.is-reached {
+  color: var(--lmd-ink);
+  font-weight: 600;
+}
+.rungs li.is-reached::before {
+  background: var(--lmd-ink);
+  box-shadow: none;
+}
+.goal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.goal-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.goal-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+.goal-critical {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--tone) 45%, var(--lmd-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone) 7%, var(--lmd-panel));
+  color: var(--tone-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.goal-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.goal-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--lmd-faint);
+  font-variant-numeric: tabular-nums;
+}
+.goal-facts b {
+  font-weight: 500;
+  color: var(--lmd-sub);
+}
+.goal-source {
+  color: var(--lmd-sub);
+  font-weight: 500;
+}
+.goal-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.goal-timeline li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--lmd-border);
+}
+.goal-timeline li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.goal-timeline li.is-faded {
+  opacity: 0.55;
+}
+.tl-step {
+  min-width: 52px;
+  font-family: var(--lmd-mono);
+  font-size: 12px;
+  color: var(--lmd-faint);
+  font-variant-numeric: tabular-nums;
+}
+.tl-what {
+  color: var(--lmd-sub);
+}
+.tl-change {
+  color: var(--lmd-ink);
+  font-weight: 500;
+}
+.goal-timeline-sub {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lmd-sub);
+}
+.battery-reads {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.battery-family-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  inline-size: 100%;
+  font-size: 13px;
+}
+.battery-family-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.battery-family-count {
+  color: var(--lmd-faint);
+}
+.battery-tally {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.battery-tally > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.battery-scenarios {
+  margin: 0;
+  padding: 0 0 12px 24px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.battery-scenario-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+.battery-scenario-id {
+  font-family: var(--lmd-mono);
+  font-size: 12px;
+  color: var(--lmd-ink);
+}
+.battery-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.battery-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--lmd-border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--lmd-sub);
+}
+.battery-check.is-abstained {
+  border-style: dashed;
+  color: var(--lmd-faint);
+}
+.battery-value {
+  font-weight: 600;
+  color: var(--lmd-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One indicator: channel mark, name, value and flags over its rung ladder. */
+.indicator {
+  margin-bottom: 10px;
+}
+.indicator-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.indicator-name {
+  font-size: 13px;
+  color: var(--lmd-ink);
+}
+.indicator-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+.indicator-value {
+  font-family: var(--lmd-mono);
+  font-size: 12px;
+  color: var(--lmd-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* No rung to place: an abstention (dashed) or a meaningful absence (solid). */
+.goal-noreading {
+  padding: 3px 10px;
+  border: 1px dashed var(--lmd-border);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--lmd-faint);
+}
+.goal-noreading.is-absent {
+  border-style: solid;
+  background: var(--lmd-track);
+  color: var(--lmd-sub);
+}
+/* Where a reading came from: robot (filled dot), simulator (ring), code (square). */
+.channel-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--lmd-faint);
+}
+.channel-mark.is-outcome {
+  border: 0;
+  background: var(--lmd-ink);
+}
+.channel-mark.is-simulation {
+  border-color: var(--lmd-sub);
+}
+.channel-mark.is-code {
+  border-color: var(--lmd-sub);
+  border-radius: 0;
+}
+/* A sensor check's state: filled verdicts, a ring for measured, dashed for inconclusive. */
+.check-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lmd-sub);
+}
+.check-dot.is-pass {
+  background: var(--lmd-success);
+}
+.check-dot.is-conditional {
+  background: var(--lmd-warning);
+}
+.check-dot.is-fail {
+  background: var(--lmd-signal-d0433c);
+}
+.check-dot.is-measured {
+  background: transparent;
+  border: 1.5px solid var(--lmd-sub);
+}
+.check-dot.is-abstained {
+  background: transparent;
+  border: 1px dashed var(--lmd-faint);
+}
+.battery-capped {
+  color: var(--lmd-warning);
+}
+
+@media (min-width: 641px) {
+  /* Facts and evidence hang under the reading column. */
+  .goal > .goal-facts,
+  .goal > .goal-evidence,
+  .goal > .flag-list {
+    margin-left: 196px;
+  }
+}
+@media (max-width: 760px) {
+  .goal-role {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  /* the goal blocks below write each rung out; the table keeps just the bars */
+  .traj .traj-now {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .goal-cols {
+    display: none;
+  }
+  .goal-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  .traj th[scope="row"] {
+    width: 132px;
+    min-width: 132px;
+    padding-right: 12px;
+  }
+}

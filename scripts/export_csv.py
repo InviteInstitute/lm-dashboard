@@ -11,6 +11,7 @@ out as raw JSON text, so load them back with json.loads in pandas. The script
 only reads the database, never writes it, and it calls the same db.export_csv as
 the dashboard's Export button so the two always produce identical output.
 """
+
 import argparse
 import os
 import sys
@@ -21,15 +22,14 @@ from app import db  # noqa: E402
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description="Dump the Postgres DB to CSV, one file per table."
+    ap = argparse.ArgumentParser(description="Dump the Postgres DB to CSV, one file per table.")
+    ap.add_argument(
+        "--db", default=None, help="Postgres conninfo to export (default: DATABASE_URL)"
     )
-    ap.add_argument("--db", default=None,
-                    help="Postgres conninfo to export (default: DATABASE_URL)")
-    ap.add_argument("--out", default=None,
-                    help="output directory (default: exports/<timestamp>)")
-    ap.add_argument("--tables", default=None,
-                    help="comma-separated subset of tables (default: all)")
+    ap.add_argument("--out", default=None, help="output directory (default: exports/<timestamp>)")
+    ap.add_argument(
+        "--tables", default=None, help="comma-separated subset of tables (default: all)"
+    )
     args = ap.parse_args()
 
     out_dir = args.out or os.path.join("exports", datetime.now().strftime("%Y-%m-%d_%H%M"))

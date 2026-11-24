@@ -22,11 +22,13 @@ Two small files, both gitignored:
 1.  **App secrets** - copy the example and fill it in:
 
     ```bash
-    cp .env.example .env.mirror     # set PROD_USERNAME / PROD_PASSWORD
+    cp .env.example .env.mirror     # fill in the secrets it lists
     ```
 
-    `PROD_USERNAME` / `PROD_PASSWORD` are the daemon's Reflecks login. They also
-    seed the interim shared dashboard login (see [Using the dashboard](guides/using-the-dashboard.md)).
+    `PROD_USERNAME` / `PROD_PASSWORD` are the daemon's Reflecks login.
+    `SESSION_SECRET` signs the API's cookies, and `TURNSTILE_SECRET` is the
+    Cloudflare Turnstile secret key. [Configuration](guides/configuration.md) lists
+    every setting.
 
 2.  **Database password** for compose:
 
@@ -70,18 +72,17 @@ docker compose logs -f daemon        # follow a service (api / daemon / db)
 docker compose down                  # stop everything
 ```
 
-## Sign In and Track Your First Student
+## Track Your First Student
 
-Open the dashboard. Your **browser prompts for a username and password** - sign in
-with `PROD_USERNAME` / `PROD_PASSWORD`. Then type a student ID into **Track a
-student**: the daemon backfills their recent history, materializes their state, and
-their card appears within a tick or two.
+Open the dashboard. The first time, the browser passes a Cloudflare Turnstile check,
+which is remembered for 12 hours. Then type a student ID into **Track student IDs**.
+The daemon backfills their recent history, works out their state, and their card
+appears within a tick or two.
 
 !!! note "Each browser is its own board"
-    Under the shared login, every browser gets its own isolated board (roster,
-    notes, picks). For stable per-person boards across devices, create named
-    accounts with `scripts/create_researcher.py` - see
-    [Configuration](guides/configuration.md).
+    There is no login. Every browser gets its own isolated board (roster, notes,
+    picks and settings), kept by an ID in the browser's local storage. Clearing
+    site data starts a fresh board.
 
 !!! success
     The dashboard is read-only against your Postgres mirror. Tracking, analyzing,
@@ -107,13 +108,13 @@ site to the gitignored `site/`.
 
     ---
 
-    What the cards, columns, and drill-down actually show you.
+    What the cards, the alert column and the student sheet show you.
 
 -   :material-tune:{ .lg .middle } **[Configuration](guides/configuration.md)**
 
     ---
 
-    Environment variables, accounts, and CLI flags.
+    Environment variables and CLI flags.
 
 -   :material-wrench:{ .lg .middle } **[Development](guides/development.md)**
 

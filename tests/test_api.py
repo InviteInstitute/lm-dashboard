@@ -19,10 +19,6 @@ def test_student_states_stamps_viewer_heartbeat(client):
     assert db.get_workspace_setting(ws, "viewer_last_seen") is not None
 
 
-# The origin-wide HTTP Basic gate was replaced by per-researcher session auth;
-# that gate is covered by tests/test_auth.py.
-
-
 # --- student_states: light list vs heavy detail (issue #9) -----------------
 def test_student_states_list_is_light(client, seed_state):
     seed_state("s1")
@@ -53,10 +49,6 @@ def test_student_states_sort_by_recency(client, seed_state):
     seed_state("newer", last_event_time=db.now())
     rows = client.get("/api/student_states/").json()["students"]
     assert rows[0]["studentID"] == "newer"  # most recent activity first
-
-
-# The grid now fetches this workspace's whole roster (no per-request `students`
-# list), so the MAX_STUDENT_IDS cap no longer applies to student_states.
 
 
 # --- tracked roster --------------------------------------------------------
@@ -174,6 +166,34 @@ def test_trigger_config_toggle_and_unknown_type(client):
     # re-enable it again (the discard path)
     client.post("/api/triggers/config/", json={"trigger_type": "inactive", "enabled": True})
     assert client.get("/api/triggers/config/").json()["enabled"]["inactive"] is True
+
+
+def test_trigger_switches_are_per_board(client):
+    a, b = {"X-Board-Id": "board-a"}, {"X-Board-Id": "board-b"}
+    for h in (a, b):
+        client.post("/api/tracked/", json={"studentID": "s1"}, headers=h)
+    db.create_trigger("s1", "inactive", db.now(), db.now(), None, {"label": "Inactive"})
+
+    off = {"trigger_type": "inactive", "enabled": False}
+    client.post("/api/triggers/config/", json=off, headers=a)
+    assert client.get("/api/triggers/config/", headers=a).json()["enabled"]["inactive"] is False
+    assert client.get("/api/triggers/config/", headers=b).json()["enabled"]["inactive"] is True
+    assert client.get("/api/triggers/", headers=a).json()["triggers"] == []
+    feed_b = client.get("/api/triggers/", headers=b).json()["triggers"]
+    assert [t["trigger_type"] for t in feed_b] == ["inactive"]
+
+    # Back on: the daemon never stopped firing it, so the current alert returns.
+    client.post("/api/triggers/config/", json={**off, "enabled": True}, headers=a)
+    assert len(client.get("/api/triggers/", headers=a).json()["triggers"]) == 1
+
+
+def test_a_board_without_its_own_switches_keeps_the_old_shared_setting(client):
+    db.set_meta("disabled_triggers", "explorer")  # set before the switches were per board
+    h = {"X-Board-Id": "old-board"}
+    assert client.get("/api/triggers/config/", headers=h).json()["enabled"]["explorer"] is False
+    on = {"trigger_type": "explorer", "enabled": True}
+    client.post("/api/triggers/config/", json=on, headers=h)
+    assert client.get("/api/triggers/config/", headers=h).json()["enabled"]["explorer"] is True
 
 
 # --- triggers feed + ack ---------------------------------------------------

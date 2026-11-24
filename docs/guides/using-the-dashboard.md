@@ -1,13 +1,13 @@
 ---
-description: Student cards, the who-needs-help column, drill-down detail, and the reset button.
+description: Student cards, the who-needs-help column, the student sheet, and the reset button.
 ---
 
 # Using The Dashboard
 
-The dashboard is a single screen. The first time you open it your **browser prompts
-for a username and password** - that's the login. Each browser then gets its **own
-isolated board**: your roster, notes, and picks are yours, separate from anyone else
-signed in with the same credentials.
+The dashboard is a single screen. There is no login: the first time you open it, the
+browser passes a Cloudflare Turnstile check that keeps bots off the API, and it
+remembers that for 12 hours. Each browser gets its **own isolated board**, so your
+roster, notes and picks are separate from everyone else's.
 
 It holds one live stream to the API and refetches only what changed, so the whole
 view stays in sync with itself and updates land in about a quarter second. If the
@@ -42,14 +42,15 @@ once no board is tracking them any more.
 
 ## Student Cards
 
-There's one card per tracked student, ordered by most recent activity (present
-students sort ahead of absent ones). Each card shows:
+There's one card per tracked student. Present students come first, then absent
+ones, each group in order of student ID, so a card never jumps around while you
+watch it. Each card shows:
 
 | Element | What It Shows |
 |---|---|
 | **Status badge** | the student's headline state, derived from their active triggers (or **OK** when none are firing) |
-| **Run track** | one tile per run, coloured by that run's edit distance |
-| **Episode sparkline** | the segmented code / run / reset timeline, with pauses |
+| **Run track** | the last ten runs, one tile each, coloured by that run's edit distance |
+| **Episode track** | the last ten episodes (code, run, reset), with the pauses between them |
 | **Counts** | run and event totals for the session |
 
 Each card also carries **Present** and **Picked** toggles for the interview workflow.
@@ -72,8 +73,10 @@ and the five triggers are just rules over the sequence of those numbers.
 
 ## Who-Needs-Help Column
 
-The column on the right is the live intervention feed. It shows every alert the daemon
-has fired that hasn't yet resolved or been acknowledged. There are five:
+The column on the right is the live intervention feed. It shows the alerts the daemon
+has fired for present students on your board, until you dismiss them. An alert that
+resolves on its own stays for seven more minutes, so it doesn't vanish the moment a
+student recovers. There are five triggers:
 
 | Trigger | Fires When | Example value |
 |---|---|---|
@@ -81,14 +84,15 @@ has fired that hasn't yet resolved or been acknowledged. There are five:
 | **Resilience** | a real edit right after four or more identical re-runs | `recovered after 5 reruns` |
 | **Inactive** | no events for four minutes (240s) or more | `idle 7m` |
 | **Explorer** | a single run changes 13 or more blocks | `changed 21` |
-| **Step-by-Step** | six runs of steady editing (`edit_distance >= 1`) | `6 steady edits` |
+| **Step-by-Step** | a streak of steady edits (`edit_distance >= 1`): six runs, or fewer on some playgrounds (five on Coral Reef Rescue, three on Rover Rescue) | `6 steady edits` |
 
-Each row shows the student ID, the trigger label and its value, and how long ago it
-fired, plus a faint **last:** line with the student's previous trigger and its
-wall-clock time (for example `last: Wheel-spinning | 10:24 AM (12m ago)`), so a first
-flag reads differently from the fifth in ten minutes. Click a row to open that
-student's detail, hit the **✕** to dismiss the alert, or use **Notes** to jot an
-observation right against the alert.
+Each row shows the student ID, the trigger label and its value, and how long the
+alert has been active, plus a quiet line with the student's previous trigger and its
+wall-clock time (for example `Before this: Wheel-spinning at 10:24 AM (12m ago)`), so a
+first flag reads differently from the fifth in ten minutes. Click a row to open that
+student's sheet, **✕** to dismiss the alert, **Mark Picked** to record an interview
+pick that remembers which alert prompted it, or **Add Note** to write an observation
+tied to the alert.
 
 !!! note "Wheel-spinning and Resilience are a pair"
     They read the same streak from opposite ends: wheel-spinning fires while a student
@@ -101,16 +105,18 @@ observation right against the alert.
     someone who never came back keeps resurfacing in the feed.
 
 You can also turn whole trigger types on or off from **Triggers** (the sliders icon) in
-the header: it opens a panel with a switch for each type. Switching one off tells the daemon to stop firing it and clear its open
-alerts.
+the header, which opens a panel with a switch for each type. Switching one off hides
+that type from **your board's** feed and cards. Other boards keep their own switches.
+The daemon keeps watching for every type, so switching one back on brings back its
+alerts that are still current.
 
 ## Identity Switches
 
 Student handles are folded case-insensitively, so `cobra3` and `Cobra3` are one
 student (the board shows whichever casing arrived most recently). When a tracked
-handle flips casing or turns up under a new class code, an amber **toast** pops in the
-top-right corner and the switch lands in the **Identity Switches** feed under the
-alerts. That's usually the signal that one person or a shared device is active in two
+handle flips casing or turns up under a new class code, an amber **toast** pops up in
+the bottom-right corner and the switch lands in the **Identity Switches** feed under the
+alerts. Switches from before you opened the board are in the feed without a toast. That's usually the signal that one person or a shared device is active in two
 places, which is worth knowing before you read too much into their timeline. Dismiss
 a switch with its **✕** once you've seen it.
 
@@ -119,7 +125,7 @@ a switch with its **✕** once you've seen it.
 Your inputs (presence, picked, notes, dismissals, roster edits) are the one thing the
 system can't recompute, so they never fail silently. Every click applies instantly,
 retries quietly if the write hiccups, and if it still can't land you get a sticky
-**red "NOT saved" toast** naming the action. The input itself is parked verbatim in
+**red "Not saved" toast** naming the action. The input itself is parked verbatim in
 the outbox (on the server, or in the browser until the server is reachable again), so
 nothing you typed or clicked is ever lost. Red toasts stay until you dismiss them. If
 you see one, the outbox has the details.
@@ -142,25 +148,34 @@ the title turns grey and reads **Polling paused**.
 The daemon process keeps running while paused. Pausing only stops the polling, not the
 daemon itself.
 
-## Drill-Down
+## Student Sheet
 
-Click any card to open the full detail:
+Click any card or alert to open that student's sheet, which slides in over the right of
+the board so the rest of the class stays in view. On the left is the evidence:
 
+- Full-size **episode** and **run** timelines, every one since the last reset.
 - The **Latest program**, with a switch between two renderings of the same blocks:
   - **Readable**: every block with its parameters spelled out, including the
     numbers: `drive for forward, mm, amount 200`, and nested conditions inline
     like `if (not (object distance < 200))`.
   - **LLM prompt**: the same program flattened into the compact text given to an
     LLM as context.
-- Full-size **run** and **episode** timelines.
-- The **trigger history grid**: every trigger fired for this student this session
-  (Time, Trigger, Value, Status), newest first, including resolved and dismissed
-  rows, so you can see the pattern behind the current alert.
-- The complete **notes and observations** log for that student, with a box to add
-  more.
+- **Goal evidence**, for Castle Crashers runs only: a table of where each goal's
+  claim landed on every run, then, for the run you pick, each goal's reading on its
+  ladder with the indicators, rung changes and sensor test worlds behind it, and the
+  provisional execution rubric. Every reading carries its uncertainty flags, and a
+  goal with no evidence says so rather than showing a fake rung. It is evidence for
+  you to weigh, not a score.
 
-The detail view fetches its own per-student payload on open and keeps it refreshed
-while the modal is up, following the same live stream as the rest of the board.
+On the right is your own record of the student:
+
+- Your **notes**, newest first, with a box to add more (Ctrl+Enter saves).
+- The **trigger history**: every trigger this student has had since the last reset,
+  newest first, with its time, value and whether it is active, resolved or
+  dismissed, so you can see the pattern behind the current alert.
+
+The sheet keeps itself current while it is open, following the same live stream as
+the rest of the board. Escape, the **✕** or a click outside it closes it.
 
 ## Export
 

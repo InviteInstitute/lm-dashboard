@@ -105,7 +105,7 @@ def test_get_raises_on_other_error(monkeypatch):
     monkeypatch.setenv("PROD_PASSWORD", "p")
     sess = FakeSession(get_responses=[FakeResp(500, text="boom")])
     with pytest.raises(ProdClientError, match="500"):
-        _client(sess).page_by_id(0, 10)
+        _client(sess).page_student("s1", 10, 0)
 
 
 def test_page_by_time_without_date_from(monkeypatch):

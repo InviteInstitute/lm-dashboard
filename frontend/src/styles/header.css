@@ -1,0 +1,63 @@
+/* ---- header: Carbon's UI shell, in the page's flow ---- */
+.lmd-header.cds--header {
+  position: sticky;
+  flex-shrink: 0;
+  background: var(--cds-layer-01);
+}
+.lmd-header .live-state {
+  margin-left: 0.5rem;
+}
+.lmd-header .cds--header__global {
+  margin-left: auto;
+}
+.trigger-panel.cds--header-panel--expanded {
+  inline-size: 18rem;
+  padding: 1rem;
+  border-left: 1px solid var(--cds-border-subtle-01);
+  background: var(--cds-layer-01);
+}
+.trigger-panel h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.trigger-panel .cds--toggle {
+  display: block;
+  margin-bottom: 1rem;
+}
+.reset-modal .cds--modal-content p + p {
+  margin-top: 1rem;
+}
+.toast-stack {
+  position: fixed;
+  right: 1.5rem;
+  bottom: 1.5rem;
+  z-index: 60;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+}
+.toast-stack .cds--toast-notification {
+  margin: 0;
+}
+.unlock-intro {
+  margin-bottom: 1rem;
+}
+.cds--modal-content .cds--form-item + .cds--form-item,
+.cds--modal-content .cds--form-item + .cds--inline-notification {
+  margin-top: 1rem;
+}
+
+@media (max-width: 760px) {
+  /* The header keeps the product name and the actions; the long name gives way first. */
+  .lmd-header .cds--header__name {
+    overflow: hidden;
+    padding-inline: 1rem 0.5rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lmd-header .cds--header__name--prefix + span,
+  .lmd-header .live-state {
+    display: none;
+  }
+}

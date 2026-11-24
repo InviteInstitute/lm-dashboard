@@ -1,5 +1,5 @@
 """The trigger evaluator: the one sustained trigger (inactive) sustain/resolve,
-the disable flag, and the re-alert rotation. The four momentary edit-distance
+and the re-alert rotation. The four momentary edit-distance
 triggers fire from the worker; see test_workers.py and test_run_triggers.py."""
 
 from datetime import timedelta
@@ -33,18 +33,6 @@ def test_inactive_fires_only_past_240s():
     triggers.evaluate()
     assert db.current_open_trigger("fresh", "inactive") is None
     assert db.current_open_trigger("idle", "inactive") is not None
-
-
-def test_disabled_type_does_not_fire_and_clears_open_rows():
-    old = db.now() - timedelta(seconds=triggers.INACTIVE_TRIGGER_SECONDS + 30)
-    _state("s1", last_event_time=old)
-    triggers.evaluate()
-    assert db.current_open_trigger("s1", "inactive") is not None
-
-    db.set_meta("disabled_triggers", "inactive")
-    triggers.evaluate()
-    # disabling a sustained type resolves its open row within a tick
-    assert db.current_open_trigger("s1", "inactive") is None
 
 
 def test_sustained_trigger_is_not_duplicated_across_ticks():
@@ -97,3 +85,14 @@ def test_acked_but_still_idle_rotates_after_re_alert_window():
     fresh = db.current_open_trigger("s1", "inactive")
     assert fresh is not None and fresh["id"] != ev["id"]  # a new, unacked row surfaced
     assert fresh["acknowledged"] is False
+
+
+def test_every_type_fires_whatever_a_board_switched_off():
+    # Alerts are shared by all boards, so the daemon ignores the old shared switch:
+    # each board filters its own feed instead (see test_api).
+    db.set_meta("disabled_triggers", "inactive")
+    _state(
+        "s1", last_event_time=db.now() - timedelta(seconds=triggers.INACTIVE_TRIGGER_SECONDS + 30)
+    )
+    triggers.evaluate()
+    assert db.current_open_trigger("s1", "inactive") is not None

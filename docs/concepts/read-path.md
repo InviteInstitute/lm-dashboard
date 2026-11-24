@@ -45,9 +45,9 @@ The server watches a cheap per-channel change signal and emits a `changed` event
 naming just the channels that moved (`states`, `triggers`, `switches`, `roster`). The
 dashboard refetches only those. So an idle board sits on one quiet connection instead
 of firing ~160 requests a minute, and a change lands on screen in about a quarter
-second instead of up to a poll interval. When you open a student's detail modal it
-fetches that one student's heavier payload (the playground prompt and the readable
-program included) and refreshes it when the `states` channel changes, which is why the
+second instead of up to a poll interval. When you open a student's sheet it fetches
+that one student's heavier payload (the playground prompt, the readable program and
+the goal evidence included) and refreshes it when the `states` channel changes, which is why the
 cohort grid itself can stay light.
 
 !!! note "Polling is the automatic fallback"

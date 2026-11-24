@@ -5,7 +5,8 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
 vi.mock("./api", () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 import api from "./api";
-import CohortDashboard, { COMPACT_TAIL } from "./CohortDashboard.jsx";
+import CohortDashboard from "./CohortDashboard.jsx";
+import { COMPACT_TAIL } from "./constants";
 
 const ROUTES = {
   "/api/student_states/": {
@@ -359,7 +360,7 @@ describe("CohortDashboard", () => {
     });
   });
 
-  it("keeps recently-resolved alerts in the feed (they linger ~2 min)", async () => {
+  it("keeps recently-resolved alerts in the feed (the API keeps them 7 min)", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/api/triggers/") {
         return Promise.resolve({
@@ -831,6 +832,11 @@ describe("CohortDashboard", () => {
         expect.objectContaining({ enabled: false }),
       ),
     );
+    // the API filters this board's feed by its switches, so the feed is fetched again
+    const feedFetches = () => api.get.mock.calls.filter(([url]) => url === "/api/triggers/").length;
+    const before = feedFetches();
+    fireEvent.click(offButtons[0]); // and back on
+    await waitFor(() => expect(feedFetches()).toBeGreaterThan(before));
   });
 
   it("downloads a zip snapshot", async () => {
@@ -1053,6 +1059,36 @@ describe("CohortDashboard", () => {
     expect(await screen.findByText("FPFVDH -> AFURRR")).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /^Dismiss switch/ }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/switches/ack/", { id: 5 }));
+  });
+
+  it("toasts only switches that arrive after the board opens, not the backlog", async () => {
+    const sw = (id, from, to) => ({
+      id,
+      studentID: "cobra3",
+      kind: "class",
+      from,
+      to,
+      ts: new Date().toISOString(),
+      acknowledged: false,
+    });
+    let list = [sw(5, "OLD1", "OLD2")];
+    api.get.mockImplementation((url) =>
+      Promise.resolve({
+        data: url === "/api/switches/" ? { switches: list } : (ROUTES[url] ?? {}),
+      }),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<CohortDashboard />);
+      expect(await screen.findByText("OLD1 -> OLD2")).toBeInTheDocument(); // in the feed
+      expect(screen.queryByText("new class: OLD1 -> OLD2")).not.toBeInTheDocument(); // no toast
+      list = [sw(6, "NEW1", "NEW2"), ...list];
+      await act(async () => vi.advanceTimersByTime(2000)); // the next poll brings a new one
+      expect(await screen.findByText("new class: NEW1 -> NEW2")).toBeInTheDocument();
+      expect(screen.queryByText("new class: OLD1 -> OLD2")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the previous trigger (what and when) on an alert card", async () => {

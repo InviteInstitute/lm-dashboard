@@ -1,2154 +1,76 @@
-// The entire dashboard, in one component file.
+// The dashboard: one live board of tracked students for a room of researchers.
 //
-// It polls the read API on a fixed timer and renders three things from what it
-// gets back: a grid of per-student cards (strategy + episode sparklines, plus
-// present/picked toggles), a "who needs help" alert column on the right, and a
-// drill-down modal with the full detail and the notes log. Everything the user
-// does writes straight through to the API; nothing is computed here, the daemon
-// already did the work.
+// It reads the API the daemon keeps current and lays it out as a grid of
+// student cards (left), a "needs intervention" feed (right), and a sheet with
+// one student's full detail and notes. Nothing is computed here that the daemon
+// already worked out. Every researcher action writes straight through to the
+// API (see useSafeWrite), which never writes back to production.
 import React from "react";
-import api, { API_URL, boardId } from "./api";
-import { Icon } from "./icons";
-import {
-  Accordion,
-  AccordionItem,
-  Button,
-  CodeSnippet,
-  InlineNotification,
-  ContainedList,
-  ContainedListItem,
-  ContentSwitcher,
-  Header,
-  HeaderGlobalAction,
-  HeaderGlobalBar,
-  HeaderName,
-  HeaderPanel,
-  IconButton,
-  Modal,
-  OperationalTag,
-  Select,
-  SelectItem,
-  SelectableTag,
-  SkeletonText,
-  Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-  Tag,
-  TextArea,
-  TextInput,
-  PasswordInput,
-  Tile,
-  ToastNotification,
-  Toggle,
-} from "@carbon/react";
-import {
-  Asleep,
-  Checkmark,
-  Close,
-  Download,
-  Light,
-  Pause,
-  Play,
-  Reset,
-  SettingsAdjust,
-  WarningAlt,
-} from "@carbon/icons-react";
-import {
-  T,
-  FONT,
-  HEADFONT,
-  MONO,
-  edColor,
-  ED_ZERO,
-  ED_SMALL,
-  ED_BIG,
-  EP,
-  HATCH_AMBER,
-  PAUSE_FILL,
-  PAUSE_LEGEND,
-  TRIGGERS,
-  TRIGGER_FALLBACK,
-  TRIGGER_ROWS,
-  TRIGGER_PRIORITY,
-  STATUS_OK,
-  POLL_MS,
-  COMPACT_TAIL,
-} from "./constants";
+import api from "./api";
+import { TRIGGERS } from "./constants";
+import { AlertFeed } from "./components/AlertFeed";
+import { AppHeader } from "./components/AppHeader";
+import { ResetModal, UnlockModal } from "./components/Modals";
+import { StudentSheet } from "./components/sheet/StudentSheet";
+import { StudentBoard } from "./components/StudentBoard";
+import { Toasts, useToasts } from "./components/Toasts";
+import { useBoardData } from "./hooks/useBoardData";
+import { useBoardSource } from "./hooks/useBoardSource";
+import { useSafeWrite } from "./hooks/useSafeWrite";
+import { useStudentDetail } from "./hooks/useStudentDetail";
+import { useTheme } from "./hooks/useTheme";
+import { triggerDownload } from "./lib/download";
+import { headlineTriggers, statusMeta } from "./lib/status";
+
+const ALL_TRIGGERS_ON = Object.fromEntries(Object.keys(TRIGGERS).map((t) => [t, true]));
+
+const switchText = (s) =>
+  `${s.kind === "casing" ? "casing changed" : "new class"}: ${s.from} -> ${s.to}`;
 
-const THEME_KEY = "lm_theme";
-
-// Re-exported so existing imports/tests that pull these from the component file
-// keep working; the source of truth is ./constants.
-export { COMPACT_TAIL } from "./constants";
-
-const triggerMeta = (type) => TRIGGERS[type] || TRIGGER_FALLBACK;
-
-// Parse a server timestamp. Most API times are ISO with an offset, but notes and
-// identity switches come straight from the DB as UTC with no zone
-// ("2026-09-25 01:57:18.055110"), which `new Date` would read as local time.
-export function parseTs(ts) {
-  if (!ts) return null;
-  const bare = /^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(\.\d+)?$/.exec(ts);
-  const d = bare
-    ? new Date(`${bare[1]}T${bare[2]}${bare[3] ? bare[3].slice(0, 4) : ""}Z`)
-    : new Date(ts);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-export function relTime(iso) {
-  const d = parseTs(iso);
-  if (!d) return "-";
-  const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
-  if (s < 60) return `${Math.round(s)}s`;
-  if (s < 3600) return `${Math.round(s / 60)}m`;
-  if (s < 86400) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
-}
-// A duration as whole units, largest first: "45s", "1m 12s", "2h 5m".
-export function fmtDur(s) {
-  if (s == null) return "-";
-  const t = Math.max(0, Math.round(s));
-  if (t < 60) return `${t}s`;
-  if (t < 3600) return t % 60 ? `${Math.floor(t / 60)}m ${t % 60}s` : `${t / 60}m`;
-  const m = Math.floor((t % 3600) / 60);
-  return m ? `${Math.floor(t / 3600)}h ${m}m` : `${Math.floor(t / 3600)}h`;
-}
-// Wall-clock time for "at what time did that fire" readouts (alert prev-line,
-// trigger-history grid). Locale-aware, e.g. "10:24 AM".
-export function clockTime(iso) {
-  const d = parseTs(iso);
-  if (!d) return "-";
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-// When a note was written, in the viewer's time zone: "8:57 PM" today,
-// "Yesterday, 8:57 PM", then "Sep 23, 8:57 PM" (with the year once it differs).
-export function noteTime(ts, now = new Date()) {
-  const d = parseTs(ts);
-  if (!d) return ts || "-";
-  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((day(now) - day(d)) / 86400000);
-  if (days === 0) return time;
-  if (days === 1) return `Yesterday, ${time}`;
-  const date = d.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    ...(d.getFullYear() !== now.getFullYear() && { year: "numeric" }),
-  });
-  return `${date}, ${time}`;
-}
-// The full stamp for a hover title: "Thu, Sep 25, 2026, 8:57:18 PM".
-export function fullTime(ts) {
-  const d = parseTs(ts);
-  return d
-    ? d.toLocaleString([], {
-        weekday: "short",
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
-      })
-    : "";
-}
-// Save a Blob to the user's computer as `filename`. A browser can't write to
-// disk directly, so the trick is to point a temporary <a download> at an
-// in-memory object URL for the blob, click it, then release the URL.
-export function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-
-  link.href = url;
-  link.download = filename;
-  link.click();
-
-  // Clean up memory
-  URL.revokeObjectURL(url);
-}
-// Run `fn` now and every POLL_MS, but only while `active` is true. When `active`
-// flips false the interval is torn down; when it flips back true we fetch once
-// immediately (catch up) before resuming the timer. Gating every poll loop on
-// one flag is how the Page Visibility pause reaches all of them at once.
-function usePoll(fn, active) {
-  React.useEffect(() => {
-    if (!active) return;
-    fn();
-    const id = setInterval(fn, POLL_MS);
-    return () => clearInterval(id);
-  }, [fn, active]);
-}
-
-// Live updates over Server-Sent Events. While `active`, opens one stream to the
-// API and calls `onChanged(channels)` whenever the server reports a change (and
-// once on connect, with all channels, to seed the first fetch). Returns whether
-// the stream is currently connected; the caller gates its poll loops on the
-// negation, so polling is the automatic fallback -- when EventSource is missing
-// (jsdom under test) or the connection drops, the timers take over until the
-// browser reconnects. This is what lets one stream replace four poll loops
-// without ever risking a stale board.
-function useEventStream(onChanged, active) {
-  const [connected, setConnected] = React.useState(false);
-  React.useEffect(() => {
-    if (!active || typeof EventSource === "undefined") return undefined;
-    // EventSource can't set headers, so the per-browser board id rides as a
-    // query param (the API accepts it there for the stream).
-    const es = new EventSource(`${API_URL}/api/stream/?board_id=${encodeURIComponent(boardId())}`);
-    const ALL = ["states", "roster", "triggers", "switches"];
-    es.addEventListener("hello", () => {
-      setConnected(true);
-      onChanged(ALL);
-    });
-    es.addEventListener("changed", (e) => {
-      let channels = ALL;
-      try {
-        channels = JSON.parse(e.data).channels || ALL;
-      } catch {
-        /* refetch all */
-      }
-      onChanged(channels);
-    });
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false); // browser auto-reconnects; polls cover the gap
-    return () => {
-      es.close();
-      setConnected(false);
-    };
-  }, [active, onChanged]);
-  return connected;
-}
-
-// True while this browser tab is actually on screen, via the Page Visibility
-// API. It drives usePoll, so a backgrounded / minimized tab stops polling
-// entirely -- and because those polls double as the daemon's "someone is
-// watching" signal, a tab no one is looking at lets prod polling wind down.
-function usePageVisible() {
-  const [visible, setVisible] = React.useState(!document.hidden);
-  React.useEffect(() => {
-    const onChange = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", onChange);
-    return () => document.removeEventListener("visibilitychange", onChange);
-  }, []);
-  return visible;
-}
-
-// A student's headline status is derived from their active triggers (highest
-// priority wins; wheel_spin > resilience is the only load-bearing rule). No
-// active trigger with data -> "OK"; no materialized state yet -> "No data".
-// A tinted surface for something in an alert state: the fill colour (for
-// backgrounds and borders) and its contrast-safe text variant.
-const toneVars = (c) => ({
-  "--tone": c,
-  "--tone-text": `var(--lmd-signal-${c.slice(1)}, ${c})`,
-});
-
-export function statusMeta(triggerType, hasData) {
-  if (triggerType) return TRIGGERS[triggerType] || TRIGGER_FALLBACK;
-  if (!hasData) return { c: "#2a2d3a", label: "No data" };
-  return STATUS_OK;
-}
-
-// ---------------- timelines ----------------
-// A "tile strip" of blocks. Each block is one unit -- an HMM run, or one EPISODE.
-//
-// Soft-fold (flush=true, episodes only): the hard/soft boundary idea. Soft
-// boundaries -- the transitions BETWEEN consecutive work episodes -- are folded
-// away: episodes sit flush, so a coding->run->coding stretch reads as ONE
-// continuous activity strip (color changes mark the type). The ONLY breaks are
-// HARD boundaries: the real pauses (INACTIVE / POST_RUN), drawn as a hatched gap
-// with margin. So the bar shows "bursts of work separated by real pauses" rather
-// than a gap after every episode. HMM runs keep their normal gapped look.
-const leaf = (s, compact, flush) => {
-  const r = flush ? 0 : 2; // flush blocks are square; the strip rounds at its ends
-  if (s.pause)
-    return {
-      flex: compact ? "0 0 5px" : "0 0 9px",
-      borderRadius: r,
-      background: s.bg,
-      ...(flush ? { marginInline: compact ? 3 : 5 } : {}), // hard boundary == the only break
-    };
-  return {
-    // episode block or HMM run: every block the same width
-    flex: compact ? "1 1 0" : "1 0 14px",
-    minWidth: compact ? 0 : 3,
-    borderRadius: r,
-    background: s.bg,
-    opacity: s.faint ? 0.4 : 1,
-  };
-};
-
-const Track = ({ segments, compact, flush }) => {
-  const ref = React.useRef(null);
-  React.useLayoutEffect(() => {
-    if (!compact && ref.current) ref.current.scrollLeft = ref.current.scrollWidth;
-  }, [compact, segments.length]);
-  const base = compact ? trkSm : trk;
-  const style = flush ? { ...base, gap: 0, overflowY: "hidden" } : base; // flush: fold soft seams
-  return (
-    <div ref={ref} style={style}>
-      {segments.map((s) => (
-        <div key={s.key} title={s.title} style={leaf(s, compact, flush)} />
-      ))}
-    </div>
-  );
-};
-
-// data -> segment list. Compact slices to the last COMPACT_TAIL units. Each run
-// is coloured by its edit_distance: grey = no change, blue = incremental edit,
-// purple = a big change (>=13).
-function runSegments(data, compact) {
-  const all = data.runs || [];
-  const runs = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
-  const off = all.length - runs.length;
-  return runs.map((run, i) => {
-    const d = run.edit_distance;
-    return {
-      key: `r${i + off}`,
-      bg: edColor(d),
-      faint: d == null,
-      title: `Run #${(run.index ?? i + off) + 1} | ${d == null ? "first run" : `edit distance ${d}`}`,
-    };
-  });
-}
-
-function episodeSegments(data, compact) {
-  const all = data.episodes || [];
-  const eps = compact && all.length > COMPACT_TAIL ? all.slice(-COMPACT_TAIL) : all;
-  const minIdx = eps.length ? eps[0].start_idx : 0;
-  const pauseAt = {};
-  (data.pauses || []).forEach((p) => {
-    pauseAt[p.after_idx] = p;
-  });
-  const segs = [];
-  eps.forEach((ep) => {
-    // One equal-width block per episode. The events themselves are summarized
-    // in the tooltip (count + duration), not drawn.
-    const dur = ep.start_ts != null && ep.end_ts != null ? ep.end_ts - ep.start_ts : null;
-    segs.push({
-      key: `e${ep.start_idx}`,
-      bg: EP[ep.episode_type] || EP.CODE,
-      title: `${ep.episode_type} | ${ep.event_count} events${dur != null ? ` | ${fmtDur(dur)}` : ""}`,
-    });
-    const p = pauseAt[ep.end_idx - 1];
-    if (p && p.after_idx >= minIdx) {
-      segs.push({
-        key: `p${ep.end_idx}`,
-        pause: true,
-        bg: PAUSE_FILL[p.episode_type] || HATCH_AMBER,
-        title: `${p.episode_type} | ${fmtDur(p.duration)}`,
-      });
-    }
-  });
-  return segs;
-}
-
-const RunTrack = ({ data, compact }) => {
-  if (!data || !data.runs || data.runs.length === 0)
-    return <div style={emptyTxt(compact)}>No runs yet.</div>;
-  return (
-    <>
-      <Track segments={runSegments(data, compact)} compact={compact} />
-      {!compact && (
-        <div style={legend}>
-          <span>
-            <i style={sw(ED_ZERO)} />
-            No Change
-          </span>
-          <span>
-            <i style={sw(ED_SMALL)} />
-            Edit
-          </span>
-          <span>
-            <i style={sw(ED_BIG)} />
-            Big Change (&gt;=13)
-          </span>
-        </div>
-      )}
-    </>
-  );
-};
-
-const EpisodeTrack = ({ data, compact }) => {
-  if (!data || data.event_count === 0) return <div style={emptyTxt(compact)}>No events yet.</div>;
-  return (
-    <>
-      <Track segments={episodeSegments(data, compact)} compact={compact} flush />
-      {!compact && (
-        <div style={legend}>
-          <span>
-            <i style={sw(EP.CODE)} />
-            CODE
-          </span>
-          <span>
-            <i style={sw(EP.RUN)} />
-            RUN
-          </span>
-          <span>
-            <i style={sw(EP.RESET)} />
-            RESET
-          </span>
-          {PAUSE_LEGEND.map(([label, fill]) => (
-            <span key={label}>
-              <i style={sw(fill)} />
-              {label}
-            </span>
-          ))}
-        </div>
-      )}
-    </>
-  );
-};
-
-// Equal tiles, consistent 2px gap, slight rounding. Full scrolls; compact hides
-// overflow (already windowed to the last COMPACT_TAIL).
-const trk = {
-  display: "flex",
-  gap: 2,
-  height: 28,
-  background: T.track,
-  border: `1px solid ${T.border}`,
-  borderRadius: 8,
-  padding: 2,
-  boxSizing: "border-box",
-  overflowX: "auto",
-  scrollbarWidth: "thin",
-};
-const trkSm = { ...trk, height: 18, borderRadius: 6, overflowX: "hidden" };
-const legend = {
-  display: "flex",
-  gap: 14,
-  flexWrap: "wrap",
-  marginTop: 8,
-  fontSize: 12,
-  color: T.sub,
-};
-const sw = (bg) => ({
-  display: "inline-block",
-  width: 11,
-  height: 11,
-  borderRadius: 3,
-  marginRight: 6,
-  verticalAlign: "middle",
-  background: bg,
-});
-const emptyTxt = (compact) => ({ color: T.sub, fontSize: compact ? 11.5 : 13 });
-
-// ---------------- goal evidence (inside modal) ----------------
-// Per-run goal recognition from the agent-lm goal_strategy engine: for each
-// profiled Castle Crashers run, the goals with the rung reached and the
-// uncertainty flags. This is EVIDENCE with explicit abstentions, not a score or
-// an assessment of the student's ability -- the flags are the whole point.
-const _humanize = (s) => (s || "").replace(/_/g, " ");
-// "clear_debris_zone" -> "Clear debris zone": sentence case for goal names in prose.
-const _sentence = (s) => {
-  const h = _humanize(s);
-  return h.charAt(0).toUpperCase() + h.slice(1);
-};
-// "remain_on_island" -> "Remain on Island": title case for goal names used as headers.
-const MINOR_WORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "at",
-  "by",
-  "for",
-  "in",
-  "of",
-  "on",
-  "or",
-  "the",
-  "to",
-  "vs",
-  "with",
-]);
-const _title = (s) =>
-  _humanize(s)
-    .split(" ")
-    .map((w, i) => (i > 0 && MINOR_WORDS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
-    .join(" ");
-
-// Goal-evidence styling. Restrained on colour on purpose: this is evidence, not
-// a score. Each indicator is drawn as the rung ladder it climbed this run: a
-// segmented bar, weaker (left) to stronger (right), filled up to the reached
-// rung, with the rung names underneath. A rung reads as a position on a scale,
-// never as good/bad. Abstentions and meaningful absences get an honest note
-// instead of a fake rung. Flags are Carbon tags: an uncertainty flag qualifies the
-// reading (warm grey, with a warning icon); every other flag is provenance (cool
-// grey, where the reading came from). The engine names its hedges by what they are,
-// so classify on those words rather than a list that goes stale.
-const UNCERTAIN_FLAG =
-  /unverified|assumed|estimated|stale|fallback|marginal|defaulted|disagreement|sparse|invalid|fabricated|capped|override|unknown|certainty/;
-
-// However many flags a row carries, it gets one chip: the most important flag
-// (uncertainty before provenance) plus a count. The chip opens the full list
-// inline below the row, so nothing is hover-only and nothing wraps into a
-// second line of chips. `allUncertain` for lists that are hedges by definition
-// (a claim's certainty reasons, run diagnostics).
-// Engine flag names in plain words, for readers who don't know the engine. The
-// raw name stays in the tooltip; anything not listed is just de-underscored.
-const FLAG_TEXT = {
-  sparse_evidence: "little evidence",
-  sim_unverified: "simulation not confirmed",
-  simulated_fallback: "simulated, not seen",
-  simulated_attainment: "reached in simulation only",
-  gps_invalid: "GPS data unusable",
-  invalid_timestamp: "bad timestamps",
-  loop_capped: "loop cut short",
-  duration_imputed: "timing estimated",
-  early_stop_outcome: "run stopped early",
-  evidence_post_sim_exit: "after leaving the island",
-  band_model_disagreement: "methods disagree",
-  attachment_boundary_marginal: "attachment borderline",
-  unknown_reporter: "unrecognized block",
-  foreign_playground_block: "block from another playground",
-  fabricated_motion: "motion filled in",
-};
-const _flagText = (f) => FLAG_TEXT[f] || _humanize(f);
-
-function useFlags(flags, allUncertain = false) {
-  const [open, setOpen] = React.useState(false);
-  const all = [...new Set(flags || [])];
-  if (all.length === 0) return { chip: null, list: null };
-  const unc = all.filter((f) => allUncertain || UNCERTAIN_FLAG.test(f));
-  const prov = all.filter((f) => !unc.includes(f));
-  const ordered = [...unc, ...prov];
-  // Carbon's warm grey marks a hedge, cool grey a note on where a value came from.
-  const type = unc.length ? "warm-gray" : "cool-gray";
-  const chip =
-    ordered.length === 1 ? (
-      <Tag
-        as="span"
-        size="sm"
-        type={type}
-        renderIcon={unc.length ? WarningAlt : undefined}
-        className="flag-chip"
-        title={`${unc.length ? "Uncertain" : "Where this came from"} (${ordered[0]})`}
-      >
-        {_flagText(ordered[0])}
-      </Tag>
-    ) : (
-      <OperationalTag
-        size="sm"
-        type={type}
-        renderIcon={unc.length ? WarningAlt : undefined}
-        className="flag-chip"
-        aria-expanded={open}
-        title={open ? "Hide flags" : `All flags: ${ordered.map(_flagText).join(", ")}`}
-        text={`${_flagText(ordered[0])} +${ordered.length - 1}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-      />
-    );
-  const list = open && ordered.length > 1 && (
-    <dl className="flag-list">
-      {unc.length > 0 && (
-        <div>
-          <dt>Uncertain</dt>
-          <dd>{unc.map(_flagText).join(", ")}</dd>
-        </div>
-      )}
-      {prov.length > 0 && (
-        <div>
-          <dt>Source</dt>
-          <dd>{prov.map(_flagText).join(", ")}</dd>
-        </div>
-      )}
-    </dl>
-  );
-  return { chip, list };
-}
-
-// An indicator with no rung to place: an abstention (dashed, no reading) or a
-// meaningful absence (solid, the thing never happened). Never a fake rung.
-const goalNoReadingPill = (absent) => ({
-  fontSize: 13,
-  color: absent ? T.sub : T.faint,
-  border: absent ? `1px solid ${T.border}` : `1px dashed ${T.border}`,
-  borderRadius: 6,
-  padding: "3px 10px",
-  background: absent ? T.track : "transparent",
-});
-
-// Where an indicator's reading came from: observed (outcome, filled dot),
-// simulation (open dot), or authored from the code (open square).
-const ChannelMark = ({ channel }) => {
-  const base = {
-    width: 9,
-    height: 9,
-    flexShrink: 0,
-    display: "inline-block",
-    boxSizing: "border-box",
-  };
-  if (channel === "outcome")
-    return <span title="observed" style={{ ...base, borderRadius: "50%", background: T.ink }} />;
-  if (channel === "simulation")
-    return (
-      <span
-        title="simulation"
-        style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.sub}` }}
-      />
-    );
-  if (channel === "code")
-    return <span title="authored" style={{ ...base, border: `1.5px solid ${T.sub}` }} />;
-  return (
-    <span
-      title="channel"
-      style={{ ...base, borderRadius: "50%", border: `1.5px solid ${T.faint}` }}
-    />
-  );
-};
-
-// The continuous value behind a rung, shown small beside the name: one decimal
-// at scale, a little more precision below 1, integers bare; categorical values
-// (e.g. "on_island") are humanized strings.
-const fmtGoalVal = (v) => {
-  if (v == null || typeof v === "boolean") return null;
-  if (typeof v === "string") return _humanize(v);
-  if (!Number.isFinite(v)) return null;
-  if (Number.isInteger(v)) return String(v);
-  if (Math.abs(v) < 0.005) return "0"; // float noise from the simulator, not a reading
-  return Math.abs(v) >= 1 ? v.toFixed(1) : v.toPrecision(1);
-};
-
-// A rung ladder: a segmented bar weaker -> stronger, filled up to the reached
-// rung (the reached segment solid, the ones below it lighter), names underneath.
-const RungLadder = ({ labels, reached }) => (
-  <ol className="rungs" style={{ gridTemplateColumns: `repeat(${labels.length}, minmax(0, 1fr))` }}>
-    {labels.map((label, i) => (
-      <li
-        key={label}
-        className={i === reached ? "is-reached" : i < reached ? "is-climbed" : undefined}
-        aria-current={i === reached ? "true" : undefined}
-        title={_humanize(label)}
-      >
-        {_humanize(label)}
-      </li>
-    ))}
-  </ol>
-);
-
-// One indicator: the channel mark + name + value/flags on top, then the rung
-// ladder it climbed (or an honest no-reading pill when there is no rung).
-const GoalIndicatorRow = ({ ind }) => {
-  const val = fmtGoalVal(ind.value);
-  // The ladder reads weaker -> stronger, left to right. For lower-is-better
-  // indicators the engine lists the strongest rung first, so flip for display.
-  const labels =
-    ind.direction === "lower_is_better"
-      ? [...(ind.rung_labels || [])].reverse()
-      : ind.rung_labels || [];
-  const reached = labels.indexOf(ind.rung);
-  const absent = ind.absent_label != null && ind.rung === ind.absent_label;
-  const showLadder = !ind.abstained && !absent && labels.length > 0 && reached !== -1;
-  const flags = useFlags(ind.flags);
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 5 }}
-      >
-        <ChannelMark channel={ind.channel} />
-        <span style={{ color: T.ink, fontSize: 13 }}>{_humanize(ind.name)}</span>
-        <span
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            minWidth: 0,
-          }}
-        >
-          {val != null && showLadder && (
-            <span
-              style={{
-                fontFamily: MONO,
-                fontSize: 12,
-                color: T.faint,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {val}
-            </span>
-          )}
-          {flags.chip}
-        </span>
-      </div>
-      {flags.list}
-      {ind.abstained ? (
-        <div style={goalNoReadingPill(false)}>
-          no reading - {_humanize(ind.abstain_reason) || "no data"}
-        </div>
-      ) : absent ? (
-        <div style={goalNoReadingPill(true)}>{_humanize(ind.rung)} (not attempted)</div>
-      ) : showLadder ? (
-        <RungLadder labels={labels} reached={reached} />
-      ) : (
-        <div style={goalNoReadingPill(false)}>no reading</div>
-      )}
-    </div>
-  );
-};
-
-const _count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-
-// "optical near object" -> "optical sensor (near object)"
-const _sensorName = (b) => {
-  const [kind, ...check] = b.split(" ");
-  return check.length ? `${kind} sensor (${check.join(" ")})` : `${kind} sensor`;
-};
-// ["a", "b", "c"] -> "a, b and c"
-const _andList = (xs) =>
-  xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
-
-// Run-level outcomes the per-goal rows don't carry. Leaving the island is a
-// critical failure (not a goal), so it gets the same red tint an alerted card
-// does; everything else is a quiet line of notes.
-const GoalRunSummary = ({ run, sensors = [], noSensors = false }) => {
-  const s = run.summary || {};
-  const notes = [];
-  const verdict = _humanize(s.fidelity_verdict).toLowerCase();
-  if (verdict === "agree" || verdict === "disagree") notes.push(`Simulation and GPS ${verdict}.`);
-  else if (verdict && verdict !== "not applicable") notes.push(`Simulation vs GPS: ${verdict}.`);
-  if (s.outcome_available === false) notes.push("No robot telemetry for this run yet.");
-  if (s.fabricated_motion) notes.push("Some motion was fabricated.");
-  if (s.orphan_block_count)
-    notes.push(
-      `${_count(s.orphan_block_count, "block isn't", "blocks aren't")} attached to the program.`,
-    );
-  if (sensors.length > 0) notes.push(`Uses the ${_andList(sensors.map(_sensorName))}.`);
-  if (noSensors) notes.push("Uses no sensors, so there are no test worlds to run.");
-  // inherited_playground is routine bookkeeping, not worth showing here
-  const diags = (run.diagnostics || []).filter((d) => d !== "inherited_playground");
-  const diagFlags = useFlags(diags, true);
-  if (!s.boundary_exceeded && notes.length === 0 && diags.length === 0) return null;
-  return (
-    <div className="goal-summary">
-      {s.boundary_exceeded && (
-        <p className="goal-critical" style={toneVars(TRIGGERS.wheel_spin.c)}>
-          <Icon name="alert" size={15} />
-          <span>
-            Left the island
-            {s.boundary_exit_step != null ? ` at step ${s.boundary_exit_step}` : ""}
-            {s.boundary_exit_overridden ? " (outcome override)" : ""}
-          </span>
-        </p>
-      )}
-      {(notes.length > 0 || diags.length > 0) && (
-        <p className="goal-notes">
-          {notes.join(" ")}
-          {diagFlags.chip}
-        </p>
-      )}
-      {diagFlags.list}
-    </div>
-  );
-};
-
-// The goal-progression timeline: each row is a moment a block moved a goal's
-// indicator from one rung to another (steps after leaving the island dimmed).
-// One rung change: step, what moved, from -> to, and its flags.
-const TimelineRow = ({ e, faded, showGoal }) => {
-  const flags = useFlags(e.flags);
-  return (
-    <li className={faded ? "is-faded" : undefined}>
-      <span className="tl-step">step {e.step}</span>
-      <span className="tl-what">
-        {showGoal ? `${_sentence(e.goal)}, ${_humanize(e.indicator)}` : _humanize(e.indicator)}
-      </span>
-      <span className="tl-change">
-        {_humanize(e.from_rung) || "start"} &rarr; {_humanize(e.to_rung)}
-      </span>
-      {flags.chip}
-      {flags.list}
-    </li>
-  );
-};
-
-const GoalTimeline = ({ timeline, showGoal = true }) => {
-  const events = (timeline && timeline.events) || [];
-  const post = (timeline && timeline.post_exit_events) || [];
-  if (events.length === 0 && post.length === 0)
-    return <p className="sd-empty">No step changes on this run.</p>;
-  return (
-    <>
-      <ol className="goal-timeline">
-        {events.map((e, i) => (
-          <TimelineRow key={`e${i}`} e={e} showGoal={showGoal} />
-        ))}
-      </ol>
-      {post.length > 0 && (
-        <>
-          <p className="goal-timeline-sub">After Leaving the Island</p>
-          <ol className="goal-timeline">
-            {post.map((e, i) => (
-              <TimelineRow key={`p${i}`} e={e} faded showGoal={showGoal} />
-            ))}
-          </ol>
-        </>
-      )}
-    </>
-  );
-};
-
-// The sensor-test battery: each scenario drops the program into a designed test
-// world and records per-check evidence. Pass/conditional/fail are verdicts;
-// "measured" checks carry a value instead (e.g. the share of pieces cleared);
-// "abstained" means the run never reached what the check tests. Scenarios are
-// grouped by family (t1 debris field, t2 boundary, ...). Only programs that read
-// a sensor are eligible.
-const GOAL_CHECK_VERDICTS = ["pass", "conditional", "fail"];
-const goalCheckColor = (st) =>
-  st === "pass"
-    ? "var(--lmd-success)"
-    : st === "fail"
-      ? "var(--lmd-signal-d0433c)"
-      : st === "conditional"
-        ? "var(--lmd-warning)"
-        : T.sub;
-const _checkState = (c) => (c.abstained || c.status === "abstained" ? "abstained" : c.status);
-// "abstained" is engine vocabulary; readers know it as inconclusive.
-const _checkWord = (st) => (st === "abstained" ? "inconclusive" : st);
-const _pct = (v) => `${Math.round(v * 100)}%`;
-// "t2_boundary" -> "T2 boundary"
-const _familyLabel = _sentence;
-
-// Card descriptions lead with the family and variant ("T2 boundary response --
-// direct -- head-on arrival, ..."), which the family header and scenario id
-// already show; keep just the part that says what is different about the world.
-const _scenarioBlurb = (sc) => {
-  const parts = (sc.description || "").split(/\s+\u2014\s+/);
-  const variant = _humanize((sc.scenario_id || "").replace(/^t\d+[a-z]?_/, "")).toLowerCase();
-  let i = 0;
-  while (
-    i < parts.length - 1 &&
-    !parts[i].includes("(") &&
-    (/^T\d/.test(parts[i]) || parts[i].toLowerCase() === variant)
-  )
-    i += 1;
-  let rest = parts.slice(i).join(" - ");
-  if (parts.length > 1 && i === parts.length - 1 && /^T\d/.test(parts[0])) {
-    // "T4 debris configuration -- dispersed." : nothing beyond the variant name
-    if (rest.replace(/\.$/, "").toLowerCase() === variant) rest = "";
-    // "near favorable (T4's world, tight clear rule)." : keep the aside
-    else if (rest.toLowerCase().startsWith(`${variant} (`))
-      rest = rest.slice(variant.length + 2).replace(/\)\.?$/, "");
-  }
-  return rest;
-};
-
-const CheckDot = ({ state }) => (
-  <span
-    style={{
-      width: 7,
-      height: 7,
-      flexShrink: 0,
-      borderRadius: "50%",
-      boxSizing: "border-box",
-      background:
-        state === "abstained" || state === "measured" ? "transparent" : goalCheckColor(state),
-      border:
-        state === "abstained"
-          ? `1px dashed ${T.faint}`
-          : state === "measured"
-            ? `1.5px solid ${T.sub}`
-            : "none",
-    }}
-  />
-);
-
-const BatteryCheck = ({ c }) => {
-  const state = _checkState(c);
-  const measured = state === "measured" && Number.isFinite(c.value);
-  const detail =
-    state === "abstained"
-      ? `inconclusive: ${_humanize(c.abstain_reason) || "not reached"}`
-      : `${state}${c.detail ? ` (${c.detail})` : ""}`;
-  return (
-    <span className={`battery-check is-${state}`} title={`${_humanize(c.name)}: ${detail}`}>
-      <CheckDot state={state} />
-      {_humanize(c.name)}
-      {measured && (
-        <b className="battery-value">
-          {c.value >= 0 && c.value <= 1 ? _pct(c.value) : fmtGoalVal(c.value)}
-        </b>
-      )}
-      {c.capped && <span style={{ color: "var(--lmd-warning)" }}>capped</span>}
-    </span>
-  );
-};
-
-// How a family's checks came out, as dot + count pairs (verdicts, then the rest).
-const BatteryTally = ({ scenarios }) => {
-  const n = {};
-  scenarios.forEach((sc) =>
-    (sc.checks || []).forEach((c) => {
-      const st = _checkState(c);
-      n[st] = (n[st] || 0) + 1;
-    }),
-  );
-  const order = [...GOAL_CHECK_VERDICTS, "measured", "abstained"].filter((st) => n[st]);
-  return (
-    <span className="battery-tally">
-      {order.map((st) => (
-        <span key={st} title={`${n[st]} ${_checkWord(st)}`}>
-          <CheckDot state={st} />
-          {n[st]} {_checkWord(st)}
-        </span>
-      ))}
-    </span>
-  );
-};
-
-const GoalBattery = ({ battery }) => {
-  if (!battery) return null;
-  if (!battery.eligible)
-    return <p className="sd-empty">Not applicable: this program uses no sensors.</p>;
-  const families = [];
-  (battery.scenarios || []).forEach((sc) => {
-    const key = sc.family || "other";
-    let fam = families.find((f) => f.key === key);
-    if (!fam) families.push((fam = { key, scenarios: [] }));
-    fam.scenarios.push(sc);
-  });
-  const sensors = (battery.qualifying_blocks || []).map((b) =>
-    _humanize(b.replace(/^pg_(sensing_)?/, "")),
-  );
-  return (
-    <div className="battery">
-      {sensors.length > 0 && <p className="battery-reads">Sensor blocks: {sensors.join(", ")}</p>}
-      <Accordion size="sm" align="start" className="battery-families">
-        {families.map((fam) => (
-          <AccordionItem
-            key={fam.key}
-            className="battery-family"
-            title={
-              <span className="battery-family-head">
-                <span className="battery-family-name">{_familyLabel(fam.key)}</span>
-                <span className="battery-family-count">
-                  {fam.scenarios.length} {fam.scenarios.length === 1 ? "test world" : "test worlds"}
-                </span>
-                <BatteryTally scenarios={fam.scenarios} />
-              </span>
-            }
-          >
-            <ul className="battery-scenarios">
-              {fam.scenarios.map((sc, si) => (
-                <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
-                  <div className="battery-scenario-head">
-                    <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
-                    {_scenarioBlurb(sc) && <span title={sc.description}>{_scenarioBlurb(sc)}</span>}
-                  </div>
-                  <div className="battery-checks">
-                    {(sc.checks || []).map((c, ci) => (
-                      <BatteryCheck key={ci} c={c} />
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </AccordionItem>
-        ))}
-      </Accordion>
-    </div>
-  );
-};
-
-// ---- goal evidence: a board of goals ----
-// A history table on top shows where every goal's claim landed on each run (its
-// run headers pick the run). Below it, one row per goal on the picked run: the
-// goal, and where its claim sits on its ladder (a pip meter plus the rung written
-// out, "2 of 4", and the next rung up). The indicators, rung changes and sensor
-// tests behind a claim sit under the row, on demand. The execution rubric reuses
-// the same row, so the whole section reads as one board.
-
-// Rung position as a 0..1 fraction of its ladder, or null for no reading.
-const _rungLevel = (g) => {
-  const labels = (g && g.rungs) || [];
-  const i = labels.indexOf(g && g.rung);
-  return i === -1 ? null : labels.length > 1 ? i / (labels.length - 1) : 1;
-};
-
-// Goals in first-seen order across the runs' claims, then any goal that only
-// shows up in indicators, rung changes or sensor tests.
-const _goalOrder = (runs) => {
-  const seen = [];
-  const add = (goal) => goal && !seen.includes(goal) && seen.push(goal);
-  runs.forEach((r) => ((r.rollup && r.rollup.goals) || []).forEach((g) => add(g.goal)));
-  runs.forEach((r) => {
-    (r.goals || []).forEach((g) => add(g.goal));
-    ((r.timeline && r.timeline.events) || []).forEach((e) => add(e.goal));
-    ((r.battery && r.battery.scenarios) || []).forEach((sc) => add(sc.goal));
-  });
-  return seen;
-};
-
-const _claimOn = (r, goal) =>
-  ((r && r.rollup && r.rollup.goals) || []).find((g) => g.goal === goal);
-
-// A ladder as a row of pips, weaker (left) to stronger (right): the reached rung
-// solid, the ones below it lighter, the ones above it empty. `reached` -1 is no
-// reading (every pip dashed). Decorative: the rung is always written out beside it.
-const Pips = ({ n, reached }) => (
-  <span className={`pips${reached === -1 ? " is-none" : ""}`} aria-hidden="true">
-    {Array.from({ length: n }, (_, i) => (
-      <i
-        key={i}
-        className={i === reached ? "is-reached" : i < reached ? "is-climbed" : undefined}
-      />
-    ))}
-  </span>
-);
-
-// The selectable runs, oldest first. A run that left the island carries a red
-// mark under its number, so the critical failure is findable from any run.
-const GoalRunPicker = ({ runs, current, onPick }) => (
-  <div className="goal-runs" role="group" aria-label="Profiled run">
-    <span>Run</span>
-    {runs.map((r) => {
-      const out = r.summary && r.summary.boundary_exceeded;
-      return (
-        <SelectableTag
-          key={r.index}
-          size="sm"
-          className={`goal-run${out ? " is-exit" : ""}`}
-          text={String(r.index)}
-          selected={r.index === current}
-          title={`Show run ${r.index}${out ? " (left the island)" : ""}`}
-          onClick={() => onPick(r.index)}
-        />
-      );
-    })}
-  </div>
-);
-
-// Where each goal's claim landed on every profiled run. A real table, so every
-// value is readable without hover; the column headers pick the run.
-// The picked run's rung for one goal, written out: the one-line state per row.
-const TrajNow = ({ g }) => {
-  const lvl = _rungLevel(g);
-  return (
-    <TableCell className="traj-now">
-      {g ? lvl == null ? <i>no reading</i> : _humanize(g.rung) : <i>not assessed</i>}
-    </TableCell>
-  );
-};
-
-const GoalTrajectory = ({ runs, goals, current, onPick }) => {
-  const wrap = React.useRef(null);
-  React.useLayoutEffect(() => {
-    if (wrap.current) wrap.current.scrollLeft = wrap.current.scrollWidth; // latest run in view
-  }, [runs.length]);
-  const anyExit = runs.some((r) => r.summary && r.summary.boundary_exceeded);
-  return (
-    <div className="traj" ref={wrap}>
-      <Table size="sm" className="traj-table">
-        <caption className="visually-hidden">
-          Rung each goal's claim reached on every profiled run
-        </caption>
-        <TableHead>
-          <TableRow>
-            <TableHeader scope="col" className="traj-corner">
-              Run
-            </TableHeader>
-            {runs.map((r) => (
-              <TableHeader
-                key={r.index}
-                scope="col"
-                className={r.index === current ? "is-current" : undefined}
-              >
-                <button
-                  type="button"
-                  aria-pressed={r.index === current}
-                  title={`Show run ${r.index}`}
-                  onClick={() => onPick(r.index)}
-                >
-                  {r.index}
-                </button>
-              </TableHeader>
-            ))}
-            <TableHeader scope="col" className="traj-now">
-              On Run {current}
-            </TableHeader>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {goals.map((goal) => (
-            <TableRow key={goal}>
-              <th scope="row">{_title(goal)}</th>
-              {runs.map((r) => {
-                const g = _claimOn(r, goal);
-                const lvl = _rungLevel(g);
-                const text = g ? (lvl == null ? "no reading" : _humanize(g.rung)) : "not assessed";
-                return (
-                  <TableCell
-                    key={r.index}
-                    className={r.index === current ? "is-current" : undefined}
-                    title={`${_title(goal)}, run ${r.index}: ${text}`}
-                    onClick={() => onPick(r.index)}
-                  >
-                    {lvl == null ? (
-                      <span className={g ? "traj-none is-abstained" : "traj-none"} />
-                    ) : (
-                      <span className="traj-bar" style={{ "--lvl": lvl }} />
-                    )}
-                    <span className="visually-hidden">{text}</span>
-                  </TableCell>
-                );
-              })}
-              <TrajNow g={_claimOn(runs.find((r) => r.index === current) || {}, goal)} />
-            </TableRow>
-          ))}
-          {anyExit && (
-            <TableRow className="traj-exit">
-              <th scope="row">Left the Island</th>
-              {runs.map((r) => {
-                const out = r.summary && r.summary.boundary_exceeded;
-                return (
-                  <TableCell
-                    key={r.index}
-                    className={r.index === current ? "is-current" : undefined}
-                    title={out ? `Run ${r.index}: left the island` : `Run ${r.index}: stayed on`}
-                    onClick={() => onPick(r.index)}
-                  >
-                    {out && <Icon name="alert" size={14} />}
-                    <span className="visually-hidden">{out ? "yes" : "no"}</span>
-                  </TableCell>
-                );
-              })}
-              <TableCell className="traj-now">
-                {(runs.find((r) => r.index === current) || {}).summary?.boundary_exceeded ? (
-                  "yes"
-                ) : (
-                  <i>no</i>
-                )}
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  );
-};
-
-// The reading for one row: pips, the rung written out, "n of N", and the rung
-// above it (what the next step would be). `none` replaces all of it with an
-// honest no-reading line.
-const GoalReading = ({ labels, reached, word, none, chips }) => (
-  <div className="goal-reading">
-    {reached === -1 ? (
-      <p className="goal-now">
-        <Pips n={Math.max(labels.length, 3)} reached={-1} />
-        <span className="goal-none">{none}</span>
-        {chips}
-      </p>
-    ) : (
-      <>
-        <p className="goal-now">
-          <Pips n={labels.length} reached={reached} />
-          <strong>{word}</strong>
-          <span className="goal-of">
-            step {reached + 1} of {labels.length}
-          </span>
-          {chips}
-        </p>
-        <p className="goal-next">
-          {reached < labels.length - 1 ? (
-            <>
-              Next step up <b>{_humanize(labels[reached + 1])}</b>
-            </>
-          ) : (
-            "Highest step reached"
-          )}
-        </p>
-      </>
-    )}
-  </div>
-);
-
-// Where a rollup claim or rubric level was read from, as a short source name.
-const _evidenceSource = (e) => {
-  const [src, ...rest] = (e || "").split(".");
-  const name = _humanize(rest.join(".")) || _humanize(src);
-  const where = { production: "code", battery: "tests" }[src] || src;
-  return rest.length ? `${where}: ${name}` : name;
-};
-
-// A caption line under a reading: quiet key/value facts. `lead` (where the claim
-// comes from) opens the line.
-const GoalFacts = ({ facts, lead }) => {
-  const shown = facts.filter(([, v]) => v != null && v !== "");
-  if (shown.length === 0 && !lead) return null;
-  return (
-    <p className="goal-facts">
-      {lead}
-      {shown.map(([k, v]) => (
-        <span key={k || "value"}>
-          {k && `${k} `}
-          <b>{v}</b>
-        </span>
-      ))}
-    </p>
-  );
-};
-
-// The facts behind one goal's claim: tests (valid/abstained plus the debris
-// numbers) or the indicator rungs it was derived from.
-const claimFacts = (g) => {
-  const fromTests = g.source === "battery";
-  const d = g.debris || {};
-  if (!fromTests)
-    return Object.entries(g.basis || {}).map(([k, v]) => [
-      _humanize(k),
-      v == null ? "n/a" : _humanize(v),
-    ]);
-  const noTests = !g.n_valid && !g.n_abstained;
-  return [
-    [
-      "",
-      noTests
-        ? null
-        : `${_count(g.n_valid || 0, "test counted", "tests counted")}, ${g.n_abstained || 0} inconclusive`,
-    ],
-    ["pieces cleared", Number.isFinite(d.proportion_cleared) ? _pct(d.proportion_cleared) : null],
-    [
-      "zone coverage",
-      Number.isFinite(d.zone_coverage)
-        ? `${_pct(d.zone_coverage)}${d.zone_coverage_band ? ` (${_humanize(d.zone_coverage_band)})` : ""}`
-        : null,
-    ],
-    [
-      "weight cleared",
-      Number.isFinite(d.weight_cleared_kg)
-        ? `${Math.round(d.weight_cleared_kg)} kg${d.weight_cleared_band ? ` (${_humanize(d.weight_cleared_band)})` : ""}`
-        : null,
-    ],
-  ];
-};
-
-// The flags that qualify a claim: reduced certainty and engine flags (amber).
-const claimFlags = (g) => {
-  if (!g) return [];
-  const reduced = g.source === "battery" && g.certainty && g.certainty !== "full";
-  const reasons = reduced
-    ? (g.certainty_reasons || []).length
-      ? g.certainty_reasons
-      : [`${g.certainty} certainty`]
-    : [];
-  return [...reasons, ...(g.flags || [])];
-};
-
-// The indicators, rung changes and sensor tests behind one goal, grouped by role.
-const GoalEvidenceBody = ({ indicators, changes, laterChanges, scenarios }) => {
-  const attained = indicators.filter((i) => i.role === "attainment");
-  const intent = indicators.filter((i) => i.role !== "attainment");
-  return (
-    <div className="goal-evidence-body">
-      {[
-        ["achieved", attained],
-        ["attempting", intent],
-      ]
-        .filter(([, list]) => list.length > 0)
-        .map(([role, list]) => (
-          <div key={role} className="goal-role">
-            <span className="goal-role-label">{role}</span>
-            <div>
-              {list.map((ind, i) => (
-                <GoalIndicatorRow key={i} ind={ind} />
-              ))}
-            </div>
-          </div>
-        ))}
-      {changes.length + laterChanges.length > 0 && (
-        <div className="goal-role">
-          <span className="goal-role-label">progress</span>
-          <div>
-            <GoalTimeline
-              timeline={{ events: changes, post_exit_events: laterChanges }}
-              showGoal={false}
-            />
-          </div>
-        </div>
-      )}
-      {scenarios.length > 0 && (
-        <div className="goal-role">
-          <span className="goal-role-label">test worlds</span>
-          <ul className="battery-scenarios">
-            {scenarios.map((sc, si) => (
-              <li key={`${sc.scenario_id}-${sc.construct}-${si}`}>
-                <div className="battery-scenario-head">
-                  <span className="battery-family-tag">{_familyLabel(sc.family || "other")}</span>
-                  <span className="battery-scenario-id">{_humanize(sc.scenario_id)}</span>
-                  {_scenarioBlurb(sc) && <span title={sc.description}>{_scenarioBlurb(sc)}</span>}
-                </div>
-                <div className="battery-checks">
-                  {(sc.checks || []).map((c, ci) => (
-                    <BatteryCheck key={ci} c={c} />
-                  ))}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// One goal on the selected run: a board row (name and source, reading),
-// then its evidence on demand.
-const GoalBlock = ({ goal, claim, indicators, changes, laterChanges, scenarios }) => {
-  const summary = [
-    indicators.length && _count(indicators.length, "signal", "signals"),
-    scenarios.length && _count(scenarios.length, "test world", "test worlds"),
-    changes.length + laterChanges.length &&
-      _count(changes.length + laterChanges.length, "step change", "step changes"),
-  ].filter(Boolean);
-  const flags = useFlags(claimFlags(claim));
-  const labels = (claim && claim.rungs) || [];
-  const reached = claim ? labels.indexOf(claim.rung) : -1;
-  const fromTests = claim && claim.source === "battery";
-  const noTests = fromTests && !claim.n_valid && !claim.n_abstained;
-  return (
-    <article className="goal">
-      <div className="goal-row">
-        <div className="goal-name">
-          <h4>{_title(goal)}</h4>
-          {claim && (
-            <span
-              className="goal-source"
-              title={
-                fromTests
-                  ? "Worked out by running the program in a set of test worlds"
-                  : "Worked out from what the code and the run show (this goal has no test worlds)"
-              }
-            >
-              {fromTests ? "From Test Worlds" : "From Code and Runs"}
-            </span>
-          )}
-        </div>
-        {claim ? (
-          <GoalReading
-            labels={labels}
-            reached={reached}
-            word={_humanize(claim.rung)}
-            none={`no reading - ${noTests ? "no test worlds ran" : _humanize(claim.abstain_reason) || "no evidence"}`}
-            chips={flags.chip}
-          />
-        ) : (
-          <div className="goal-reading">
-            <p className="goal-noclaim">Not assessed on this run.</p>
-          </div>
-        )}
-      </div>
-      {flags.list}
-      {claim && <GoalFacts facts={claimFacts(claim)} />}
-      {summary.length > 0 && (
-        <Accordion size="sm" align="start" className="goal-evidence">
-          <AccordionItem
-            open={!claim || undefined}
-            title={
-              <>
-                Evidence
-                <span className="goal-evidence-count">{summary.join(", ")}</span>
-              </>
-            }
-          >
-            <GoalEvidenceBody
-              indicators={indicators}
-              changes={changes}
-              laterChanges={laterChanges}
-              scenarios={scenarios}
-            />
-          </AccordionItem>
-        </Accordion>
-      )}
-    </article>
-  );
-};
-
-// The purpose-2 execution rubric: dimensions of HOW the program runs, each a
-// level on 0..max, drawn as the same board row as a goal. Provisional upstream
-// (still under human validation), so it is labelled as such and never reads as
-// a grade.
-const RubricRow = ({ d }) => {
-  const labels = Array.from({ length: (d.max_level || 0) + 1 }, (_, i) => String(i));
-  const chips = (
-    <>
-      {d.borderline && (
-        <Tag
-          as="span"
-          size="sm"
-          type="warm-gray"
-          renderIcon={WarningAlt}
-          title="within the borderline margin of the next level"
-        >
-          borderline
-        </Tag>
-      )}
-      {d.ceiling != null && d.ceiling < d.max_level && (
-        <Tag
-          as="span"
-          size="sm"
-          type="cool-gray"
-          title="the highest level this program's code can show"
-        >
-          code allows up to {d.ceiling}
-        </Tag>
-      )}
-    </>
-  );
-  return (
-    <article className="goal">
-      <div className="goal-row">
-        <div className="goal-name">
-          <h4>{_title(d.dimension)}</h4>
-        </div>
-        {d.level == null ? (
-          <GoalReading
-            labels={labels}
-            reached={-1}
-            none={`can't tell - ${_humanize(d.u_reason)}`}
-            chips={chips}
-          />
-        ) : (
-          <div className="goal-reading">
-            <p className="goal-now">
-              <Pips n={labels.length} reached={d.level} />
-              <strong>level {d.level}</strong>
-              <span className="goal-of">of {d.max_level}</span>
-              {chips}
-            </p>
-          </div>
-        )}
-      </div>
-      <GoalFacts
-        facts={[
-          ["based on", (d.evidence || []).map(_evidenceSource).join(", ") || null],
-          ["counts against", (d.negatives || []).map(_evidenceSource).join(", ") || null],
-        ]}
-      />
-    </article>
-  );
-};
-
-// Column captions for a board of rows.
-const BoardHead = ({ first, current }) => (
-  <div className="goal-cols" aria-hidden="true">
-    <span>{first}</span>
-    <span>On Run {current}</span>
-  </div>
-);
-
-// Legend for the channel marks the evidence uses.
-const GoalLegend = () => (
-  <ul className="goal-legend">
-    <li>
-      <ChannelMark channel="outcome" />
-      Seen on the Robot
-    </li>
-    <li>
-      <ChannelMark channel="simulation" />
-      From the Simulator
-    </li>
-    <li>
-      <ChannelMark channel="code" />
-      Written in the Code
-    </li>
-  </ul>
-);
-
-// A sub-part of the goal-evidence section (the rubric, leftover sensor tests).
-const GoalPart = ({ title, aside, children }) => (
-  <div className="goal-part">
-    <h4>
-      {title}
-      {aside}
-    </h4>
-    {children}
-  </div>
-);
-
-export const GoalEvidence = ({ runs, enabled }) => {
-  const list = runs || [];
-  const [picked, setPicked] = React.useState(null);
-  if (enabled === false)
-    return (
-      <Section title="Goal Evidence">
-        <p className="sd-empty">Goal recognition is switched off.</p>
-      </Section>
-    );
-  if (list.length === 0)
-    return (
-      <Section title="Goal Evidence">
-        <p className="sd-empty">
-          No Castle Crashers runs profiled yet (goal evidence is Castle Crashers only).
-        </p>
-      </Section>
-    );
-  // Focus one run (latest by default); honour a manual pick while it still exists.
-  const run = list.find((r) => r.index === picked) || list[list.length - 1];
-  const latest = list[list.length - 1].index;
-  const order = _goalOrder(list);
-  const claimed = order.filter((goal) => list.some((r) => _claimOn(r, goal)));
-  const battery = run.battery;
-  // This run's evidence, gathered per goal.
-  const onRun = order
-    .map((goal) => ({
-      goal,
-      claim: _claimOn(run, goal),
-      indicators: ((run.goals || []).find((g) => g.goal === goal) || {}).indicators || [],
-      changes: ((run.timeline && run.timeline.events) || []).filter((e) => e.goal === goal),
-      laterChanges: ((run.timeline && run.timeline.post_exit_events) || []).filter(
-        (e) => e.goal === goal,
-      ),
-      scenarios: ((battery && battery.eligible && battery.scenarios) || []).filter(
-        (sc) => (sc.goal || null) === goal,
-      ),
-    }))
-    .filter(
-      (b) =>
-        b.claim ||
-        b.indicators.length ||
-        b.changes.length ||
-        b.laterChanges.length ||
-        b.scenarios.length,
-    );
-  const unmapped = ((battery && battery.eligible && battery.scenarios) || []).filter(
-    (sc) => !sc.goal || !order.includes(sc.goal),
-  );
-  const sensors = ((battery && battery.qualifying_blocks) || []).map((b) =>
-    _humanize(b.replace(/^pg_(sensing_)?/, "")),
-  );
-  const dims = (run.rubric && run.rubric.dimensions) || [];
-  return (
-    <Section
-      title="Goal Evidence"
-      aside={
-        <span className="sd-count">
-          <span>Run {run.index}</span>
-          {run.index === latest && list.length > 1 && <span> (latest)</span>}
-        </span>
-      }
-    >
-      <p className="goal-intro">Each goal, run by run. Pick a run to see what backs it up.</p>
-      {claimed.length > 0 ? (
-        <GoalTrajectory runs={list} goals={claimed} current={run.index} onPick={setPicked} />
-      ) : (
-        list.length > 1 && <GoalRunPicker runs={list} current={run.index} onPick={setPicked} />
-      )}
-      <GoalRunSummary
-        run={run}
-        sensors={sensors}
-        noSensors={Boolean(battery && !battery.eligible)}
-      />
-      {onRun.length > 0 && (
-        <div className="goals">
-          <BoardHead first="Goal" current={run.index} />
-          {onRun.map((b) => (
-            <GoalBlock key={b.goal} {...b} />
-          ))}
-        </div>
-      )}
-      {unmapped.length > 0 && (
-        <GoalPart title="Other Test Worlds">
-          <GoalBattery battery={{ ...battery, scenarios: unmapped, qualifying_blocks: [] }} />
-        </GoalPart>
-      )}
-      {dims.length > 0 && (
-        <GoalPart
-          title="Execution Rubric"
-          aside={
-            <Tag
-              size="sm"
-              type="warm-gray"
-              renderIcon={WarningAlt}
-              title={`Still being checked by people, so treat it as a draft (${run.rubric.status || "provisional"})`}
-            >
-              provisional
-            </Tag>
-          }
-        >
-          <p className="goal-intro">
-            How well the code is put together, separate from which goals the robot reaches.
-          </p>
-          <div className="goals">
-            <BoardHead first="Dimension" current={run.index} />
-            {dims.map((d) => (
-              <RubricRow key={d.dimension} d={d} />
-            ))}
-          </div>
-        </GoalPart>
-      )}
-      <GoalLegend />
-    </Section>
-  );
-};
-
-// ---------------- detail (side sheet) ----------------
-// The drill-down for one student, opened as a sheet over the right of the board
-// so the cohort stays in view. Sticky header (id, status, counts, close), then
-// two columns: the evidence (activity strips, code, goal evidence) on the left,
-// and the researcher's own record (notes, trigger history) in a rail on the right.
-
-// A titled block of the sheet. `aside` sits at the right end of the heading row
-// (a tab switch, a run picker, a count).
-const Section = ({ title, aside, children }) => (
-  <section className="sd-section">
-    <div className="sd-section-head">
-      <h3>{title}</h3>
-      {aside}
-    </div>
-    {children}
-  </section>
-);
-
-const StatusBadge = ({ status }) => (
-  <Tag
-    size="md"
-    className="status-tag"
-    style={{ "--tone": `var(--lmd-signal-${status.c.slice(1)}, ${status.c})` }}
-  >
-    {status.label}
-  </Tag>
-);
-
-// The student's latest program, in two renderings of the same blocks behind a
-// switch: a readable listing, and the compact prompt text handed to an LLM
-// (context only; the triggers do not use an LLM).
-const CODE_VIEWS = [
-  {
-    key: "readable",
-    label: "Readable",
-    field: "readable",
-    note: "Every block with its parameters spelled out.",
-    empty: "No program yet.",
-  },
-  {
-    key: "prompt",
-    label: "LLM prompt",
-    field: "llm_prompt",
-    note: "The same program, flattened into the compact text given to an LLM as context.",
-    empty: "No prompt yet: it is built once the student runs their program.",
-  },
-];
-const CodePane = ({ block }) => {
-  const [view, setView] = React.useState("readable");
-  const cur = CODE_VIEWS.find((v) => v.key === view);
-  const text = block && block[cur.field];
-  return (
-    <Section
-      title="Latest Program"
-      aside={
-        <ContentSwitcher
-          size="sm"
-          className="sd-switch"
-          aria-label="Program view"
-          selectedIndex={CODE_VIEWS.findIndex((v) => v.key === view)}
-          onChange={({ index }) => setView(CODE_VIEWS[index].key)}
-        >
-          {CODE_VIEWS.map((v) => (
-            <Switch key={v.key} name={v.key} text={v.label} />
-          ))}
-        </ContentSwitcher>
-      }
-    >
-      <p className="sd-code-note">{cur.note}</p>
-      {text ? (
-        // the listing keeps its indentation (scrolls sideways); the prompt is one long line, so wrap it
-        <CodeSnippet
-          type="multi"
-          className="sd-code"
-          wrapText={view !== "readable"}
-          feedback="Copied"
-          maxCollapsedNumberOfRows={16}
-          aria-label={`${cur.label} program`}
-        >
-          {text}
-        </CodeSnippet>
-      ) : (
-        <p className="sd-empty">{cur.empty}</p>
-      )}
-    </Section>
-  );
-};
-
-// Newest trigger first; the label keeps its trigger colour, everything else is quiet.
-const TriggerHistory = ({ history }) => (
-  <ContainedList
-    label={
-      <>
-        Trigger History {history.length > 0 && <span className="sd-count">{history.length}</span>}
-      </>
-    }
-    kind="on-page"
-    className="sd-section sd-history"
-  >
-    {history.length === 0 ? (
-      <ContainedListItem>
-        <span className="sd-empty">No triggers yet this session.</span>
-      </ContainedListItem>
-    ) : (
-      history.map((h) => {
-        const m = triggerMeta(h.trigger_type);
-        const active = h.status === "active";
-        const tone = `var(--lmd-signal-${m.c.slice(1)}, ${m.c})`;
-        return (
-          <ContainedListItem key={h.id}>
-            <span className="sd-history-label" style={{ color: tone }}>
-              <Icon name={m.icon} size={14} />
-              {h.label}
-            </span>
-            <time dateTime={h.started_at} title={h.started_at}>
-              {clockTime(h.started_at)}
-            </time>
-            <span className="sd-history-value">{h.value || "-"}</span>
-            <span className="sd-history-status" style={active ? { color: tone } : null}>
-              {h.status}
-            </span>
-          </ContainedListItem>
-        );
-      })
-    )}
-  </ContainedList>
-);
-
-const Detail = ({ s, sid, status, loading, history = [], notes = [], onAddNote, onClose }) => {
-  const cur = status || STATUS_OK;
-  return (
-    <>
-      <header className="sd-head">
-        <div className="sd-who">
-          <h2 id="sd-title" tabIndex={-1}>
-            {(s && s.display) || sid}
-          </h2>
-          {s && <StatusBadge status={cur} />}
-        </div>
-        {s && (
-          <dl className="sd-facts">
-            <div>
-              <dt>runs</dt>
-              <dd>{s.run_count ?? 0}</dd>
-            </div>
-            <div>
-              <dt>events</dt>
-              <dd>{s.event_count ?? 0}</dd>
-            </div>
-            {s.classCode && (
-              <div>
-                <dt>class</dt>
-                <dd>{s.classCode}</dd>
-              </div>
-            )}
-          </dl>
-        )}
-        <IconButton
-          kind="ghost"
-          size="lg"
-          align="left"
-          className="sd-close"
-          label="Close student details"
-          onClick={onClose}
-        >
-          <Close size={20} />
-        </IconButton>
-      </header>
-      <div className="sd-body">
-        <div className="sd-main">
-          {!s ? (
-            <div className="sd-empty sd-empty-lead">
-              {loading ? (
-                <>
-                  <span className="visually-hidden">Loading activity...</span>
-                  <SkeletonText heading width="30%" />
-                  <SkeletonText paragraph lineCount={4} />
-                </>
-              ) : (
-                <>
-                  No activity yet for <b style={{ fontFamily: MONO }}>{sid}</b>. Notes can still be
-                  added.
-                </>
-              )}
-            </div>
-          ) : (
-            <>
-              <Section title="Activity">
-                <div className="sd-strips">
-                  <span className="sd-strip-label">Episodes</span>
-                  <div>
-                    <EpisodeTrack data={s.episodes} />
-                  </div>
-                  <span className="sd-strip-label">Runs</span>
-                  <div>
-                    <RunTrack data={s.runs} />
-                  </div>
-                </div>
-              </Section>
-              {/* key by student so the code view and run pick reset when the sheet switches students */}
-              <CodePane key={`code-${sid}`} block={s.block} />
-              <GoalEvidence key={sid} runs={s.goal_runs} enabled={s.goal_recognition_enabled} />
-            </>
-          )}
-        </div>
-        <aside className="sd-rail">
-          <NotesPanel key={sid} notes={notes} onAdd={onAddNote} />
-          <TriggerHistory history={history} />
-        </aside>
-      </div>
-    </>
-  );
-};
-
-// ---------------- layout ----------------
-// The few inline styles the page shell still needs; Carbon (styles/carbon.scss) and index.css
-// style the rest.
-const S = {
-  page: {
-    background: T.bg,
-    minHeight: "100dvh",
-    display: "flex",
-    flexDirection: "column",
-    fontFamily: FONT,
-    color: T.ink,
-  },
-  main: { display: "flex", flex: 1, minHeight: 0 }, // two-pane shell
-  board: { flex: 1, minWidth: 0 },
-  empty: { color: T.sub, fontSize: 14, textAlign: "center", marginTop: 60 },
-};
-
-// The researcher's notes on this student: the composer first (it is the reason
-// most people open the sheet), then the saved notes, newest first.
-const NotesPanel = ({ notes, onAdd }) => {
-  const [draft, setDraft] = React.useState("");
-  const save = () => {
-    const t = draft.trim();
-    if (!t) return;
-    onAdd(t);
-    setDraft("");
-  };
-  return (
-    <Section
-      title="Notes"
-      aside={notes.length > 0 && <span className="sd-count">{notes.length}</span>}
-    >
-      <div className="sd-composer">
-        <TextArea
-          id="sd-new-note"
-          labelText="New note"
-          hideLabel
-          rows={4}
-          value={draft}
-          placeholder="What did you see or hear?"
-          helperText="Ctrl+Enter to save"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              save();
-            }
-          }}
-        />
-        <Button size="sm" onClick={save} disabled={!draft.trim()}>
-          Save Note
-        </Button>
-      </div>
-      {notes.length === 0 ? (
-        <p className="sd-empty">No notes on this student yet.</p>
-      ) : (
-        <ContainedList label="Saved, newest first" kind="on-page" size="sm" className="sd-notes">
-          {[...notes].reverse().map((n) => (
-            <ContainedListItem key={n.id}>
-              <div className="sd-note-meta">
-                <time dateTime={parseTs(n.ts)?.toISOString()} title={fullTime(n.ts)}>
-                  {noteTime(n.ts)}
-                </time>
-                {n.trigger_type && <span>during {triggerMeta(n.trigger_type).label}</span>}
-              </div>
-              <p>{n.text}</p>
-            </ContainedListItem>
-          ))}
-        </ContainedList>
-      )}
-    </Section>
-  );
-};
-
-// The top-level component: holds all the polled state and wires up every
-// action. Each data source has its own fetch callback on the shared POLL_MS
-// timer so the views stay current without a single giant request.
 const CohortDashboard = () => {
-  const detailDialog = React.useRef(null);
-  const [states, setStates] = React.useState({}); // studentID -> light payload (grid)
-  const [detailFull, setDetailFull] = React.useState(null); // heavy payload for the open student
-  const [detailFor, setDetailFor] = React.useState(null); // student whose detail fetch last settled
-  const [roster, setRoster] = React.useState([]);
-  const [triggers, setTriggers] = React.useState([]); // backend-fired alerts
-  const [switches, setSwitches] = React.useState([]); // identity-switch feed
-  const [toasts, setToasts] = React.useState([]); // transient switch popups
-  const [selected, setSelected] = React.useState(null);
-  const [query, setQuery] = React.useState("");
-  const [pollingOn, setPollingOn] = React.useState(true); // daemon prod polling
-  const [notes, setNotes] = React.useState([]); // notes for `selected`
-  const [noteOpen, setNoteOpen] = React.useState(null); // trigger id with an open editor
-  const [noteText, setNoteText] = React.useState("");
-  React.useEffect(() => {
-    if (selected && detailDialog.current && !detailDialog.current.open) {
-      const opener = document.activeElement;
-      detailDialog.current.showModal();
-      // Start on the student's name, so a screen reader announces it first; the close button's
-      // tooltip would otherwise open over the facts.
-      detailDialog.current.querySelector("#sd-title")?.focus();
-      return () => {
-        if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-      };
-    }
-  }, [selected]);
-  const [triggerCfg, setTriggerCfg] = React.useState({
-    wheel_spin: true,
-    resilience: true,
-    inactive: true,
-    explorer: true,
-    iterative: true,
+  const board = useBoardData();
+  const { states, roster, setRoster, triggers, setTriggers, switches } = board;
+  const [selected, setSelected] = React.useState(null); // the student whose sheet is open
+  const [theme, toggleTheme] = useTheme();
+  const toast = useToasts();
+  const safeWrite = useSafeWrite(toast.notify, board.streaming);
+  const sheet = useStudentDetail(selected, board.visible, states, triggers);
+  const sources = useBoardSource(toast.notify, () => {
+    setSelected(null);
+    board.reload();
   });
-  const [triggerPanel, setTriggerPanel] = React.useState(false);
   const [resetOpen, setResetOpen] = React.useState(false);
-  // Where this board listens: Reflecks (VEXcode VR), or one ZANY study ("zany:STUDY-0001"),
-  // which needs the research login (the server checks it with ATLAS).
-  const [source, setSource] = React.useState("reflecks");
-  const [zany, setZany] = React.useState({ enabled: false, unlocked: false, studies: [] });
-  const [unlock, setUnlock] = React.useState(null); // {email, password, error, busy} while open
-  // Light (INVITE brand) or dark (the dashboard's original look); persisted
-  // per-browser like boardId(). No stored preference -> follow the OS.
-  const [theme, setTheme] = React.useState(() => {
-    try {
-      return (
-        localStorage.getItem(THEME_KEY) ||
-        (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-      );
-    } catch {
-      return "light";
-    }
-  });
-  React.useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch {
-      /* ignore */
-    }
-  }, [theme]);
-  const visible = usePageVisible(); // gates every poll loop below; hidden tab -> no polling
 
-  const fetchZany = React.useCallback(async () => {
-    try {
-      setZany({
-        enabled: false,
-        unlocked: false,
-        studies: [],
-        ...(await api.get("/api/zany/")).data,
-      });
-    } catch {
-      /* the store is down: Reflecks keeps working */
-    }
-  }, []);
-  React.useEffect(() => {
-    fetchZany();
-    api
-      .get("/api/source/")
-      .then((r) => setSource(r.data.source || "reflecks"))
-      .catch(() => {});
-    const locked = () => {
-      setZany((z) => ({ ...z, unlocked: false }));
-      setUnlock((u) => u || { email: "", password: "", error: null, busy: false });
-    };
-    window.addEventListener("zany:locked", locked);
-    return () => window.removeEventListener("zany:locked", locked);
-  }, [fetchZany]);
-
-  const fetchStates = React.useCallback(async () => {
-    try {
-      const list = (await api.get("/api/student_states/")).data.students || [];
-      const m = {};
-      list.forEach((s) => {
-        m[s.studentID] = s;
-      });
-      setStates(m);
-    } catch {
-      /* keep */
-    }
-  }, []);
-
-  const fetchRoster = React.useCallback(async () => {
-    try {
-      setRoster((await api.get("/api/tracked/")).data.tracked || []);
-    } catch {
-      /* keep */
-    }
-  }, []);
-
-  const fetchTriggers = React.useCallback(async () => {
-    try {
-      setTriggers((await api.get("/api/triggers/")).data.triggers || []);
-    } catch {
-      /* keep */
-    }
-  }, []);
-
-  const fetchSwitches = React.useCallback(async () => {
-    try {
-      setSwitches((await api.get("/api/switches/")).data.switches || []);
-    } catch {
-      /* keep */
-    }
-  }, []);
-
-  // Refetch only the channels the stream says moved. The map keeps SSE-driven
-  // refetches and the fallback poll loops using the exact same fetch callbacks.
-  const onStreamChanged = React.useCallback(
-    (channels) => {
-      if (channels.includes("states")) fetchStates();
-      if (channels.includes("roster")) fetchRoster();
-      if (channels.includes("triggers")) fetchTriggers();
-      if (channels.includes("switches")) fetchSwitches();
-    },
-    [fetchStates, fetchRoster, fetchTriggers, fetchSwitches],
-  );
-  // One stream when it's available; otherwise the four timers below. Gating the
-  // polls on `!streaming` means exactly one mechanism is live at a time, and a
-  // dropped stream silently falls back to polling until it reconnects.
-  const streaming = useEventStream(onStreamChanged, visible);
-  usePoll(fetchStates, visible && !streaming);
-  usePoll(fetchRoster, visible && !streaming);
-  usePoll(fetchTriggers, visible && !streaming);
-  usePoll(fetchSwitches, visible && !streaming);
-
-  // Most-recent casing for a handle, looked up from the materialized state
-  // (the feed itself carries the canonical id, used as the fallback).
+  // The most recent casing of a handle (the feeds carry the canonical ID).
   const displayFor = (sid) => (states[sid] && states[sid].display) || sid;
 
-  // Pop a toast for each NEW unacked switch. The first load only seeds the
-  // "seen" set (so opening the board doesn't flood you with the backlog);
-  // after that a fresh switch toasts and auto-dismisses after 6s.
+  // Toast each new identity switch. The first answer after the board loads (or
+  // reloads, after a reset or a source change) is the backlog: it is marked as
+  // seen without a toast, so opening the board doesn't flood it.
   const seenSwitch = React.useRef(new Set());
-  const firstSwitchLoad = React.useRef(true);
+  const backlogSeen = React.useRef(false);
   React.useEffect(() => {
+    if (!board.switchesLoaded) {
+      backlogSeen.current = false;
+      return;
+    }
     const fresh = switches.filter((s) => !s.acknowledged && !seenSwitch.current.has(s.id));
     fresh.forEach((s) => seenSwitch.current.add(s.id));
-    if (firstSwitchLoad.current) {
-      firstSwitchLoad.current = false;
+    if (!backlogSeen.current) {
+      backlogSeen.current = true;
       return;
     }
-    if (!fresh.length) return;
-    const add = fresh.map((s) => ({
-      id: s.id,
-      title: displayFor(s.studentID),
-      change: s.kind,
-      from: s.from,
-      to: s.to,
-    }));
-    setToasts((t) => [...t, ...add]);
-    add.forEach((a) => setTimeout(() => setToasts((t) => t.filter((x) => x.id !== a.id)), 6000));
-  }, [switches]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ------------------------------------------------------------------
-  // Resilient writes. Every researcher input goes through submitWrite: try,
-  // retry twice with a short backoff, and only then fail LOUD -- park the
-  // original payload in the server-side outbox (or localStorage if the API
-  // itself is unreachable) and raise a sticky red toast naming the action.
-  // The error is rethrown so each caller's catch can still reconcile its
-  // optimistic UI against server truth. Nothing typed or clicked is ever
-  // silently dropped.
-  const WRITE_RETRIES = 2,
-    WRITE_RETRY_MS = 250,
-    LS_OUTBOX = "lmdOutbox";
-  const errSeq = React.useRef(0);
-  // A Carbon toast for an outcome the researcher should see: errors stay until dismissed,
-  // anything else goes after 6s.
-  const notify = React.useCallback((kind, title, sub) => {
-    const id = `note-${++errSeq.current}`;
-    setToasts((t) => [...t, { id, kind, title, sub, error: kind === "error" }]);
-    if (kind !== "error") setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
-  }, []);
-  const failLoud = React.useCallback((op, payload, err) => {
-    const error = err?.message || "request failed";
-    api.post("/api/outbox/", { op, payload, error }).catch(() => {
-      // API unreachable: last-resort parking in the browser, flushed to
-      // the server-side outbox when the stream reconnects.
-      try {
-        const q = JSON.parse(window.localStorage.getItem(LS_OUTBOX) || "[]");
-        q.push({ op, payload, error, ts: Date.now() });
-        window.localStorage.setItem(LS_OUTBOX, JSON.stringify(q));
-      } catch {
-        /* storage blocked: the toast below still fires */
-      }
-    });
-    setToasts((t) => [
-      ...t,
-      { id: `err-${++errSeq.current}`, kind: "error", error: true, title: "Not saved", sub: op },
-    ]);
-  }, []);
-  const submitWrite = async (op, payload, post) => {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await post();
-      } catch (e) {
-        if (attempt >= WRITE_RETRIES) {
-          failLoud(op, payload, e);
-          throw e;
-        }
-        await new Promise((r) => setTimeout(r, WRITE_RETRY_MS * (attempt + 1)));
-      }
-    }
-  };
-  // Drain browser-parked failures into the server outbox once it's reachable
-  // again (stream connect is the "API is back" signal).
-  React.useEffect(() => {
-    if (!streaming) return;
-    let q = [];
-    try {
-      q = JSON.parse(window.localStorage.getItem(LS_OUTBOX) || "[]");
-    } catch {
-      return;
-    }
-    if (!q.length) return;
-    window.localStorage.removeItem(LS_OUTBOX);
-    q.forEach((item) =>
-      api.post("/api/outbox/", item).catch(() => {
-        // Still failing: put it back rather than lose it.
-        try {
-          const back = JSON.parse(window.localStorage.getItem(LS_OUTBOX) || "[]");
-          back.push(item);
-          window.localStorage.setItem(LS_OUTBOX, JSON.stringify(back));
-        } catch {
-          /* keep */
-        }
-      }),
+    fresh.forEach((s) =>
+      toast.push({ id: s.id, kind: "warning", title: displayFor(s.studentID), sub: switchText(s) }),
     );
-  }, [streaming]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [switches, board.switchesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ackSwitch = async (id) => {
-    setSwitches((ss) => ss.filter((s) => s.id !== id));
-    setToasts((t) => t.filter((x) => x.id !== id));
-    try {
-      await submitWrite(`dismiss switch #${id}`, { id }, () =>
-        api.post("/api/switches/ack/", { id }),
-      );
-    } catch {
-      fetchSwitches();
-    }
-  };
-
-  // Pause state and trigger-config are values ONLY the user changes here (the
-  // daemon just reads them), so we do NOT poll them on a timer. Polling created
-  // a race: a GET already in flight when you click resolves a moment later with
-  // the pre-click value and flips the control back. We fetch each once on mount
-  // and let the toggle be the source of truth afterward. No competing GET, no
-  // flicker. (A second open dashboard won't auto-sync these two controls, which
-  // is fine for a single-researcher session.)
+  // Polling and the trigger types are set only here (the daemon just reads
+  // them), so they are fetched once, not polled: a poll in flight during a
+  // click would land a moment later with the old value and flip the control
+  // back. The control is the source of truth after the first load.
+  const [pollingOn, setPollingOn] = React.useState(true);
+  const [triggerCfg, setTriggerCfg] = React.useState(ALL_TRIGGERS_ON);
   const fetchPolling = React.useCallback(async () => {
     try {
       setPollingOn((await api.get("/api/polling/")).data.enabled);
@@ -2156,22 +78,6 @@ const CohortDashboard = () => {
       /* keep */
     }
   }, []);
-  React.useEffect(() => {
-    fetchPolling();
-  }, [fetchPolling]); // once, no interval
-  const togglePolling = async () => {
-    const next = !pollingOn;
-    setPollingOn(next); // optimistic; the toggle owns this value
-    try {
-      const r = await submitWrite(`polling ${next ? "on" : "off"}`, { enabled: next }, () =>
-        api.post("/api/polling/", { enabled: next }),
-      );
-      setPollingOn(r.data.enabled);
-    } catch {
-      fetchPolling();
-    }
-  };
-
   const fetchTriggerCfg = React.useCallback(async () => {
     try {
       setTriggerCfg((await api.get("/api/triggers/config/")).data.enabled);
@@ -2180,134 +86,81 @@ const CohortDashboard = () => {
     }
   }, []);
   React.useEffect(() => {
+    fetchPolling();
     fetchTriggerCfg();
-  }, [fetchTriggerCfg]); // once, no interval
+  }, [fetchPolling, fetchTriggerCfg]);
+
+  // ---- actions: each updates the board first, then saves, and on failure
+  // puts the board back to what the server says ----
+
+  const togglePolling = async () => {
+    const next = !pollingOn;
+    setPollingOn(next);
+    try {
+      const r = await safeWrite(`polling ${next ? "on" : "off"}`, { enabled: next }, () =>
+        api.post("/api/polling/", { enabled: next }),
+      );
+      setPollingOn(r.data.enabled);
+    } catch {
+      fetchPolling();
+    }
+  };
+
   const toggleTrigger = async (type) => {
     const next = !triggerCfg[type];
-    setTriggerCfg((c) => ({ ...c, [type]: next })); // optimistic
+    setTriggerCfg((c) => ({ ...c, [type]: next }));
     const body = { trigger_type: type, enabled: next };
     try {
-      const r = await submitWrite(`trigger ${type} ${next ? "on" : "off"}`, body, () =>
+      const r = await safeWrite(`trigger ${type} ${next ? "on" : "off"}`, body, () =>
         api.post("/api/triggers/config/", body),
       );
       setTriggerCfg(r.data.enabled);
+      // The API filters this board's feed by these switches, and a switch change
+      // doesn't wake the live stream, so fetch the feed now: a type switched back
+      // on brings its current alerts back.
+      board.fetchTriggers();
     } catch {
       fetchTriggerCfg();
     }
   };
-  // Present / picked toggles for the interview workflow. Update the UI first,
-  // then persist; because both live on tracked_student they show up in the CSV.
+
+  const setRosterField = (sid, patch) =>
+    setRoster((rs) => rs.map((r) => (r.studentID === sid ? { ...r, ...patch } : r)));
+
   const setPresence = async (sid, present) => {
-    setRoster((rs) => rs.map((r) => (r.studentID === sid ? { ...r, present } : r)));
+    setRosterField(sid, { present });
     const body = { studentID: sid, present };
     try {
-      await submitWrite(`${present ? "present" : "absent"}: ${sid}`, body, () =>
+      await safeWrite(`${present ? "present" : "absent"}: ${sid}`, body, () =>
         api.post("/api/presence/", body),
       );
     } catch {
-      fetchRoster();
+      board.fetchRoster();
     }
   };
-  // source is 'roster' (student card) or 'intervention' (alert card); the
-  // intervention path also passes the trigger it was clicked from so the pick
-  // log records which alert prompted it. Roster picks carry no trigger.
-  const setPicked = async (sid, picked, source = "roster", trigger = null) => {
-    setRoster((rs) => rs.map((r) => (r.studentID === sid ? { ...r, picked } : r)));
+
+  // A pick from an alert records which alert prompted it; a card pick has none.
+  const setPicked = async (sid, picked, trigger = null) => {
+    setRosterField(sid, { picked });
     const body = {
       studentID: sid,
       picked,
-      source,
+      source: trigger ? "intervention" : "roster",
       trigger_id: trigger?.id ?? null,
       trigger_type: trigger?.trigger_type ?? null,
     };
     try {
-      await submitWrite(`${picked ? "pick" : "unpick"}: ${sid}`, body, () =>
+      await safeWrite(`${picked ? "pick" : "unpick"}: ${sid}`, body, () =>
         api.post("/api/picked/", body),
       );
     } catch {
-      fetchRoster();
+      board.fetchRoster();
     }
   };
-  // Notes for whichever learner is currently open; reloaded when the modal
-  // opens and after a note is added.
-  const fetchNotes = React.useCallback(async (sid) => {
-    if (!sid) {
-      setNotes([]);
-      return;
-    }
-    try {
-      setNotes((await api.get("/api/notes/", { params: { studentID: sid } })).data.notes || []);
-    } catch {
-      /* keep what's shown: a blip must not look like "no notes" */
-    }
-  }, []);
-  React.useEffect(() => {
-    setNotes([]); // a different student: never show the previous one's notes
-    fetchNotes(selected);
-  }, [selected, fetchNotes]);
 
-  // Trigger history for the open student's grid. Depending on `triggers` too
-  // keeps the grid current while the modal is open: whenever the live feed
-  // refetches (a new alert, an ack), the history follows on the same beat.
-  const [history, setHistory] = React.useState([]);
-  React.useEffect(() => {
-    setHistory([]); // a different student: never show the previous one's history
-  }, [selected]);
-  React.useEffect(() => {
-    if (!selected) {
-      setHistory([]);
-      return undefined;
-    }
-    let alive = true;
-    api
-      .get("/api/triggers/history/", { params: { studentID: selected } })
-      .then((r) => {
-        if (alive) setHistory(r.data.history || []);
-      })
-      .catch(() => {
-        /* keep what's shown: a blip must not empty the grid */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [selected, triggers]);
-
-  // The heavy payload (playground prompt included) for just the open student,
-  // fetched on open and re-fetched whenever the cohort states refresh -- so
-  // under SSE it's event-driven (states only refreshes when something actually
-  // changed) instead of re-shipping the largest payload on a blind timer.
-  // Under the polling fallback, states updates each tick, which degrades this
-  // to the old POLL_MS cadence automatically. `alive` discards a late response
-  // that arrives after you've already switched to a different student.
-  // Clear the previous student's heavy payload the instant the selection
-  // changes, so switching students never shows the old detail (program, prompt,
-  // goal evidence) until the new fetch lands. Keyed on `selected` only, so a
-  // routine poll (states change) refreshes in place without blanking.
-  React.useEffect(() => {
-    setDetailFull(null);
-  }, [selected]);
-  React.useEffect(() => {
-    if (!selected) {
-      setDetailFull(null);
-      return;
-    }
-    if (!visible) return; // tab hidden: keep the open detail, just stop refreshing it
-    let alive = true;
-    (async () => {
-      try {
-        const d = (await api.get(`/api/student_states/${encodeURIComponent(selected)}/`)).data;
-        if (alive) setDetailFull(d);
-      } catch {
-        /* keep the last good payload; the selection effect above already
-           cleared it if this is a different student */
-      }
-      if (alive) setDetailFor(selected);
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [selected, visible, states]);
-  const addNote = async (sid, text, trigger) => {
+  // A typed note is the most irreplaceable input on the board: it either lands
+  // or is parked in the outbox with a red toast, never dropped.
+  const addNote = async (sid, text, trigger = null) => {
     const t = (text || "").trim();
     if (!sid || !t) return;
     const body = { studentID: sid, text: t };
@@ -2315,765 +168,189 @@ const CohortDashboard = () => {
       body.trigger_id = trigger.id;
       body.trigger_type = trigger.trigger_type;
     }
-    // A typed note is the most irreplaceable input on the board; it either
-    // lands or gets parked in the outbox with a red toast -- never dropped.
     try {
-      await submitWrite(`note on ${sid}`, body, () => api.post("/api/notes/", body));
+      await safeWrite(`note on ${sid}`, body, () => api.post("/api/notes/", body));
     } catch {
       /* parked in the outbox; the toast already said so */
     }
-    if (sid === selected) fetchNotes(sid);
+    if (sid === selected) sheet.refreshNotes();
   };
 
-  const ackTrigger = async (id) => {
-    // Drop the row right away so the click feels instant, then persist.
+  const dismissAlert = async (id) => {
     setTriggers((ts) => ts.filter((t) => t.id !== id));
-    if (noteOpen === id) {
-      setNoteOpen(null);
-      setNoteText("");
-    }
     try {
-      await submitWrite(`dismiss alert #${id}`, { id }, () =>
-        api.post("/api/triggers/ack/", { id }),
-      );
+      await safeWrite(`dismiss alert #${id}`, { id }, () => api.post("/api/triggers/ack/", { id }));
     } catch {
-      fetchTriggers();
+      board.fetchTriggers();
     }
   };
 
-  // Track one or many: split on ';', strip ALL whitespace from each id (ids
-  // never contain spaces, so any whitespace is just noise), drop blanks, and
-  // de-dupe. Each is added independently so one failure doesn't sink the rest.
-  // ---- sources ----
-  const zanyStudy = source.startsWith("zany:")
-    ? zany.studies.find((s) => `zany:${s.study}` === source) || {
-        study: source.slice(5),
-        code: source.slice(5),
-      }
-    : null;
-  const sourceItems = [
-    { id: "reflecks", text: "VEXcode VR" },
-    ...(zany.unlocked
-      ? zany.studies.map((s) => ({ id: `zany:${s.study}`, text: `ZANY (${s.code})` }))
-      : [{ id: "unlock", text: "ZANY (sign in to see studies)" }]),
-  ];
-  // A ZANY board already set, but this browser locked: keep it in the list so it shows.
-  if (zanyStudy && !sourceItems.some((it) => it.id === source)) {
-    sourceItems.push({ id: source, text: `ZANY (${zanyStudy.code}, locked)` });
-  }
-  const refetchBoard = () => {
-    setSelected(null);
-    setStates({});
-    setTriggers([]);
-    setSwitches([]);
-    fetchStates();
-    fetchRoster();
-    fetchTriggers();
-    fetchSwitches();
-  };
-  const pickSource = async (id) => {
-    if (id === "unlock") {
-      setUnlock({ email: "", password: "", error: null, busy: false });
-      return;
-    }
-    if (id === source) return;
+  const dismissSwitch = async (id) => {
+    board.dropSwitch(id);
+    toast.dismiss(id);
     try {
-      setSource((await api.post("/api/source/", { source: id })).data.source || id);
-      refetchBoard();
-    } catch (err) {
-      if (err.response?.status !== 403) notify("error", "Source not changed", "Try again.");
-    }
-  };
-  const submitUnlock = async () => {
-    if (!unlock || unlock.busy || !unlock.email || !unlock.password) return;
-    setUnlock((u) => ({ ...u, busy: true, error: null }));
-    try {
-      const { data } = await api.post("/api/zany/unlock/", {
-        email: unlock.email,
-        password: unlock.password,
-      });
-      setZany((z) => ({ ...z, unlocked: true, studies: data.studies || [] }));
-      setUnlock(null);
-      notify("success", "ZANY unlocked", "Pick a study from the source list.");
-      if (source.startsWith("zany:")) refetchBoard();
-    } catch (err) {
-      setUnlock(
-        (u) =>
-          u && {
-            ...u,
-            busy: false,
-            password: "",
-            error: err.response?.data?.detail || "Not checked. Try again.",
-          },
+      await safeWrite(`dismiss switch #${id}`, { id }, () =>
+        api.post("/api/switches/ack/", { id }),
       );
-    }
-  };
-  const trackEveryone = async () => {
-    if (!zanyStudy) return;
-    try {
-      const { data } = await api.get("/api/zany/participants/", {
-        params: { study: zanyStudy.study },
-      });
-      await Promise.all(
-        data.participants.map((pid) =>
-          submitWrite(`track: ${pid}`, { studentID: pid }, () =>
-            api.post("/api/tracked/", { studentID: pid }),
-          ).catch(() => {}),
-        ),
-      );
-      fetchRoster();
     } catch {
-      notify("error", "Not tracked", "ZANY's participant list didn't load. Try again.");
+      board.fetchSwitches();
     }
   };
 
-  const addTracked = async () => {
-    const ids = [
-      ...new Set(
-        query
-          .split(";")
-          .map((s) => s.replace(/\s/g, ""))
-          .filter(Boolean),
-      ),
-    ];
-    if (ids.length === 0) return;
+  // Each ID is tracked on its own, so one failure doesn't sink the rest.
+  const track = async (ids) => {
     await Promise.all(
       ids.map((sid) =>
-        submitWrite(`track: ${sid}`, { studentID: sid }, () =>
+        safeWrite(`track: ${sid}`, { studentID: sid }, () =>
           api.post("/api/tracked/", { studentID: sid }),
         ).catch(() => {}),
       ),
     );
-    setQuery("");
-    fetchRoster();
+    board.fetchRoster();
   };
-  const removeTracked = async (sid) => {
+
+  const trackEveryone = async () => {
+    if (!sources.study) return;
+    try {
+      const { data } = await api.get("/api/zany/participants/", {
+        params: { study: sources.study.study },
+      });
+      await track(data.participants);
+    } catch {
+      toast.notify("error", "Not tracked", "ZANY's participant list didn't load. Try again.");
+    }
+  };
+
+  const untrack = async (sid) => {
     const body = { studentID: sid, remove: true };
     try {
-      await submitWrite(`untrack: ${sid}`, body, () => api.post("/api/tracked/", body));
+      await safeWrite(`untrack: ${sid}`, body, () => api.post("/api/tracked/", body));
     } catch {
-      fetchRoster();
+      board.fetchRoster();
     }
     setRoster((r) => r.filter((x) => x.studentID !== sid));
     if (selected === sid) setSelected(null);
-    fetchStates();
+    board.fetchStates();
   };
+
   const exportData = async () => {
     try {
-      // Ask for the response as a binary Blob (not parsed JSON) so we hand
-      // the browser the raw zip. The filename comes from the server's
-      // Content-Disposition header, with a fallback if it's missing.
+      // The zip comes back as a Blob, named by the server's Content-Disposition.
       const res = await api.post("/api/export/", null, { responseType: "blob" });
       const name =
         res.headers["content-disposition"]?.match(/filename="(.+)"/)?.[1] ||
         "lm-dashboard_export.zip";
       triggerDownload(res.data, name);
     } catch {
-      notify("error", "Export failed", "Nothing was downloaded. Try again.");
+      toast.notify("error", "Export failed", "Nothing was downloaded. Try again.");
     }
-  };
-  // Asked first in the Reset modal.
-  const resetAll = async () => {
-    try {
-      const { data } = await api.post("/api/reset/");
-      // Clear the local views at once so nothing lingers until the refetch
-      // below: the cards, the open detail, the notes, the open note editor,
-      // the alerts and the switches. The server now hides everything from
-      // before the reset, so the refetch comes back fresh too.
-      setSelected(null);
-      setStates({});
-      setNotes([]);
-      setTriggers([]);
-      setSwitches([]);
-      setToasts([]);
-      setNoteOpen(null);
-      setNoteText("");
-      notify("success", "Board reset", `Backup saved to ${data.backup || "exports/"}`);
-    } catch {
-      notify("error", "Reset failed", "Nothing was cleared.");
-    }
-    fetchStates();
-    fetchRoster();
-    fetchTriggers();
-    fetchSwitches();
   };
 
-  // One card per tracked student, each merged with its materialized state.
-  // Present students come first; within each group the order is stable (by
-  // studentID) so a card never jumps when its own data refreshes. Deciding who
-  // needs attention is the alert column's job, not the grid's.
-  const boxes = roster
+  const reset = async () => {
+    try {
+      const { data } = await api.post("/api/reset/");
+      // The server now hides everything from before the reset; clear what is
+      // shown at once so nothing lingers until the refetch lands.
+      setSelected(null);
+      toast.clear();
+      board.reload();
+      toast.notify("success", "Board reset", `Backup saved to ${data.backup || "exports/"}`);
+    } catch {
+      toast.notify("error", "Reset failed", "Nothing was cleared.");
+      board.refetch();
+    }
+  };
+
+  // ---- what the board shows ----
+
+  // One card per tracked student, merged with its state. Present students come
+  // first, then by ID, so a card never jumps when its own data refreshes.
+  const students = roster
     .map((r) => ({
       studentID: r.studentID,
-      display: r.display || r.studentID, // most-recent casing; canonical id stays the key
+      display: r.display || r.studentID,
       has_data: r.has_data,
-      present: r.present !== false, // default present for older roster payloads
+      present: r.present !== false,
       picked: !!r.picked,
       st: states[r.studentID] || null,
     }))
-    // present students first, then stable by studentID so a card never jumps
     .sort((a, b) =>
       a.present === b.present ? a.studentID.localeCompare(b.studentID) : a.present ? -1 : 1,
     );
 
-  // Keep the alert feed to currently-tracked, PRESENT students with the type
-  // enabled. The backend evaluates every student_state row, so this filters out
-  // alerts for someone just untracked (and any muted trigger type). Absent
-  // students are suppressed too: a kid who left the room would otherwise spam
-  // "inactive" alerts forever, sending a TA to an empty seat.
-  //
-  // We show active AND recently-resolved triggers: the backend keeps a resolved
-  // one in the feed for TRIGGER_RECENT_SECONDS (2 min), so an alert lingers for
-  // ~2 minutes after a student recovers rather than vanishing instantly.
+  // Alerts for tracked, present students with the trigger type on. A student
+  // who left the room would otherwise send someone to an empty seat. The feed
+  // also keeps a resolved alert for seven minutes (the API's
+  // TRIGGER_RECENT_SECONDS), so it doesn't vanish the moment a student recovers.
   const tracked = new Set(roster.map((r) => r.studentID));
   const absent = new Set(roster.filter((r) => r.present === false).map((r) => r.studentID));
   const alerts = triggers.filter(
     (t) =>
       tracked.has(t.studentID) && !absent.has(t.studentID) && triggerCfg[t.trigger_type] !== false,
   );
-  // Each student's headline = their highest-priority active trigger (the feed
-  // already lingers a momentary alert ~2 min, so the badge persists briefly too).
-  const statusBy = {};
-  alerts.forEach((t) => {
-    const cur = statusBy[t.studentID];
-    if (cur == null || TRIGGER_PRIORITY.indexOf(t.trigger_type) < TRIGGER_PRIORITY.indexOf(cur))
-      statusBy[t.studentID] = t.trigger_type;
-  });
-  const unackedSwitches = switches.filter((s) => !s.acknowledged);
-  const detail = detailFull; // heavy payload fetched per-open student
+  const headline = headlineTriggers(alerts);
+  const pickedIds = new Set(roster.filter((r) => r.picked).map((r) => r.studentID));
 
   return (
-    <div className="dashboard" style={S.page}>
-      <Header aria-label="Learner Modeling Dashboard" className="lmd-header">
-        <HeaderName href="#" prefix="INVITE" onClick={(e) => e.preventDefault()}>
-          Learner Modeling Dashboard
-        </HeaderName>
-        <Tag
-          type={pollingOn ? "green" : "warm-gray"}
-          size="sm"
-          className="live-state"
-          title={
-            pollingOn
-              ? "Fetching new activity from production"
-              : "The daemon is making no requests to production"
-          }
-        >
-          {pollingOn ? "Live" : "Polling paused"}
-        </Tag>
-        <HeaderGlobalBar>
-          <HeaderGlobalAction
-            aria-label={
-              pollingOn
-                ? "Pause polling: stop all requests to the production server. The board keeps the last data."
-                : "Resume polling: fetch new events from production again."
-            }
-            tooltipAlignment="end"
-            onClick={togglePolling}
-          >
-            {pollingOn ? <Pause size={20} /> : <Play size={20} />}
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="Triggers: turn trigger types on or off"
-            aria-expanded={triggerPanel}
-            isActive={triggerPanel}
-            tooltipAlignment="end"
-            onClick={() => setTriggerPanel((p) => !p)}
-          >
-            <SettingsAdjust size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="Export: download a zip of CSV snapshots of all data"
-            tooltipAlignment="end"
-            onClick={exportData}
-          >
-            <Download size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label="Reset: clear this board's session data. A CSV backup is saved first."
-            tooltipAlignment="end"
-            onClick={() => setResetOpen(true)}
-          >
-            <Reset size={20} />
-          </HeaderGlobalAction>
-          <HeaderGlobalAction
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            tooltipAlignment="end"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-          >
-            {theme === "dark" ? <Light size={20} /> : <Asleep size={20} />}
-          </HeaderGlobalAction>
-        </HeaderGlobalBar>
-        <HeaderPanel expanded={triggerPanel} aria-label="Triggers" className="trigger-panel">
-          <h2>Triggers</h2>
-          {TRIGGER_ROWS.map(([type, label]) => (
-            <Toggle
-              key={type}
-              id={`trigger-${type}`}
-              size="sm"
-              labelText={label}
-              labelA="Off"
-              labelB="On"
-              toggled={triggerCfg[type] !== false}
-              onToggle={() => toggleTrigger(type)}
-            />
-          ))}
-        </HeaderPanel>
-      </Header>
+    <div className="dashboard">
+      <AppHeader
+        pollingOn={pollingOn}
+        onTogglePolling={togglePolling}
+        triggerCfg={triggerCfg}
+        onToggleTrigger={toggleTrigger}
+        onExport={exportData}
+        onReset={() => setResetOpen(true)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
+      <UnlockModal
+        unlock={sources.unlock}
+        onChange={sources.editUnlock}
+        onSubmit={sources.submitUnlock}
+        onClose={sources.closeUnlock}
+      />
+      <ResetModal open={resetOpen} onClose={() => setResetOpen(false)} onConfirm={reset} />
 
-      <Modal
-        open={!!unlock}
-        modalLabel="ZANY's logs"
-        modalHeading="Sign in with the research login"
-        primaryButtonText={unlock?.busy ? "Checking..." : "Unlock"}
-        primaryButtonDisabled={!unlock?.email || !unlock?.password || unlock?.busy}
-        secondaryButtonText="Cancel"
-        onRequestClose={() => setUnlock(null)}
-        onRequestSubmit={submitUnlock}
-      >
-        <p className="unlock-intro">
-          ZANY's logs are for the research team. Use the same login as ATLAS's research pages; ATLAS
-          checks it. This browser stays unlocked for 12 hours.
-        </p>
-        <TextInput
-          id="unlock-email"
-          labelText="Email"
-          type="email"
-          autoComplete="username"
-          value={unlock?.email || ""}
-          onChange={(e) => setUnlock((u) => ({ ...u, email: e.target.value, error: null }))}
+      <main className="dashboard-main">
+        <StudentBoard
+          students={students}
+          headline={headline}
+          alertCount={alerts.length}
+          sources={sources}
+          zanyStudy={sources.study}
+          onTrack={track}
+          onTrackEveryone={trackEveryone}
+          onOpen={setSelected}
+          onPresence={setPresence}
+          onPick={(sid, picked) => setPicked(sid, picked)}
+          onRemove={untrack}
         />
-        <PasswordInput
-          id="unlock-password"
-          labelText="Password"
-          autoComplete="current-password"
-          value={unlock?.password || ""}
-          onChange={(e) => setUnlock((u) => ({ ...u, password: e.target.value, error: null }))}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submitUnlock();
-          }}
+        <AlertFeed
+          alerts={alerts}
+          switches={switches.filter((s) => !s.acknowledged)}
+          isPicked={(sid) => pickedIds.has(sid)}
+          displayFor={displayFor}
+          onOpen={setSelected}
+          onDismiss={dismissAlert}
+          onPick={(t, picked) => setPicked(t.studentID, picked, t)}
+          onAddNote={(t, text) => addNote(t.studentID, text, t)}
+          onDismissSwitch={dismissSwitch}
         />
-        {unlock?.error && (
-          <InlineNotification
-            kind="error"
-            lowContrast
-            hideCloseButton
-            title="Not unlocked"
-            subtitle={unlock.error}
-          />
-        )}
-      </Modal>
-
-      <Modal
-        open={resetOpen}
-        danger
-        className="reset-modal"
-        modalLabel="This board"
-        modalHeading="Reset the board?"
-        primaryButtonText="Reset"
-        secondaryButtonText="Cancel"
-        onRequestClose={() => setResetOpen(false)}
-        onRequestSubmit={() => {
-          setResetOpen(false);
-          resetAll();
-        }}
-      >
-        <p>
-          Every student starts fresh on this board: runs, episodes, goal evidence, alerts, trigger
-          history and switches from before now are hidden, and your notes, picks and pick history
-          are cleared. A CSV backup, notes and picks included, is saved to exports/ first, so
-          nothing is lost.
-        </p>
-        <p>
-          Students stay tracked and present or absent is kept. Other boards are not affected, and
-          production is untouched.
-        </p>
-      </Modal>
-
-      <main className="dashboard-main" style={S.main}>
-        {/* left: a box per tracked student */}
-        <section className="student-board" aria-label="Students" style={S.board}>
-          <div className="board-heading">
-            <h2>Students</h2>
-            {zany.enabled && (
-              <Select
-                id="board-source"
-                className="source-pick"
-                inline
-                size="md"
-                labelText="Listening to"
-                value={source}
-                onChange={(e) => pickSource(e.target.value)}
-              >
-                {sourceItems.map((it) => (
-                  <SelectItem key={it.id} value={it.id} text={it.text} />
-                ))}
-              </Select>
-            )}
-            <span>
-              {boxes.length} tracked, {boxes.filter((b) => b.present).length} present,{" "}
-              {boxes.filter((b) => b.picked).length} picked
-            </span>
-            <a className="feed-jump cds--link" href="#interventions">
-              View Alerts ({alerts.length})
-            </a>
-            <form
-              className="track-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                addTracked();
-              }}
-            >
-              <TextInput
-                id="track-ids"
-                size="md"
-                labelText={zanyStudy ? "Track participant IDs" : "Track student IDs"}
-                hideLabel
-                placeholder={
-                  zanyStudy ? `Track participant IDs in ${zanyStudy.code}` : "Track student IDs"
-                }
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <Button type="submit" size="md" disabled={!query.trim()}>
-                Track
-              </Button>
-            </form>
-            {zanyStudy && (
-              <Button kind="ghost" size="md" onClick={trackEveryone}>
-                Track everyone in {zanyStudy.code}
-              </Button>
-            )}
-          </div>
-          {boxes.length === 0 ? (
-            <div className="board-empty" style={S.empty}>
-              <h3>Start with Your First Student</h3>
-              <p>No students added yet. Enter student IDs above to start.</p>
-              <Button kind="tertiary" onClick={() => document.getElementById("track-ids").focus()}>
-                Track a Student
-              </Button>
-            </div>
-          ) : (
-            <div className="student-grid">
-              {boxes.map((b) => {
-                const trig = statusBy[b.studentID];
-                const sm = statusMeta(trig, !!b.st);
-                return (
-                  <Tile
-                    key={b.studentID}
-                    className={`student-card${trig ? " is-alert" : ""}${b.present ? "" : " is-absent"}`}
-                    style={trig ? toneVars(sm.c) : undefined}
-                    onClick={() => setSelected(b.studentID)}
-                  >
-                    <div className="card-head">
-                      <button
-                        className="student-open card-id"
-                        title={b.display}
-                        onClick={() => setSelected(b.studentID)}
-                      >
-                        {b.display}
-                      </button>
-                      {trig ? (
-                        <Tag size="sm" className="status-tag card-status">
-                          {sm.label}
-                        </Tag>
-                      ) : (
-                        <span className="card-status">{sm.label}</span>
-                      )}
-                    </div>
-                    {b.st ? (
-                      <>
-                        <div className="card-strips">
-                          <span>Runs</span>
-                          <RunTrack data={b.st.runs} compact />
-                          <span>Episodes</span>
-                          <EpisodeTrack data={b.st.episodes} compact />
-                        </div>
-                        <div className="card-meta">
-                          <span>
-                            {b.st.run_count} runs, {b.st.event_count} events
-                          </span>
-                          {b.st.last_seen && (
-                            <span title={`Last activity ${clockTime(b.st.last_seen)}`}>
-                              {relTime(b.st.last_seen)} ago
-                            </span>
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="card-wait">
-                        {b.has_data ? (
-                          <SkeletonText paragraph lineCount={2} />
-                        ) : (
-                          "Waiting for activity..."
-                        )}
-                      </div>
-                    )}
-                    <div className="card-actions">
-                      <SelectableTag
-                        size="md"
-                        text={b.present ? "Present" : "Absent"}
-                        selected={b.present}
-                        title={
-                          b.present ? "Mark absent (drops to the bottom, dimmed)" : "Mark present"
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPresence(b.studentID, !b.present);
-                        }}
-                      />
-                      <SelectableTag
-                        size="md"
-                        className="is-pick"
-                        text={b.picked ? "Picked" : "Mark Picked"}
-                        renderIcon={b.picked ? Checkmark : undefined}
-                        selected={b.picked}
-                        title={
-                          b.picked
-                            ? "Picked / interviewed - click to unmark"
-                            : "Mark as picked / interviewed"
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPicked(b.studentID, !b.picked, "roster");
-                        }}
-                      />
-                      <IconButton
-                        kind="ghost"
-                        size="sm"
-                        align="top-end"
-                        className="card-remove"
-                        label={`Stop tracking ${b.display}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeTracked(b.studentID);
-                        }}
-                      >
-                        <Close />
-                      </IconButton>
-                    </div>
-                  </Tile>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* right: backend-fired alerts (the five edit-distance / idle triggers) */}
-        <aside id="interventions" className="intervention-feed" aria-label="Needs Intervention">
-          <div className="feed-head">
-            <h2>Needs Intervention</h2>
-            <span className="feed-count">{alerts.length}</span>
-          </div>
-          {alerts.length === 0 ? (
-            <p className="feed-empty">No active alerts right now.</p>
-          ) : (
-            <ul className="feed-list">
-              {alerts.map((t) => {
-                const meta = triggerMeta(t.trigger_type);
-                const picked = !!(roster.find((r) => r.studentID === t.studentID) || {}).picked;
-                return (
-                  <li
-                    key={t.id}
-                    className="feed-item"
-                    style={toneVars(meta.c)}
-                    onClick={() => setSelected(t.studentID)}
-                  >
-                    <div className="feed-row">
-                      <button
-                        className="student-open feed-id"
-                        onClick={() => setSelected(t.studentID)}
-                      >
-                        {displayFor(t.studentID)}
-                      </button>
-                      <span className="feed-age" title="How long this alert has been active">
-                        {t.age_seconds != null ? fmtDur(t.age_seconds) : "-"}
-                      </span>
-                      <IconButton
-                        kind="ghost"
-                        size="sm"
-                        align="left"
-                        label={`Dismiss alert for ${displayFor(t.studentID)} (also closes the note box)`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          ackTrigger(t.id);
-                        }}
-                      >
-                        <Close />
-                      </IconButton>
-                    </div>
-                    <div className="feed-what">
-                      <Icon name={meta.icon} size={14} />
-                      <strong>{t.label || meta.label}</strong>
-                      {t.value && <span>{t.value}</span>}
-                    </div>
-                    {t.prev && (
-                      <div className="feed-prev">
-                        Before this: {t.prev.label} at {clockTime(t.prev.at)} ({relTime(t.prev.at)}{" "}
-                        ago)
-                      </div>
-                    )}
-                    <div className="feed-actions">
-                      <SelectableTag
-                        size="md"
-                        className="is-pick"
-                        text={picked ? "Picked" : "Mark Picked"}
-                        renderIcon={picked ? Checkmark : undefined}
-                        selected={picked}
-                        title={
-                          picked
-                            ? "Picked / interviewed - click to unmark"
-                            : "Mark as picked / interviewed"
-                        }
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPicked(t.studentID, !picked, "intervention", t);
-                        }}
-                      />
-                      <Button
-                        kind="ghost"
-                        size="sm"
-                        aria-expanded={noteOpen === t.id}
-                        title="Add a note for this learner"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setNoteText("");
-                          setNoteOpen(noteOpen === t.id ? null : t.id);
-                        }}
-                      >
-                        Add Note
-                      </Button>
-                    </div>
-                    {noteOpen === t.id && (
-                      <div className="feed-note" onClick={(e) => e.stopPropagation()}>
-                        <TextArea
-                          id={`note-${t.id}`}
-                          labelText={`Note on ${displayFor(t.studentID)}`}
-                          hideLabel
-                          rows={2}
-                          value={noteText}
-                          autoFocus
-                          placeholder="What did you see during this alert?"
-                          onChange={(e) => setNoteText(e.target.value)}
-                        />
-                        <Button
-                          size="sm"
-                          disabled={!noteText.trim()}
-                          onClick={() => {
-                            addNote(t.studentID, noteText, t);
-                            setNoteOpen(null);
-                            setNoteText("");
-                          }}
-                        >
-                          Save Note
-                        </Button>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {unackedSwitches.length > 0 && (
-            <>
-              <div className="feed-head feed-head-sub">
-                <h2>Identity Switches</h2>
-                <span className="feed-count">{unackedSwitches.length}</span>
-              </div>
-              <ul className="feed-list">
-                {unackedSwitches.map((s) => (
-                  <li
-                    key={s.id}
-                    className="feed-item"
-                    style={toneVars(TRIGGERS.inactive.c)}
-                    onClick={() => setSelected(s.studentID)}
-                  >
-                    <div className="feed-row">
-                      <button
-                        className="student-open feed-id"
-                        onClick={() => setSelected(s.studentID)}
-                      >
-                        {displayFor(s.studentID)}
-                      </button>
-                      <span className="feed-age" title={fullTime(s.ts)}>
-                        {relTime(s.ts)} ago
-                      </span>
-                      <IconButton
-                        kind="ghost"
-                        size="sm"
-                        align="left"
-                        label={`Dismiss switch for ${displayFor(s.studentID)}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          ackSwitch(s.id);
-                        }}
-                      >
-                        <Close />
-                      </IconButton>
-                    </div>
-                    <div className="feed-what">
-                      <Icon name="swap" size={14} />
-                      <strong>{s.kind === "casing" ? "casing changed" : "new class"}</strong>
-                      <span>
-                        {s.kind === "casing" ? s.from : s.from || "-"} -&gt; {s.to}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </aside>
       </main>
 
-      {toasts.length > 0 && (
-        <div className="toast-stack">
-          {toasts.map((t) => (
-            // Switch toasts (warning) and outcomes go on their own; a failed write (error) is
-            // sticky, since an error that vanishes on its own isn't loud.
-            <ToastNotification
-              key={t.id}
-              kind={t.kind || "warning"}
-              lowContrast
-              timeout={0}
-              title={t.title}
-              subtitle={
-                t.change
-                  ? `${t.change === "casing" ? "casing changed" : "new class"}: ${t.from} -> ${t.to}`
-                  : t.sub
-              }
-              onClose={() => {
-                setToasts((ts) => ts.filter((x) => x.id !== t.id));
-                return false;
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <Toasts toasts={toast.toasts} onClose={toast.dismiss} />
 
       {selected && (
-        <dialog
-          ref={detailDialog}
-          className="student-dialog"
-          aria-labelledby="sd-title"
-          onCancel={() => setSelected(null)}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelected(null);
-          }}
-        >
-          <div className="student-detail">
-            <Detail
-              s={detail}
-              sid={selected}
-              status={statusMeta(statusBy[selected], !!detail)}
-              loading={!detail && detailFor !== selected}
-              history={history}
-              notes={notes}
-              onAddNote={(text) => addNote(selected, text, null)}
-              onClose={() => setSelected(null)}
-            />
-          </div>
-        </dialog>
+        <StudentSheet
+          s={sheet.detail}
+          sid={selected}
+          status={statusMeta(headline[selected], !!sheet.detail)}
+          loading={sheet.loading}
+          history={sheet.history}
+          notes={sheet.notes}
+          onAddNote={(text) => addNote(selected, text)}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

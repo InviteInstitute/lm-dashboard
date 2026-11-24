@@ -8,29 +8,43 @@ The read API runs at `http://localhost:8000` and also serves the built dashboard
 `/`. It serves the materialized state the daemon computes and performs only small,
 per-board writes (track, ack, notes, toggles, reset, export, polling).
 
-**Auth.** The whole origin is behind **HTTP Basic Auth** - the browser's native login
-dialog, verified against the researcher table (see
-[Configuration](../guides/configuration.md)). Every `/api` route below (and the static
-app) requires it. `/healthz` is the only open path. Each request also carries the
-browser's **board id** - the `X-Board-Id` header, or a `?board_id=` query param on the
-SSE stream - which scopes the response to that board's own roster, notes, and picks.
+**The gate.** There is no login. Every `/api/` route below needs the signed
+`ts_verified` cookie a browser gets by passing **Cloudflare Turnstile** (see
+[`POST /api/turnstile/verify/`](#post-apiturnstileverify)). Without it, a route answers
+`403 {"error": "turnstile_required"}`, which the dashboard takes as its cue to show the
+check. `/healthz`, the static app and the verify route itself are open.
+
+**Boards.** Each request also carries the browser's **board id** - the `X-Board-Id`
+header, or a `?board_id=` query param on the SSE stream - which scopes the response to
+that board's own roster, notes, picks and settings. A request with no board id acts on
+one shared default board.
+
+**ZANY boards.** A board set to a ZANY study answers `403 {"detail": "zany_locked"}`
+on every route except `/api/source/` and `/api/zany/*` until its browser unlocks ZANY
+with the research login.
 
 ## Endpoints At A Glance
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET`  | `/healthz` | health check (the only unauthenticated route) |
-| `GET`  | `/api/me/` | the authenticated researcher (id + username) |
+| `GET`  | `/healthz` | health check (outside the Turnstile gate) |
+| `POST` | `/api/turnstile/verify/` | pass the Turnstile check and get the cookie the gate wants |
+| `GET`  | `/api/source/` | which logs this board listens to |
+| `POST` | `/api/source/` | point this board at Reflecks or at one ZANY study |
+| `GET`  | `/api/zany/` | whether ZANY's logs are connected and unlocked here, and its studies |
+| `POST` | `/api/zany/unlock/` | unlock ZANY's logs in this browser with the research login |
+| `POST` | `/api/zany/lock/` | lock them again |
+| `GET`  | `/api/zany/participants/` | the participant IDs with records in one study |
 | `GET`  | `/api/stream/` | the live Server-Sent Events stream (pushes which channels changed) |
 | `GET`  | `/api/student_states/` | materialized per-student state (the dashboard's main read) |
-| `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt and readable program) |
+| `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt, readable program and goal evidence) |
 | `GET`  | `/api/tracked/` | the tracked-student roster |
 | `POST` | `/api/tracked/` | track or untrack a student |
 | `GET`  | `/api/triggers/` | active + recently-resolved intervention feed |
 | `POST` | `/api/triggers/ack/` | dismiss a trigger |
-| `GET`  | `/api/triggers/history/` | one student's full trigger history (the detail grid) |
-| `GET`  | `/api/triggers/config/` | which trigger types are enabled |
-| `POST` | `/api/triggers/config/` | enable or disable a trigger type |
+| `GET`  | `/api/triggers/history/` | one student's full trigger history (the student sheet) |
+| `GET`  | `/api/triggers/config/` | which trigger types this board shows |
+| `POST` | `/api/triggers/config/` | show or hide a trigger type on this board |
 | `GET`  | `/api/switches/` | identity switches (casing flips, new class codes) for tracked students |
 | `POST` | `/api/switches/ack/` | dismiss an identity switch |
 | `POST` | `/api/presence/` | toggle whether a student is present in the room |
@@ -58,6 +72,99 @@ served from the root in remote builds.
 
 ```json title="Response"
 { "service": "luc-dashboard", "ok": true }
+```
+
+---
+
+## POST /api/turnstile/verify/
+
+Checks a Turnstile widget token with Cloudflare. On success it sets `ts_verified`, a
+signed, HTTP-only cookie good for 12 hours, which the gate checks on every other
+`/api/` call.
+
+```json title="Request"
+{ "token": "<the widget's response token>" }
+```
+
+Returns `{ "ok": true }`, or `403` when Cloudflare rejects the token.
+
+---
+
+## GET /api/source/
+
+Which logs this board listens to: `"reflecks"` (VEXcode VR), or one ZANY study as
+`"zany:<study>"`.
+
+```json title="Response"
+{ "source": "reflecks" }
+```
+
+---
+
+## POST /api/source/
+
+Points this board at Reflecks or at one ZANY study. Every read on the board then shows
+only that source's students, and each source keeps its own roster.
+
+```json title="Request"
+{ "source": "zany:STUDY-0001" }
+```
+
+Returns `{ "source": "zany:STUDY-0001" }`. `400` for an unknown source or a study with
+no records, `403 zany_locked` when this browser hasn't unlocked ZANY, `503` when ZANY's
+log store isn't answering.
+
+---
+
+## GET /api/zany/
+
+Whether this deployment can read ZANY's logs (`enabled`, set by `ZANY_LOG_DSN`),
+whether this browser has unlocked them, and the studies with records once it has,
+newest activity first.
+
+```json title="Response"
+{
+  "enabled": true,
+  "unlocked": true,
+  "studies": [
+    { "study": "STUDY-0001", "code": "ZX42", "participants": 18, "last": "2026-11-20T15:02:11+00:00" }
+  ]
+}
+```
+
+`code` is the class code students type in ZANY. `503` when the store isn't answering.
+
+---
+
+## POST /api/zany/unlock/
+
+Unlocks ZANY's logs in this browser with the research login, the same one as
+ATLAS-invite's research pages. ATLAS checks it. On success it sets a signed,
+HTTP-only `zany_unlocked` cookie good for 12 hours.
+
+```json title="Request"
+{ "email": "researcher@example.edu", "password": "..." }
+```
+
+Returns `{ "unlocked": true, "studies": [...] }`. `401` with ATLAS's reason for a wrong
+login, `404` when ZANY isn't connected here, and `429` after five wrong tries from one
+address in ten minutes.
+
+---
+
+## POST /api/zany/lock/
+
+Clears the unlock cookie. Returns `{ "unlocked": false }`.
+
+---
+
+## GET /api/zany/participants/
+
+`?study=STUDY-0001`. The participant IDs with records in that study, sorted, for
+**Track everyone**. Needs an unlocked browser.
+
+```json title="Response"
+{ "participants": ["R01", "R02", "R03"] }
 ```
 
 ---
@@ -165,6 +272,33 @@ the handle in its most-recent casing), plus the playground `block`:
   }
 }
 ```
+
+It also carries the student's goal evidence, one entry per profiled Castle Crashers
+run since this board's last reset:
+
+```json title="Response (goal evidence)"
+{
+  "goal_recognition_enabled": true,
+  "goal_runs": [
+    {
+      "index": 4,
+      "goals": [{ "goal": "engage_plow", "indicators": [{ "name": "plow_approach_intent", "rung": "near", "flags": ["sim_unverified"] }] }],
+      "timeline": { "events": [], "post_exit_events": [] },
+      "battery": { "eligible": true, "qualifying_blocks": [], "scenarios": [] },
+      "rollup": { "provisional": false, "goals": [] },
+      "rubric": { "provisional": true, "status": "provisional", "dimensions": [] },
+      "summary": { "boundary_exceeded": false, "fidelity_verdict": "agree" }
+    }
+  ]
+}
+```
+
+Each run lists every goal's indicators with the rung reached and its uncertainty
+flags, the rung-change `timeline`, the sensor-test `battery`, the rolled-up claim per
+goal (`rollup`), the provisional execution `rubric`, and run-level facts (`summary`,
+such as whether the robot left the island). This is evidence with explicit
+abstentions, not a score. `goal_runs` is `[]` when goal recognition is off
+(`GOAL_RECOGNITION_ENABLED=0`) or shaping fails.
 
 `readable` is the student's latest blocks rendered as a program listing, with block
 names from the official VEX mapping and every parameter spelled out, including the
@@ -307,7 +441,7 @@ dismissed alike. This is what the detail modal's trigger-history grid renders.
 
 ## GET /api/triggers/config/
 
-Which trigger types are currently enabled (all on by default), with their labels.
+Which trigger types **this board** shows (all on by default), with their labels.
 
 ```json title="Response"
 {
@@ -323,8 +457,11 @@ Which trigger types are currently enabled (all on by default), with their labels
 
 ## POST /api/triggers/config/
 
-Enable or disable a trigger type. Disabling it makes the daemon stop firing that type
-and resolve its open alerts on the next tick.
+Show or hide one trigger type on **this board** (stored in `workspace_setting`). The
+daemon keeps firing every type, since alerts are shared by all boards, so this only
+filters this board's [feed](#get-apitriggers). Switching a type back on brings back its
+alerts that are still current. A board that has never set its own switches uses the
+shared setting from before they were per board.
 
 ```json title="Request"
 { "trigger_type": "inactive", "enabled": false }

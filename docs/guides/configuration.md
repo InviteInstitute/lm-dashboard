@@ -29,6 +29,11 @@ Configuration is split across two gitignored files:
 | `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (dev) / `1` (prod compose) | arms the per-board dead-man's switch (below) |
 | `ZANY_LOG_DSN` | API and daemon | (none: ZANY off) | ATLAS-invite's ZANY log store, read-only (role `lmdash_reader`, table `log_record`), e.g. `postgresql://lmdash_reader:...@/zany?host=/var/run/postgresql`. Prod keeps it in `/etc/lm-dashboard/zany.env`, which compose reads when it exists, and mounts the host's Postgres socket read-only |
 | `ATLAS_URL` | API | `https://zany.inviteai.org` | ATLAS-invite, which checks the research login that unlocks ZANY's logs |
+| `GOAL_RECOGNITION_ENABLED` | daemon and API | `1` | profile each Castle Crashers run for goal evidence. `0` turns off the profiling, its storage and the sheet's Goal Evidence section |
+| `GOAL_TIMELINE_ENABLED` | daemon | `1` | also record each run's goal-progression timeline (cheap) |
+| `GOAL_BATTERY_ENABLED` | daemon | `1` | also run the sensor-test battery, 19 extra simulations per program that reads a sensor. `0` sheds the heaviest goal work under load |
+| `GOAL_ROLLUP_ENABLED` | daemon | `1` | also roll the battery up into one claim per goal |
+| `GOAL_RUBRIC_ENABLED` | daemon | `1` | also score the provisional execution rubric |
 
 ## Access
 

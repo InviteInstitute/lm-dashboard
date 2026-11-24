@@ -1,0 +1,177 @@
+/* The dashboard runs on IBM Carbon in INVITE's theme (carbon.scss, shared with ATLAS-invite's
+   researcher pages). Its own styles are split by area, loaded in this order by main.jsx: base,
+   header, board, feed, sheet, goals. The --lmd-* names below point at Carbon's tokens, so
+   flipping [data-theme] on <html> switches Carbon and the dashboard's own marks together. */
+:root {
+  --lmd-font:
+    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --lmd-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --lmd-bg: var(--cds-background);
+  --lmd-panel: var(--cds-layer-01);
+  --lmd-border: var(--cds-border-subtle-01);
+  --lmd-ink: var(--cds-text-primary);
+  --lmd-sub: var(--cds-text-secondary);
+  --lmd-faint: var(--cds-text-placeholder);
+  --lmd-track: var(--cds-layer-02);
+  --lmd-code: var(--cds-text-primary);
+  --lmd-hatch-red-bg: #fde3e3;
+  --lmd-hatch-amber-bg: #fdecd0;
+}
+:root[data-theme="dark"] {
+  --lmd-hatch-red-bg: #3a1416;
+  --lmd-hatch-amber-bg: #3a2a10;
+}
+
+body {
+  margin: 0;
+  font-family: var(--lmd-font);
+  background: var(--lmd-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+}
+
+code {
+  font-family: var(--lmd-mono);
+}
+
+/* Semantic text colours are Carbon's; the trigger signals keep their own hues (constants.js),
+   with a lighter step for dark. */
+:root {
+  --lmd-success: var(--cds-support-success);
+  --lmd-warning: var(--cds-support-caution-major);
+  --lmd-accent: var(--cds-interactive);
+  --lmd-signal-2f9467: #187544;
+  --lmd-signal-d0433c: #c12d35;
+  --lmd-signal-d38b12: #916000;
+  --lmd-signal-8a5cc0: #8040b5;
+  --lmd-signal-3a6ea5: #2463b9;
+}
+:root[data-theme="dark"] {
+  --lmd-signal-2f9467: #65d895;
+  --lmd-signal-d0433c: #ff858b;
+  --lmd-signal-d38b12: #f6bf58;
+  --lmd-signal-8a5cc0: #cf9bf6;
+  --lmd-signal-3a6ea5: #80b5ff;
+}
+.dashboard *,
+.student-dialog,
+.student-dialog * {
+  box-sizing: border-box;
+}
+.dashboard {
+  height: 100dvh;
+}
+/* The dashboard's own buttons (IDs, flags, runs); Carbon styles its own. */
+.dashboard button:disabled {
+  cursor: not-allowed;
+}
+:where(.dashboard, .student-dialog) :focus-visible {
+  outline: 2px solid var(--cds-focus);
+  outline-offset: -2px;
+}
+::selection {
+  background: var(--cds-interactive);
+  color: var(--cds-text-on-color);
+}
+/* Themed scrollbars: the board, roster, feed, and modal all scroll, and a
+   default OS scrollbar is the giveaway that no one styled the surface. */
+.dashboard,
+.student-dialog {
+  scrollbar-width: thin;
+  scrollbar-color: var(--lmd-border) transparent;
+}
+.dashboard *::-webkit-scrollbar,
+.student-dialog *::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+.dashboard *::-webkit-scrollbar-track,
+.student-dialog *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dashboard *::-webkit-scrollbar-thumb,
+.student-dialog *::-webkit-scrollbar-thumb {
+  background: var(--lmd-border);
+  border-radius: 7px;
+  border: 3px solid var(--lmd-panel);
+}
+.dashboard *::-webkit-scrollbar-thumb:hover,
+.student-dialog *::-webkit-scrollbar-thumb:hover {
+  background: var(--lmd-faint);
+}
+/* Screen-reader-only text: the values behind purely visual marks. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+h1,
+h2,
+h3,
+h4,
+h5 {
+  text-wrap: balance;
+}
+.dashboard p,
+.student-dialog p {
+  text-wrap: pretty;
+}
+
+/* The page: the header, then the board and the alert feed side by side. */
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--lmd-bg);
+  color: var(--lmd-ink);
+  font-family: var(--lmd-font);
+}
+.dashboard-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The Turnstile challenge, over everything until the browser passes it. */
+.turnstile-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--lmd-bg);
+  color: var(--lmd-ink);
+  font-family: var(--lmd-font);
+}
+.turnstile-error {
+  color: #d0433c;
+}
+
+@media (max-width: 760px) {
+  .dashboard {
+    height: auto;
+  }
+  .dashboard-main {
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard *,
+  .student-dialog,
+  .student-dialog::backdrop,
+  .student-dialog * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

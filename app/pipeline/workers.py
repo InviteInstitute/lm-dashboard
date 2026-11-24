@@ -41,7 +41,6 @@ from app.config import (
     GOAL_RUBRIC_ENABLED,
     GOAL_TIMELINE_ENABLED,
 )
-from app.pipeline.triggers import _disabled_types
 
 logger = logging.getLogger("pipeline")
 
@@ -167,17 +166,11 @@ class StudentWorker:
         self.dirty = True
 
     # -- inference + materialize ----------------------------------------
-    def recompute_and_write(self, disabled=None):
+    def recompute_and_write(self):
         """Materialize this student's derived state into student_state: the per-run
         edit_distance sequence and episodes the streams already hold, the four
         momentary edit-distance triggers they fire, and the playground prompt.
-        Clears the dirty flag.
-
-        `disabled` is the set of switched-off trigger types; the daemon passes
-        the copy it already fetched this tick, and we fall back to reading it
-        ourselves when called without one."""
-        if disabled is None:
-            disabled = _disabled_types()
+        Clears the dirty flag."""
         runs = self.run_stream.runs
         run_count = len(runs)  # one entry per runProject
 
@@ -185,9 +178,8 @@ class StudentWorker:
         # playground stretch so a challenge switch resets every counter and applies
         # that playground's threshold. Deduped per type by run index (seeded from the
         # DB on rehydrate), so a backfill or restart can't re-fire an old run.
-        # Respects the disabled-triggers flag.
         for ttype, idx, detail in detect_run_triggers_by_playground(runs):
-            if ttype in disabled or idx in self.fired[ttype]:
+            if idx in self.fired[ttype]:
                 continue
             run_ts = runs[idx].get("ts")
             at = datetime.fromtimestamp(run_ts, tz=UTC) if run_ts else db.now()
@@ -324,9 +316,9 @@ def evict(student_id):
 
 
 def reset():
-    """Evict every cached worker. The daemon calls this on a dashboard reset, so
-    that buffered events can't immediately re-materialize the state that was
-    just wiped. Also drop the APTED score cache so it doesn't outlive the data."""
+    """Evict every cached worker and the APTED score cache. Tests call this
+    between cases. A dashboard reset doesn't: it is per board and hides old
+    activity by time instead of wiping shared state (see db.reset_workspace)."""
     _workers.clear()
     clear_score_cache()
 

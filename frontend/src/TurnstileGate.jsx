@@ -5,7 +5,7 @@
 // the middleware checks; a page reload then re-runs every fetch for real.
 import { useEffect, useRef, useState } from "react";
 import api from "./api";
-import { T, FONT, TURNSTILE_SITE_KEY } from "./constants";
+import { TURNSTILE_SITE_KEY } from "./constants";
 
 export default function TurnstileGate() {
   const [open, setOpen] = useState(false);
@@ -63,24 +63,10 @@ export default function TurnstileGate() {
 
   if (!open) return null;
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        background: T.bg,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 16,
-        fontFamily: FONT,
-        color: T.ink,
-      }}
-    >
+    <div className="turnstile-gate">
       <p>Verifying you're not a bot&hellip;</p>
       <div ref={elRef} />
-      {error && <p style={{ color: "#d0433c" }}>Verification failed. Please try again.</p>}
+      {error && <p className="turnstile-error">Verification failed. Please try again.</p>}
     </div>
   );
 }

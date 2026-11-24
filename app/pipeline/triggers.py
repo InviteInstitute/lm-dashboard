@@ -39,26 +39,16 @@ def _fmt_idle(secs):
     return f"idle {m // 1440}d"
 
 
-def _disabled_types():
-    """The set of trigger types the researcher has switched off, read from the
-    comma-separated meta flag the API writes. An empty flag means all are on."""
-    raw = db.get_meta("disabled_triggers") or ""
-    return {t for t in raw.split(",") if t}
-
-
-def evaluate(now=None, disabled=None):
+def evaluate(now=None):
     """One sweep over student_state for the single sustained trigger, inactive:
     open a row when a student goes idle past INACTIVE_TRIGGER_SECONDS, keep it
     fresh while idle, and resolve it when a new event arrives. The four momentary
     edit-distance triggers are not handled here -- they fire from the worker the
     moment a run lands (see workers.recompute_and_write).
 
-    `disabled` is the set of switched-off trigger types; the daemon passes the
-    copy it already fetched this tick, and we fall back to reading it ourselves
-    when called without one."""
+    Every type always fires: alerts are shared by every board, and each board's
+    own switches only filter what its feed shows (see app/main.py triggers)."""
     now = now or db.now()
-    if disabled is None:
-        disabled = _disabled_types()
 
     # Batched sweep: two reads (all states + all open inactive rows) up front, one
     # pass building create/resolve/touch batches, one atomic flush -- so the whole
@@ -72,9 +62,7 @@ def evaluate(now=None, disabled=None):
         sid = s["studentID"]
         last = s["last_event_time"]
         idle = (now - last).total_seconds() if last else None
-        is_inactive = (
-            idle is not None and idle >= INACTIVE_TRIGGER_SECONDS and ttype not in disabled
-        )
+        is_inactive = idle is not None and idle >= INACTIVE_TRIGGER_SECONDS
         ev = open_by_sid.get(sid)
         detail = {"label": LABELS[ttype], "value": _fmt_idle(idle)}
 

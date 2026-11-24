@@ -1,0 +1,119 @@
+/* ---- alert feed ---- */
+.intervention-feed {
+  width: 360px;
+  flex-shrink: 0;
+  padding: 24px 20px;
+  border-left: 1px solid var(--lmd-border);
+  background: var(--lmd-panel);
+  overflow: auto;
+}
+.feed-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.feed-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.feed-head-sub {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--lmd-border);
+}
+.feed-count {
+  font-size: 14px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.feed-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--lmd-sub);
+}
+.feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.feed-item {
+  padding: 0.75rem 0.5rem 0.75rem 1rem;
+  background: color-mix(in srgb, var(--tone) 6%, var(--cds-layer-01));
+  box-shadow: inset 3px 0 0 var(--tone);
+  cursor: pointer;
+}
+.feed-item:hover {
+  background: color-mix(in srgb, var(--tone) 11%, var(--cds-layer-01));
+}
+.feed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.student-open.feed-id {
+  font-family: var(--lmd-mono);
+  font-size: 15px;
+  font-weight: 600;
+}
+.feed-age {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.feed-what {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--lmd-ink);
+}
+.feed-what svg,
+.feed-what strong {
+  color: var(--tone-text);
+}
+.feed-what strong {
+  font-weight: 600;
+}
+.feed-prev {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.feed-actions {
+  margin-top: 10px;
+}
+.feed-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-right: 0.5rem;
+}
+.feed-note .cds--form-item {
+  align-self: stretch;
+}
+
+@media (max-width: 1100px) {
+  .intervention-feed {
+    width: 320px;
+    padding: 24px 16px;
+  }
+}
+@media (max-width: 760px) {
+  .intervention-feed {
+    width: 100%;
+    padding: 24px 16px;
+    border-left: 0;
+    border-top: 1px solid var(--lmd-border);
+    overflow: visible;
+  }
+}

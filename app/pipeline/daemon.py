@@ -177,10 +177,8 @@ def main(argv=None):
         new = znew = 0
         backoff = 0.0
 
-        # disabled_triggers stays a global setting (which alert TYPES are active);
-        # polling on/off and viewer presence are per-workspace. Compute the live
+        # Polling on/off and viewer presence are per board. Compute the live
         # boards and the union of their rosters -- that's the prod-poll allowlist.
-        disabled = {t for t in (db.get_meta("disabled_triggers") or "").split(",") if t}
         now = db.now()
         live_ids = _live_workspace_ids(db.workspace_polling_states(), require_viewer, now)
         active_tracked = db.students_in_workspaces(live_ids)
@@ -264,14 +262,14 @@ def main(argv=None):
         changed = workers.dirty_workers()
         for w in changed:
             try:
-                w.recompute_and_write(disabled=disabled)
+                w.recompute_and_write()
             except Exception as e:
                 log.exception("inference failed for %s: %s", w.student_id, e)
 
         # Triggers: sweep over EVERY student, not just the changed ones, because
         # inactivity is about students who have stopped producing events.
         try:
-            triggers.evaluate(disabled=disabled)
+            triggers.evaluate()
         except Exception as e:
             log.exception("trigger eval failed: %s", e)
 

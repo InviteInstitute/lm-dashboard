@@ -10,8 +10,8 @@ toggles, and the reset and polling control flags.
 """
 
 import asyncio
-import functools
 import json
+import os
 import time
 from datetime import timedelta
 
@@ -19,13 +19,14 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from learner_models import extract_workspace_xml
 from log_parser_delta_engine import generate_readable_text
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from app import config, db, zany
+from app import config, db, goal_evidence, zany
 from app.constants import (
     TRIGGER_LABELS,
     TRIGGER_RECENT_SECONDS,
@@ -130,234 +131,24 @@ def _shape_state(s, heavy=False, since=None):
     return out
 
 
-# Castle Crashers is the only playground goal_strategy profiles.
-_GOAL_PLAYGROUND = "castle_crashers"
-# The ladders of the two rollup goals goal_strategy DERIVES from indicator rungs
-# (no battery channel by design), weaker -> stronger, and which indicator each
-# basis key was read from. They mirror goal_strategy/rollup_online.py; "unknown"
-# is a no-reading, not a rung.
-_DERIVED_CLAIM_RUNGS = {
-    "engage_plow": ["not_pursued", "approached_not_armed", "armed_not_attached", "attached"],
-    "playground_engagement": ["not_engaged", "engaged"],
-}
-_DERIVED_BASIS_INDICATOR = {
-    "magnet": "magnet_activation_intent",
-    "approach": "plow_approach_intent",
-    "proximity": "plow_proximity_execution",
-    "moved": "robot_moved",
-}
-
-
-@functools.cache
-def _goal_cards():
-    """The static ladders and labels the goal UI draws against, read once from
-    goal_strategy's playground cards: the band rungs of each battery-banded
-    rollup goal (weaker -> stronger), the top level of each rubric dimension, and
-    each battery scenario's family + description. Card-driven, so a re-tuned card
-    upstream re-draws here with no dashboard change."""
-    from goal_strategy.battery_rollup import load_rollup_card
-    from goal_strategy.rubric_combiner import load_claims
-    from goal_strategy.testcases import load_scenarios
-
-    rollup = load_rollup_card(_GOAL_PLAYGROUND)
-    claims = load_claims(_GOAL_PLAYGROUND)
-    return {
-        # the card lists rungs strongest-first (a descending min cut)
-        "bands": {
-            g: [r["band"] for r in reversed(spec.get("rungs") or [])]
-            for g, spec in (rollup.get("goals") or {}).items()
-        },
-        "rubric_max": {
-            d: max((int(lv) for lv in (spec.get("levels") or {})), default=0)
-            for d, spec in (claims.get("dimensions") or {}).items()
-        },
-        "scenarios": {
-            c["scenario_id"]: {"family": c.get("family"), "description": c.get("description")}
-            for c in load_scenarios(_GOAL_PLAYGROUND)
-        },
-    }
-
-
-def _shape_rollup(ru):
-    """The purpose-1 rolled-up claim per goal, each with the ladder it sits on.
-    Battery-banded goals carry their band + certainty + how many tests were valid;
-    derived goals carry the claim and the indicator rungs it was read from."""
-    if not isinstance(ru, dict):
-        return None
-    cards = _goal_cards()
-    goals = []
-    for goal, e in (ru.get("goals") or {}).items():
-        if e.get("source") == "battery":
-            label = e.get("label") or ""
-            goals.append(
-                {
-                    "goal": goal,
-                    "source": "battery",
-                    "rung": e.get("band"),
-                    "rungs": cards["bands"].get(goal, []),
-                    # "U/<reason>": every contributing test abstained, so no band
-                    "abstain_reason": label.split("/", 1)[1]
-                    if e.get("band") is None and "/" in label
-                    else None,
-                    "score": e.get("score"),
-                    "certainty": e.get("certainty"),
-                    "certainty_reasons": e.get("certainty_reasons") or [],
-                    "n_valid": e.get("n_valid"),
-                    "n_abstained": e.get("n_abstained"),
-                    "flags": e.get("flags") or [],
-                    "debris": e.get("debris"),
-                }
-            )
-        else:
-            claim = e.get("claim")
-            goals.append(
-                {
-                    "goal": goal,
-                    "source": e.get("source") or "profile_derived",
-                    "rung": None if claim == "unknown" else claim,
-                    "rungs": _DERIVED_CLAIM_RUNGS.get(goal, []),
-                    "abstain_reason": "no indicator reading" if claim == "unknown" else None,
-                    # {indicator name: rung} the claim was read from
-                    "basis": {
-                        _DERIVED_BASIS_INDICATOR.get(k, k): v
-                        for k, v in e.items()
-                        if k not in ("claim", "source")
-                    },
-                }
-            )
-    return {"provisional": bool(ru.get("provisional")), "goals": goals}
-
-
-def _shape_rubric(rb):
-    """The PROVISIONAL purpose-2 rubric: one entry per execution dimension with
-    the level reached on a 0..max ladder, or the reason it is undetermined."""
-    if not isinstance(rb, dict):
-        return None
-    top = _goal_cards()["rubric_max"]
-    dims = []
-    for dim, d in (rb.get("dimensions") or {}).items():
-        level = str(d.get("level") or "")
-        undetermined = not level.isdigit()
-        dims.append(
-            {
-                "dimension": dim,
-                "level": None if undetermined else int(level),
-                "max_level": top.get(dim, 0),
-                "u_reason": (d.get("u_reason") or level.partition("/")[2] or "undetermined")
-                if undetermined
-                else None,
-                "ceiling": d.get("ceiling"),
-                "borderline": bool(d.get("borderline")),
-                "evidence": [f.get("evidence") for f in d.get("fired") or [] if f.get("evidence")],
-                "negatives": d.get("negatives") or [],
-            }
-        )
-    return {
-        "provisional": rb.get("provisional", True),
-        "status": rb.get("status"),
-        "dimensions": dims,
-    }
-
-
-def _shape_goal_runs(student_id, since=None):
-    """Per-run goal evidence for the detail view: for each profiled Castle
-    Crashers run, its goals with the rung reached and the uncertainty flags. This
-    is goal *evidence* with explicit abstentions/flags, not a score. run_index
-    joins the edit-distance runs. Best-effort: a bad row just drops out."""
-    runs = []
-    for p in db.list_goal_profiles(student_id, since=since):
-        prof = p.get("profile") or {}
-        goals = []
-        for g in prof.get("goals", []):
-            indicators = [
-                {
-                    "name": ind.get("name"),
-                    "role": role,
-                    "channel": ind.get("channel"),
-                    "rung": ind.get("rung"),
-                    "rung_labels": ind.get("rung_labels") or [],
-                    "direction": ind.get("direction"),
-                    "absent_label": ind.get("absent_label"),
-                    "value": ind.get("value"),
-                    "abstained": ind.get("abstained"),
-                    "abstain_reason": ind.get("abstain_reason"),
-                    "flags": ind.get("flags") or [],
-                }
-                for role, inds in (
-                    ("intent", g.get("intent") or []),
-                    ("attainment", g.get("attainment") or []),
-                )
-                for ind in inds
-            ]
-            goals.append({"goal": g.get("goal"), "indicators": indicators})
-        # Goal-progression timeline (rung transitions) and sensor-test battery are
-        # top-level goal_strategy outputs; pass them through when computed (they may
-        # be null if their config flag is off, or the battery may be not-eligible).
-        tl = p.get("timeline") or None
-        timeline = (
-            {
-                "events": tl.get("events") or [],
-                "post_exit_events": tl.get("post_exit_events") or [],
-                "boundary_exit_step": tl.get("boundary_exit_step"),
-            }
-            if isinstance(tl, dict)
-            else None
-        )
-        bat = p.get("battery") or None
-        battery = (
-            {
-                "eligible": bat.get("eligible"),
-                "qualifying_blocks": bat.get("qualifying_blocks") or [],
-                # each scenario tagged with its card family + description, so the
-                # 19-scenario battery can be read family by family
-                "scenarios": [
-                    {**sc, **(_goal_cards()["scenarios"].get(sc.get("scenario_id")) or {})}
-                    for sc in bat.get("scenarios") or []
-                ],
-                "goal_mapping": bat.get("goal_mapping") or {},
-            }
-            if isinstance(bat, dict)
-            else None
-        )
-        # Run-level evidence the goals list doesn't carry: whether the robot left
-        # the island (a critical failure, not a goal), whether an outcome was
-        # associated, the sim-vs-GPS fidelity verdict, and the descriptive flags.
-        runs.append(
-            {
-                "index": p.get("index"),
-                "playground": p.get("playground"),
-                "status": p.get("status"),
-                "reason": p.get("reason"),
-                "diagnostics": p.get("diagnostics") or [],
-                "goals": goals,
-                "timeline": timeline,
-                "battery": battery,
-                "rollup": _shape_rollup(p.get("rollup")),
-                "rubric": _shape_rubric(p.get("rubric")),
-                "summary": {
-                    "boundary_exceeded": prof.get("boundary_exceeded"),
-                    "boundary_exit_step": prof.get("boundary_exit_step"),
-                    "boundary_exit_overridden": prof.get("boundary_exit_overridden"),
-                    "outcome_available": prof.get("outcome_available"),
-                    "fidelity_verdict": prof.get("fidelity_verdict"),
-                    "sim_final_off_island": prof.get("sim_final_off_island"),
-                    "gps_final_off_island": prof.get("gps_final_off_island"),
-                    "off_island_agreement": prof.get("off_island_agreement"),
-                    "gps_final_error_mm": prof.get("gps_final_error_mm"),
-                    "gps_final_error_reason": prof.get("gps_final_error_reason"),
-                    "gps_to_trajectory_mm": prof.get("gps_to_trajectory_mm"),
-                    "orphan_block_count": prof.get("orphan_block_count"),
-                    "fabricated_motion": prof.get("fabricated_motion"),
-                    "edge_zone_traversed": prof.get("edge_zone_traversed"),
-                },
-            }
-        )
-    return runs
-
-
 # --------------------------------------------------------------------------
 # routes
 # --------------------------------------------------------------------------
+def _client_ip(request):
+    """The browser's address: the first X-Forwarded-For hop (nginx sets it), else the peer."""
+    return (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or (
+        request.client.host if request.client else ""
+    )
+
+
+def _required(value, name):
+    """A required text field, trimmed. A missing or blank one is a 400."""
+    value = (value or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail=f"{name} required")
+    return value
+
+
 @app.get("/healthz")
 def health():
     # Not at "/" so the static frontend mount can serve the dashboard there.
@@ -375,10 +166,7 @@ class TurnstileVerifyRequest(BaseModel):
 
 @app.post("/api/turnstile/verify/")
 async def turnstile_verify(body: TurnstileVerifyRequest, request: Request, response: Response):
-    remote_ip = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or (
-        request.client.host if request.client else ""
-    )
-    if not await verify_turnstile(body.token, remote_ip):
+    if not await verify_turnstile(body.token, _client_ip(request)):
         raise HTTPException(status_code=403, detail="turnstile verification failed")
     response.set_cookie(
         COOKIE_NAME,
@@ -404,12 +192,6 @@ UNLOCK_TRIES = 5  # wrong logins a browser may try ...
 UNLOCK_WINDOW = 600  # ... in this many seconds
 _unlock_signer = TimestampSigner(config.SESSION_SECRET, salt="zany-unlock")
 _unlock_failures: dict[str, list[float]] = {}
-
-
-def _client_ip(request):
-    return (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or (
-        request.client.host if request.client else ""
-    )
 
 
 def zany_unlocked(request: Request) -> bool:
@@ -584,7 +366,7 @@ def student_states(classCode: str | None = None, wsid: int = Depends(current_wor
 # also is the viewer-presence signal: while a dashboard holds the stream we
 # stamp viewer_last_seen, so the daemon's dead-man's switch keeps prod polling
 # alive; when the tab closes, the stream ends and the switch pauses.
-STREAM_TICK_SECONDS = 0.25  # how often to check for changes (data_version gate keeps this cheap)
+STREAM_TICK_SECONDS = 0.25  # how often to check for changes (cheap: see data_version below)
 STREAM_HEARTBEAT_TICKS = 40  # stamp presence + send a keepalive comment every N ticks (~10s)
 
 
@@ -616,10 +398,10 @@ async def stream(request: Request, once: bool = False, wsid: int = Depends(curre
         await run_in_threadpool(
             db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
         )
-        # O(1) change gate: PRAGMA data_version on a dedicated read-only
-        # connection bumps when ANY other connection commits, so quiet ticks
-        # cost one pragma read instead of the four fingerprint queries. This is
-        # what makes the 0.25s tick free.
+        # O(1) change gate: db.data_version sums the per-channel revision
+        # counters that every write bumps, on a dedicated autocommit connection,
+        # so a quiet tick costs one tiny read instead of the four fingerprint
+        # queries. This is what makes the 0.25s tick free.
         probe = await run_in_threadpool(db.data_version_probe)
         dv = await run_in_threadpool(db.data_version, probe)
         ticks = 0
@@ -679,7 +461,7 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
     # Best-effort and isolated -- absent or failing, the detail view just omits it.
     payload["goal_recognition_enabled"] = config.GOAL_RECOGNITION_ENABLED
     try:
-        payload["goal_runs"] = _shape_goal_runs(student_id, since=since)
+        payload["goal_runs"] = goal_evidence.goal_runs(student_id, since=since)
     except Exception:
         payload["goal_runs"] = []
     return payload
@@ -689,18 +471,19 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
 def triggers(wsid: int = Depends(current_workspace_id)):
     """The intervention feed for this workspace: still-open triggers on its roster
     plus any resolved within the last TRIGGER_RECENT_SECONDS, newest first, that
-    this workspace hasn't dismissed."""
+    this workspace hasn't dismissed, of the types it hasn't switched off."""
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
     since = db.reset_since(wsid)
     source = board_source(wsid)
+    hidden = _disabled_triggers(wsid)
     feed = [
         t
         for t in db.triggers_feed(cutoff, workspace_id=wsid, since=since)
-        if _in_source(t["studentID"], source)
+        if _in_source(t["studentID"], source) and t["trigger_type"] not in hidden
     ]
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
-    # the card can say "last: Wheel-spinning | 10:24". One history fetch per
+    # the card can say "Before this: Wheel-spinning at 10:24 AM". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
     history = {
         sid: db.trigger_history(sid, workspace_id=wsid, since=since)
@@ -876,9 +659,7 @@ def tracked_mutate(body: TrackBody, wsid: int = Depends(current_workspace_id)):
     """Start or stop tracking a student on this workspace's board. {studentID}
     adds them (the daemon then backfills); {studentID, remove: true} untracks them
     (their shared data is purged only if no other board still tracks them)."""
-    sid = (body.studentID or "").strip()
-    if not sid:
-        raise HTTPException(status_code=400, detail="studentID required")
+    sid = _required(body.studentID, "studentID")
     if body.remove:
         db.tracked_remove(sid, workspace_id=wsid)
         return {"removed": sid}
@@ -957,9 +738,7 @@ class PickedBody(BaseModel):
 def set_presence(body: PresenceBody, wsid: int = Depends(current_workspace_id)):
     """Set whether a tracked student is present in the room, on this board.
     Persisted on tracked_student, so it's included in the CSV export."""
-    sid = (body.studentID or "").strip()
-    if not sid:
-        raise HTTPException(status_code=400, detail="studentID required")
+    sid = _required(body.studentID, "studentID")
     db.set_presence(sid, body.present, workspace_id=wsid)
     return {"studentID": sid, "present": body.present}
 
@@ -968,9 +747,7 @@ def set_presence(body: PresenceBody, wsid: int = Depends(current_workspace_id)):
 def set_picked(body: PickedBody, wsid: int = Depends(current_workspace_id)):
     """Set whether a tracked student has been picked/interviewed this session, on
     this board. Persisted on tracked_student (with picked_at), so it's exported."""
-    sid = (body.studentID or "").strip()
-    if not sid:
-        raise HTTPException(status_code=400, detail="studentID required")
+    sid = _required(body.studentID, "studentID")
     db.set_picked(
         sid,
         body.picked,
@@ -985,8 +762,12 @@ def set_picked(body: PickedBody, wsid: int = Depends(current_workspace_id)):
 TRIGGER_TYPES = tuple(TRIGGER_LABELS)
 
 
-def _disabled_triggers() -> set[str]:
-    raw = db.get_meta("disabled_triggers") or ""
+def _disabled_triggers(wsid) -> set[str]:
+    """The trigger types this board has switched off. A board that never set its
+    own keeps the shared setting from before the switches were per board."""
+    raw = db.get_workspace_setting(wsid, "disabled_triggers")
+    if raw is None:
+        raw = db.get_meta("disabled_triggers") or ""
     return {t for t in raw.split(",") if t}
 
 
@@ -996,10 +777,10 @@ class TriggerConfigBody(BaseModel):
 
 
 @app.get("/api/triggers/config/")
-def triggers_config():
-    """Report which trigger types are enabled (all on by default) along with
-    their display labels."""
-    disabled = _disabled_triggers()
+def triggers_config(wsid: int = Depends(current_workspace_id)):
+    """Which trigger types this board shows (all on by default), with their
+    display labels."""
+    disabled = _disabled_triggers(wsid)
     return {
         "enabled": {t: (t not in disabled) for t in TRIGGER_TYPES},
         "labels": TRIGGER_LABELS,
@@ -1007,18 +788,18 @@ def triggers_config():
 
 
 @app.post("/api/triggers/config/")
-def set_triggers_config(body: TriggerConfigBody):
-    """Turn a trigger type on or off. Disabling it makes the daemon stop firing
-    that type and resolve its open alerts on the next tick. The setting lives in
-    meta and the raw event log is left alone, so re-enabling takes effect at once."""
+def set_triggers_config(body: TriggerConfigBody, wsid: int = Depends(current_workspace_id)):
+    """Show or hide one trigger type on this board. The daemon keeps firing every
+    type, since alerts are shared by all boards, so this only filters this board's
+    feed: switching a type back on brings back its alerts that are still current."""
     if body.trigger_type not in TRIGGER_TYPES:
         raise HTTPException(status_code=400, detail="unknown trigger_type")
-    disabled = _disabled_triggers()
+    disabled = _disabled_triggers(wsid)
     if body.enabled:
         disabled.discard(body.trigger_type)
     else:
         disabled.add(body.trigger_type)
-    db.set_meta("disabled_triggers", ",".join(sorted(disabled)))
+    db.set_workspace_setting(wsid, "disabled_triggers", ",".join(sorted(disabled)))
     return {"enabled": {t: (t not in disabled) for t in TRIGGER_TYPES}}
 
 
@@ -1034,21 +815,15 @@ def add_note(body: NoteBody, wsid: int = Depends(current_workspace_id)):
     """Record an observation for a learner on this board. trigger_id/trigger_type
     tie it to the alert it was written from; omit both for a free-standing note.
     Persisted on the note table, so it's included in the CSV export."""
-    sid = (body.studentID or "").strip()
-    text = (body.text or "").strip()
-    if not sid:
-        raise HTTPException(status_code=400, detail="studentID required")
-    if not text:
-        raise HTTPException(status_code=400, detail="text required")
+    sid = _required(body.studentID, "studentID")
+    text = _required(body.text, "text")
     return db.add_note(sid, text, body.trigger_id, body.trigger_type, workspace_id=wsid)
 
 
 @app.get("/api/notes/")
 def list_notes(studentID: str | None = None, wsid: int = Depends(current_workspace_id)):
     """This board's notes for a learner, in chronological order."""
-    sid = (studentID or "").strip()
-    if not sid:
-        raise HTTPException(status_code=400, detail="studentID required")
+    sid = _required(studentID, "studentID")
     notes = db.list_notes(sid, workspace_id=wsid)
     return {"notes": notes, "count": len(notes)}
 
@@ -1069,16 +844,12 @@ def set_polling(body: PollingBody, wsid: int = Depends(current_workspace_id)):
 
 
 # --------------------------------------------------------------------------
-# static frontend (single-origin remote serving)
+# static frontend
 # --------------------------------------------------------------------------
-# Serve the built React app (frontend/dist) at the root so ONE Cloudflare tunnel
-# exposes a single origin for both the UI and /api -- no second service, no CORS.
-# Mounted last (after every /api route, so it never shadows them) and only when a
-# build exists, so the API-only local-dev flow (Vite on :3000) is unaffected.
-import os
-
-from fastapi.staticfiles import StaticFiles
-
+# Serve the built React app (frontend/dist) at the root, so the UI and /api share
+# one origin behind nginx: no second service, no CORS. Mounted last, after every
+# /api route, so it never shadows them, and only when a build exists, so local
+# development with Vite on :3000 is unaffected.
 _DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 if os.path.isdir(_DIST):
     app.mount("/", StaticFiles(directory=_DIST, html=True), name="spa")

@@ -44,8 +44,8 @@ prod REST API and never writes back.
 
 Every design choice bends toward simplicity of operation: one `docker compose up`
 brings up the whole stack - Postgres, the API, and the daemon. It's multi-tenant -
-each researcher works on their own isolated board behind a login - while the daemon
-serves all the boards from a single shared mirror.
+each browser gets its own isolated board, with no login - while the daemon serves all
+the boards from a single shared mirror.
 
 ## 2. Processing Model
 
@@ -77,8 +77,9 @@ Three services in one `docker compose` stack, connected through Postgres:
 
 The split is deliberate. The daemon is a long-running compute loop that has to be
 exactly one instance (the cursor assumes a single writer), while the API stays light,
-ML-free, and safe to restart on its own. The whole origin is behind HTTP Basic Auth,
-and each browser is isolated into its own board.
+ML-free, and safe to restart on its own. Cloudflare Turnstile keeps bots off
+`/api/*`, and each browser is isolated into its own board by an ID it keeps in local
+storage.
 
 ## 4. Write Path (The Daemon)
 
@@ -155,14 +156,15 @@ one streak. `TRIGGER_PRIORITY` only decides the headline badge.
 Postgres, all the SQL isolated in `app/db.py` (psycopg, no ORM). The raw mirror and the
 derived analysis are **shared** (one per student). The researcher-facing overlay - a
 board's roster, notes, picks, alert dismissals, and control flags - is **per-workspace**
-(keyed on `workspace_id`). Each browser maps to its own workspace under the shared
-login.
+(keyed on `workspace_id`). Each browser maps to its own workspace through the board
+ID it sends with every request.
 
 | Group | Tables | Role |
 |---|---|---|
 | Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` |
 | Cursor | `ingest_cursor` | how far we've consumed |
 | Read model (cache) | `student_state`, `trigger_event`, `switch_event` | materialized projection, rebuildable |
+| Boards | `workspace`, `workspace_setting` | one board per browser, and its own flags (source, polling, viewer heartbeat) |
 | Roster | `tracked_student` | the allowlist, plus presence/picked |
 | Researcher input | `note`, `pick_event`, `outbox` | observations, pick history, and failed inputs parked verbatim |
 | Control | `meta`, `channel_rev` | cross-process signals (reset and polling flags) plus the per-channel change counters the live stream reads |
@@ -181,8 +183,9 @@ as JSON text).
   watches an O(1) per-channel change counter and pushes which of the four channels
   (states, triggers, switches, roster) moved, and the dashboard refetches only those.
   The old four poll loops remain as an automatic fallback when the stream is down.
-  The detail modal fetches the heavier per-student payload (playground prompt,
-  readable program, trigger history) on open and refreshes it on the same beat.
+  The student sheet fetches the heavier per-student payload (playground prompt,
+  readable program, goal evidence, trigger history) on open and refreshes it on the
+  same beat.
   Cards are ordered by `studentID` (stable) so a card never jumps when its own data
   updates. Researcher writes go through a resilient path: optimistic UI, short
   retries, then a loud red toast plus the input parked verbatim in the outbox.
@@ -195,7 +198,12 @@ as JSON text).
   notes and trigger history as contained lists, the goal trajectory as a data table,
   evidence and sensor-test families as accordions, and skeletons while loading. Only the
   run track, the episode strip, rung ladders and pips are the dashboard's own, drawn in
-  Carbon's tokens through the `--lmd-*` names in `index.css`.
+  Carbon's tokens through the `--lmd-*` names in `styles/base.css`.
+- **Code.** `CohortDashboard.jsx` holds the board's state and actions and wires the
+  rest together. The parts live in `components/` (with the student sheet in
+  `components/sheet/` and goal evidence in `components/goals/`), the data and write
+  logic in `hooks/`, small helpers in `lib/`, and one stylesheet per area in `styles/`.
+  [Development](guides/development.md) has the full map.
 
 Why the dashboard is fast: it reads a precomputed materialized view (small, indexed
 rows), so the edit-distance and episode work already happened on the write side. It
@@ -226,9 +234,9 @@ polling whenever its browser tab is hidden.
 
 ## 9. Scaling And Evolution
 
-**Postgres, per-researcher auth, and workspace isolation are already in place** (they
-used to be on this list). Comfortable from tens of students up through a program's
-worth of researchers on their own boards. The first real wall at larger scale is the
+**Postgres and per-board isolation are already in place** (they used to be on this
+list). Comfortable from tens of students up through a program's worth of researchers
+on their own boards. The first real wall at larger scale is the
 daemon's sequential per-student inference, plus the per-tick full-table trigger sweep.
 It's not memory. The worker buffers are bounded. The evolution path, in the order you'd
 actually need it:

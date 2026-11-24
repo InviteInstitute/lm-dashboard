@@ -19,10 +19,6 @@ def test_student_states_stamps_viewer_heartbeat(client):
     assert db.get_workspace_setting(ws, "viewer_last_seen") is not None
 
 
-# The origin-wide HTTP Basic gate was replaced by per-researcher session auth;
-# that gate is covered by tests/test_auth.py.
-
-
 # --- student_states: light list vs heavy detail (issue #9) -----------------
 def test_student_states_list_is_light(client, seed_state):
     seed_state("s1")

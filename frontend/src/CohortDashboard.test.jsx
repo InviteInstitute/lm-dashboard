@@ -1056,6 +1056,36 @@ describe("CohortDashboard", () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith("/api/switches/ack/", { id: 5 }));
   });
 
+  it("toasts only switches that arrive after the board opens, not the backlog", async () => {
+    const sw = (id, from, to) => ({
+      id,
+      studentID: "cobra3",
+      kind: "class",
+      from,
+      to,
+      ts: new Date().toISOString(),
+      acknowledged: false,
+    });
+    let list = [sw(5, "OLD1", "OLD2")];
+    api.get.mockImplementation((url) =>
+      Promise.resolve({
+        data: url === "/api/switches/" ? { switches: list } : (ROUTES[url] ?? {}),
+      }),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<CohortDashboard />);
+      expect(await screen.findByText("OLD1 -> OLD2")).toBeInTheDocument(); // in the feed
+      expect(screen.queryByText("new class: OLD1 -> OLD2")).not.toBeInTheDocument(); // no toast
+      list = [sw(6, "NEW1", "NEW2"), ...list];
+      await act(async () => vi.advanceTimersByTime(2000)); // the next poll brings a new one
+      expect(await screen.findByText("new class: NEW1 -> NEW2")).toBeInTheDocument();
+      expect(screen.queryByText("new class: OLD1 -> OLD2")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the previous trigger (what and when) on an alert card", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/api/triggers/") {

@@ -29,7 +29,7 @@ const switchText = (s) =>
 
 const CohortDashboard = () => {
   const board = useBoardData();
-  const { states, roster, setRoster, triggers, setTriggers, switches, setSwitches } = board;
+  const { states, roster, setRoster, triggers, setTriggers, switches } = board;
   const [selected, setSelected] = React.useState(null); // the student whose sheet is open
   const [theme, toggleTheme] = useTheme();
   const toast = useToasts();
@@ -44,21 +44,26 @@ const CohortDashboard = () => {
   // The most recent casing of a handle (the feeds carry the canonical ID).
   const displayFor = (sid) => (states[sid] && states[sid].display) || sid;
 
-  // Toast each new identity switch. The first load only marks the backlog as
-  // seen, so opening the board doesn't flood it.
+  // Toast each new identity switch. The first answer after the board loads (or
+  // reloads, after a reset or a source change) is the backlog: it is marked as
+  // seen without a toast, so opening the board doesn't flood it.
   const seenSwitch = React.useRef(new Set());
-  const firstSwitchLoad = React.useRef(true);
+  const backlogSeen = React.useRef(false);
   React.useEffect(() => {
+    if (!board.switchesLoaded) {
+      backlogSeen.current = false;
+      return;
+    }
     const fresh = switches.filter((s) => !s.acknowledged && !seenSwitch.current.has(s.id));
     fresh.forEach((s) => seenSwitch.current.add(s.id));
-    if (firstSwitchLoad.current) {
-      firstSwitchLoad.current = false;
+    if (!backlogSeen.current) {
+      backlogSeen.current = true;
       return;
     }
     fresh.forEach((s) =>
       toast.push({ id: s.id, kind: "warning", title: displayFor(s.studentID), sub: switchText(s) }),
     );
-  }, [switches]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [switches, board.switchesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Polling and the trigger types are set only here (the daemon just reads
   // them), so they are fetched once, not polled: a poll in flight during a
@@ -177,7 +182,7 @@ const CohortDashboard = () => {
   };
 
   const dismissSwitch = async (id) => {
-    setSwitches((ss) => ss.filter((s) => s.id !== id));
+    board.dropSwitch(id);
     toast.dismiss(id);
     try {
       await safeWrite(`dismiss switch #${id}`, { id }, () =>

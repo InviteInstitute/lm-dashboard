@@ -20,13 +20,15 @@ const byId = (data) => Object.fromEntries((data.students || []).map((s) => [s.st
 const readRoster = (data) => data.tracked || [];
 const readTriggers = (data) => data.triggers || [];
 const readSwitches = (data) => data.switches || [];
+const NONE = [];
 
 export function useBoardData() {
   const visible = usePageVisible();
   const [states, setStates] = React.useState({}); // studentID -> light state payload
   const [roster, setRoster] = React.useState([]);
   const [triggers, setTriggers] = React.useState([]);
-  const [switches, setSwitches] = React.useState([]);
+  // null until the first answer, so a caller can tell the backlog from new ones
+  const [switches, setSwitches] = React.useState(null);
 
   const fetchStates = useFetch("/api/student_states/", byId, setStates);
   const fetchRoster = useFetch("/api/tracked/", readRoster, setRoster);
@@ -56,7 +58,7 @@ export function useBoardData() {
   const reload = React.useCallback(() => {
     setStates({});
     setTriggers([]);
-    setSwitches([]);
+    setSwitches(null);
     refetch();
   }, [refetch]);
 
@@ -68,8 +70,12 @@ export function useBoardData() {
     setRoster,
     triggers,
     setTriggers,
-    switches,
-    setSwitches,
+    switches: switches || NONE,
+    switchesLoaded: switches !== null,
+    dropSwitch: React.useCallback(
+      (id) => setSwitches((ss) => ss && ss.filter((s) => s.id !== id)),
+      [],
+    ),
     fetchStates,
     fetchRoster,
     fetchTriggers,

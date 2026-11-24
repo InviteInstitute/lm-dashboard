@@ -6,16 +6,16 @@
 // custom property, as Carbon's own zones do (styles/scss/_zone.scss), so a page switches theme
 // by flipping one selector.
 
-@use 'sass:map';
-@use 'sass:meta';
-@use '@carbon/styles/scss/themes';
-@use '@carbon/styles/scss/theme';
-@use '@carbon/styles/scss/layer/layer-tokens';
-@use '@carbon/styles/scss/utilities/custom-property';
-@use '@carbon/styles/scss/components/button/tokens' as button;
-@use '@carbon/styles/scss/components/notification/tokens' as notification;
-@use '@carbon/styles/scss/components/tag/tokens' as tag;
-@use '@carbon/styles/scss/components/content-switcher/tokens' as content-switcher;
+@use "sass:map";
+@use "sass:meta";
+@use "@carbon/styles/scss/themes";
+@use "@carbon/styles/scss/theme";
+@use "@carbon/styles/scss/layer/layer-tokens";
+@use "@carbon/styles/scss/utilities/custom-property";
+@use "@carbon/styles/scss/components/button/tokens" as button;
+@use "@carbon/styles/scss/components/notification/tokens" as notification;
+@use "@carbon/styles/scss/components/tag/tokens" as tag;
+@use "@carbon/styles/scss/components/content-switcher/tokens" as content-switcher;
 
 $light: (
   background: #f4f6f8,
@@ -142,7 +142,7 @@ $-components: (
   $theme: map.merge($base, $overrides);
 
   @each $key, $value in $theme {
-    @if $key == 'color-scheme' {
+    @if $key == "color-scheme" {
       @include custom-property.declaration($key, $value);
 
       color-scheme: custom-property.get-var($key, $value);
@@ -188,12 +188,12 @@ $-components: (
   }
 
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) {
+    :root:not([data-theme="light"]) {
       @include dark;
     }
   }
 
-  :root[data-theme='dark'] {
+  :root[data-theme="dark"] {
     @include dark;
   }
 }

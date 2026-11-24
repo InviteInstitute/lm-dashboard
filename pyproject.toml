@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.2"]
+dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.2", "httpx2==2.16.2"]  # httpx2: Starlette's test client
 docs = ["mkdocs-material==9.7.7"]
 
 # Scope pytest to this repo's own suite. The agent-lm-packages submodule ships

@@ -51,10 +51,6 @@ def test_student_states_sort_by_recency(client, seed_state):
     assert rows[0]["studentID"] == "newer"  # most recent activity first
 
 
-# The grid now fetches this workspace's whole roster (no per-request `students`
-# list), so the MAX_STUDENT_IDS cap no longer applies to student_states.
-
-
 # --- tracked roster --------------------------------------------------------
 def test_track_and_untrack_roundtrip(client):
     assert client.post("/api/tracked/", json={"studentID": "s1"}).json() == {"added": "s1"}

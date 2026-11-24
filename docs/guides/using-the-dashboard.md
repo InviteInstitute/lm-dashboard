@@ -105,9 +105,10 @@ tied to the alert.
     someone who never came back keeps resurfacing in the feed.
 
 You can also turn whole trigger types on or off from **Triggers** (the sliders icon) in
-the header, which opens a panel with a switch for each type. Switching one off tells
-the daemon to stop firing it and to clear its open alerts. Unlike everything else in
-this guide, this switch is shared by every board, not kept per board.
+the header, which opens a panel with a switch for each type. Switching one off hides
+that type from **your board's** feed and cards. Other boards keep their own switches.
+The daemon keeps watching for every type, so switching one back on brings back its
+alerts that are still current.
 
 ## Identity Switches
 

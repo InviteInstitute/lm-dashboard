@@ -43,8 +43,8 @@ with the research login.
 | `GET`  | `/api/triggers/` | active + recently-resolved intervention feed |
 | `POST` | `/api/triggers/ack/` | dismiss a trigger |
 | `GET`  | `/api/triggers/history/` | one student's full trigger history (the student sheet) |
-| `GET`  | `/api/triggers/config/` | which trigger types are enabled (shared by every board) |
-| `POST` | `/api/triggers/config/` | enable or disable a trigger type for every board |
+| `GET`  | `/api/triggers/config/` | which trigger types this board shows |
+| `POST` | `/api/triggers/config/` | show or hide a trigger type on this board |
 | `GET`  | `/api/switches/` | identity switches (casing flips, new class codes) for tracked students |
 | `POST` | `/api/switches/ack/` | dismiss an identity switch |
 | `POST` | `/api/presence/` | toggle whether a student is present in the room |
@@ -441,7 +441,7 @@ dismissed alike. This is what the detail modal's trigger-history grid renders.
 
 ## GET /api/triggers/config/
 
-Which trigger types are currently enabled (all on by default), with their labels.
+Which trigger types **this board** shows (all on by default), with their labels.
 
 ```json title="Response"
 {
@@ -457,8 +457,11 @@ Which trigger types are currently enabled (all on by default), with their labels
 
 ## POST /api/triggers/config/
 
-Enable or disable a trigger type. Disabling it makes the daemon stop firing that type
-and resolve its open alerts on the next tick.
+Show or hide one trigger type on **this board** (stored in `workspace_setting`). The
+daemon keeps firing every type, since alerts are shared by all boards, so this only
+filters this board's [feed](#get-apitriggers). Switching a type back on brings back its
+alerts that are still current. A board that has never set its own switches uses the
+shared setting from before they were per board.
 
 ```json title="Request"
 { "trigger_type": "inactive", "enabled": false }

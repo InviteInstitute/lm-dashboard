@@ -832,6 +832,11 @@ describe("CohortDashboard", () => {
         expect.objectContaining({ enabled: false }),
       ),
     );
+    // the API filters this board's feed by its switches, so the feed is fetched again
+    const feedFetches = () => api.get.mock.calls.filter(([url]) => url === "/api/triggers/").length;
+    const before = feedFetches();
+    fireEvent.click(offButtons[0]); // and back on
+    await waitFor(() => expect(feedFetches()).toBeGreaterThan(before));
   });
 
   it("downloads a zip snapshot", async () => {

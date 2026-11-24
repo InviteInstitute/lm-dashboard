@@ -471,18 +471,19 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
 def triggers(wsid: int = Depends(current_workspace_id)):
     """The intervention feed for this workspace: still-open triggers on its roster
     plus any resolved within the last TRIGGER_RECENT_SECONDS, newest first, that
-    this workspace hasn't dismissed."""
+    this workspace hasn't dismissed, of the types it hasn't switched off."""
     now = db.now()
     cutoff = now - timedelta(seconds=TRIGGER_RECENT_SECONDS)
     since = db.reset_since(wsid)
     source = board_source(wsid)
+    hidden = _disabled_triggers(wsid)
     feed = [
         t
         for t in db.triggers_feed(cutoff, workspace_id=wsid, since=since)
-        if _in_source(t["studentID"], source)
+        if _in_source(t["studentID"], source) and t["trigger_type"] not in hidden
     ]
     # Each alert also carries the student's PREVIOUS trigger (what and when), so
-    # the card can say "last: Wheel-spinning | 10:24". One history fetch per
+    # the card can say "Before this: Wheel-spinning at 10:24 AM". One history fetch per
     # distinct student in the feed; the feed is small, so this stays cheap.
     history = {
         sid: db.trigger_history(sid, workspace_id=wsid, since=since)
@@ -761,8 +762,12 @@ def set_picked(body: PickedBody, wsid: int = Depends(current_workspace_id)):
 TRIGGER_TYPES = tuple(TRIGGER_LABELS)
 
 
-def _disabled_triggers() -> set[str]:
-    raw = db.get_meta("disabled_triggers") or ""
+def _disabled_triggers(wsid) -> set[str]:
+    """The trigger types this board has switched off. A board that never set its
+    own keeps the shared setting from before the switches were per board."""
+    raw = db.get_workspace_setting(wsid, "disabled_triggers")
+    if raw is None:
+        raw = db.get_meta("disabled_triggers") or ""
     return {t for t in raw.split(",") if t}
 
 
@@ -772,10 +777,10 @@ class TriggerConfigBody(BaseModel):
 
 
 @app.get("/api/triggers/config/")
-def triggers_config():
-    """Report which trigger types are enabled (all on by default) along with
-    their display labels."""
-    disabled = _disabled_triggers()
+def triggers_config(wsid: int = Depends(current_workspace_id)):
+    """Which trigger types this board shows (all on by default), with their
+    display labels."""
+    disabled = _disabled_triggers(wsid)
     return {
         "enabled": {t: (t not in disabled) for t in TRIGGER_TYPES},
         "labels": TRIGGER_LABELS,
@@ -783,18 +788,18 @@ def triggers_config():
 
 
 @app.post("/api/triggers/config/")
-def set_triggers_config(body: TriggerConfigBody):
-    """Turn a trigger type on or off. Disabling it makes the daemon stop firing
-    that type and resolve its open alerts on the next tick. The setting lives in
-    meta and the raw event log is left alone, so re-enabling takes effect at once."""
+def set_triggers_config(body: TriggerConfigBody, wsid: int = Depends(current_workspace_id)):
+    """Show or hide one trigger type on this board. The daemon keeps firing every
+    type, since alerts are shared by all boards, so this only filters this board's
+    feed: switching a type back on brings back its alerts that are still current."""
     if body.trigger_type not in TRIGGER_TYPES:
         raise HTTPException(status_code=400, detail="unknown trigger_type")
-    disabled = _disabled_triggers()
+    disabled = _disabled_triggers(wsid)
     if body.enabled:
         disabled.discard(body.trigger_type)
     else:
         disabled.add(body.trigger_type)
-    db.set_meta("disabled_triggers", ",".join(sorted(disabled)))
+    db.set_workspace_setting(wsid, "disabled_triggers", ",".join(sorted(disabled)))
     return {"enabled": {t: (t not in disabled) for t in TRIGGER_TYPES}}
 
 

@@ -50,12 +50,6 @@ def test_iterative_fires_at_threshold():
     assert [r["i"] for r in _fired("iterative")] == [6]
 
 
-def test_disabled_trigger_does_not_fire():
-    w = _worker_with_distances("s1", [None, 0, 0, 0, 0, 0, 0])
-    w.recompute_and_write(disabled={"wheel_spin"})
-    assert db._query("SELECT 1 FROM trigger_event WHERE trigger_type='wheel_spin'") == []
-
-
 def test_fired_dedupe_seeded_from_db_on_rehydrate():
     # First worker fires explorer at index 1; a fresh worker (restart) seeds its
     # dedupe set from the DB and must not re-fire it.

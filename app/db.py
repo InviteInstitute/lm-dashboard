@@ -372,8 +372,8 @@ _SCHEMA = [
         key TEXT PRIMARY KEY,
         value TEXT
     )""",
-    # Per-workspace control flags (the old global `meta` singletons -- polling_enabled,
-    # viewer_last_seen, disabled_triggers -- scoped per board).
+    # Per-workspace control flags (polling_enabled, viewer_last_seen, source,
+    # disabled_triggers), one row per board and key.
     """CREATE TABLE IF NOT EXISTS workspace_setting (
         workspace_id BIGINT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
         key TEXT NOT NULL,
@@ -613,7 +613,8 @@ def get_workspace_setting(workspace_id, key):
 
 # --------------------------------------------------------------------------
 # meta: a tiny key/value store the two processes use to signal each other
-# (the reset trigger, the polling pause flag, the disabled-trigger list)
+# (the daemon's session start, and the shared trigger switches from before they
+# were per board, still read as the default for a board that never set its own)
 # --------------------------------------------------------------------------
 # The daemon's current session (see workers.start_session).
 SESSION_META_KEY = "session_start"
@@ -644,9 +645,8 @@ def data_fingerprint():
     return {c: str(revs.get(c, 0)) for c in ("states", "triggers", "switches", "roster")}
 
 
-# In-process cache for the control flags. polling_enabled, reset_requested_at,
-# and disabled_triggers only change when a human clicks something, yet the
-# daemon would otherwise re-read them every tick. The 200ms TTL keeps a UI
+# In-process cache for the meta flags. They rarely change, yet a hot path would
+# otherwise re-read them on every request or tick. The 200ms TTL keeps a UI
 # action visible almost immediately while collapsing those repeated reads; a
 # local set_meta drops the entry so a write is never masked by a stale cache.
 _meta_ttl_s = 0.2

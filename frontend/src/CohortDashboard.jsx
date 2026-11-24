@@ -115,6 +115,10 @@ const CohortDashboard = () => {
         api.post("/api/triggers/config/", body),
       );
       setTriggerCfg(r.data.enabled);
+      // The API filters this board's feed by these switches, and a switch change
+      // doesn't wake the live stream, so fetch the feed now: a type switched back
+      // on brings its current alerts back.
+      board.fetchTriggers();
     } catch {
       fetchTriggerCfg();
     }

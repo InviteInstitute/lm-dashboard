@@ -168,6 +168,34 @@ def test_trigger_config_toggle_and_unknown_type(client):
     assert client.get("/api/triggers/config/").json()["enabled"]["inactive"] is True
 
 
+def test_trigger_switches_are_per_board(client):
+    a, b = {"X-Board-Id": "board-a"}, {"X-Board-Id": "board-b"}
+    for h in (a, b):
+        client.post("/api/tracked/", json={"studentID": "s1"}, headers=h)
+    db.create_trigger("s1", "inactive", db.now(), db.now(), None, {"label": "Inactive"})
+
+    off = {"trigger_type": "inactive", "enabled": False}
+    client.post("/api/triggers/config/", json=off, headers=a)
+    assert client.get("/api/triggers/config/", headers=a).json()["enabled"]["inactive"] is False
+    assert client.get("/api/triggers/config/", headers=b).json()["enabled"]["inactive"] is True
+    assert client.get("/api/triggers/", headers=a).json()["triggers"] == []
+    feed_b = client.get("/api/triggers/", headers=b).json()["triggers"]
+    assert [t["trigger_type"] for t in feed_b] == ["inactive"]
+
+    # Back on: the daemon never stopped firing it, so the current alert returns.
+    client.post("/api/triggers/config/", json={**off, "enabled": True}, headers=a)
+    assert len(client.get("/api/triggers/", headers=a).json()["triggers"]) == 1
+
+
+def test_a_board_without_its_own_switches_keeps_the_old_shared_setting(client):
+    db.set_meta("disabled_triggers", "explorer")  # set before the switches were per board
+    h = {"X-Board-Id": "old-board"}
+    assert client.get("/api/triggers/config/", headers=h).json()["enabled"]["explorer"] is False
+    on = {"trigger_type": "explorer", "enabled": True}
+    client.post("/api/triggers/config/", json=on, headers=h)
+    assert client.get("/api/triggers/config/", headers=h).json()["enabled"]["explorer"] is True
+
+
 # --- triggers feed + ack ---------------------------------------------------
 def test_triggers_feed_and_ack(client):
     db.tracked_add("s1")  # the feed is scoped to the workspace roster

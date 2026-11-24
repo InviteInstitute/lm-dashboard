@@ -37,8 +37,8 @@ flowchart LR
 | Boards | `workspace` | one board per browser, found by the board ID the browser sends |
 | Roster (per board) | `tracked_student` | a board's allowlist + its presence/picked toggles, keyed `(workspace_id, studentID)` |
 | Researcher input (per board) | `note`, `pick_event`, `trigger_ack`, `outbox` | observations, pick/unpick history, per-board alert dismissals, and failed inputs parked verbatim |
-| Control (per board) | `workspace_setting` | each board's flags (its source, polling on/off, the viewer heartbeat) |
-| Control (shared) | `meta` | the trigger types switched off, for every board |
+| Control (per board) | `workspace_setting` | each board's flags (its source, polling on/off, the trigger types it hides, the viewer heartbeat) |
+| Control (shared) | `meta` | the daemon's session start, and the trigger switches from before they were per board (the default for a board that never set its own) |
 | Change counters | `channel_rev` | the per-channel "what changed?" counters for the live stream - shared |
 
 !!! tip

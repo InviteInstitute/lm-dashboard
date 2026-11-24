@@ -142,7 +142,7 @@ def test_inference_error_is_logged_not_fatal(patched_daemon, monkeypatch):
     class BadWorker:
         student_id = "s1"
 
-        def recompute_and_write(self, disabled=None):
+        def recompute_and_write(self):
             raise RuntimeError("inference blew up")
 
     monkeypatch.setattr(daemon.workers, "dirty_workers", lambda: [BadWorker()])

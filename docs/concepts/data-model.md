@@ -34,16 +34,18 @@ flowchart LR
 | Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` - **shared** |
 | Cursor | `ingest_cursor` | how far we've consumed - shared |
 | Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable - **shared** (one per student) |
-| Tenancy | `workspace`, `workspace_member`, `researcher` | boards, who can access them, and login accounts (argon2 hashes) |
+| Boards | `workspace` | one board per browser, found by the board ID the browser sends |
 | Roster (per board) | `tracked_student` | a board's allowlist + its presence/picked toggles, keyed `(workspace_id, studentID)` |
 | Researcher input (per board) | `note`, `pick_event`, `trigger_ack`, `outbox` | observations, pick/unpick history, per-board alert dismissals, and failed inputs parked verbatim |
-| Control (per board) | `workspace_setting` | each board's flags (polling on/off, the viewer heartbeat) |
+| Control (per board) | `workspace_setting` | each board's flags (its source, polling on/off, the viewer heartbeat) |
+| Control (shared) | `meta` | the trigger types switched off, for every board |
 | Change counters | `channel_rev` | the per-channel "what changed?" counters for the live stream - shared |
 
 !!! tip
-    The read-model tables are just a cache of the event log. Delete them, or hit
-    [Reset](../guides/using-the-dashboard.md#reset), and they rebuild from `vex_log`
-    to exactly the same state.
+    The read-model tables are just a cache of the event log. Delete them and they
+    rebuild from `vex_log` to exactly the same state. A board's
+    [Reset](../guides/using-the-dashboard.md#reset) leaves them alone: it only hides
+    what came before it on that board.
 
 ### Tables That Are Not A Cache Of The Log
 

@@ -14,14 +14,15 @@ The backend tests exercise the parts where the real logic lives: the Postgres da
 layer (the datetime contract and the zip export), the ingestion poller, the
 per-student workers, the APTED edit-distance computation, the five trigger rules and
 their history, identity-switch detection, the episode segmenter, the block humanizer,
-the live-stream change signal, the failed-write outbox, the auth gate, the
-workspace/per-browser isolation and the daemon's fan-out, and every API endpoint
-through a test client.
+the live-stream change signal, the failed-write outbox, the Turnstile gate, ZANY
+sources, goal evidence, the per-browser board isolation and the daemon's fan-out, and
+every API endpoint through a test client.
 
-The frontend tests cover the dashboard's formatting helpers and render the real
-component against a mocked API to check that students, alerts, the trigger-history
-grid, the toggle buttons, and the resilient-write path (retry, outbox park, red
-toast) behave.
+The frontend tests cover the time and status helpers (`src/lib/*.test.js`) and render
+the whole dashboard against a mocked API (`src/CohortDashboard.test.jsx`) to check that
+students, alerts, identity switches and their toasts, the student sheet and its goal
+evidence, the toggles, ZANY sources, and the resilient-write path (retry, outbox park,
+red toast) behave.
 
 You don't need to read every case to trust them. If they're green, the contract
 the daemon and dashboard depend on is intact.
@@ -33,18 +34,20 @@ the daemon and dashboard depend on is intact.
 
 ## Backend (pytest)
 
-The test tools (`pytest`, `pytest-cov`, `ruff`) are the dev extras in `pyproject.toml`, so
+The test tools (`pytest`, `pytest-cov`, `ruff`, and `httpx2` for the API test client) are the dev extras in `pyproject.toml`, so
 `pip install -e '.[dev]'` (or `make install`) pulls them in. The suite needs a **Postgres
 it can reach** - it connects using `DATABASE_URL` with the database name swapped to
 **`lm_dashboard_test`** (override with `TEST_DATABASE_URL`), and it truncates that database
 between tests, so your real data is never touched.
 
-Point `DATABASE_URL` at a local Postgres (the prod compose DB is internal, so for
-running tests use a Postgres exposed on a host port - e.g. a small `postgres` container
-on `localhost:5432`), create the test database once, then run from the repo root:
+Point `DATABASE_URL` at a Postgres you can reach (the compose `db` service isn't
+published on a host port), create the test database once, then run from the repo root.
+A throwaway container is the quickest way:
 
 ```bash
-createdb -O lmdash lm_dashboard_test    # once
+docker run -d --rm --name lmdash-test -e POSTGRES_USER=lmdash -e POSTGRES_PASSWORD=lmdash \
+  -e POSTGRES_DB=lm_dashboard_test -p 127.0.0.1:55432:5432 postgres:18
+export DATABASE_URL=postgresql://lmdash:lmdash@127.0.0.1:55432/lm_dashboard_test
 pytest
 ```
 

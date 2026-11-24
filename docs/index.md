@@ -34,10 +34,12 @@ second. Only the daemon writes. The dashboard recomputes nothing, it just reads
 what's already there. And nothing ever flows back to production. It's a read-only
 mirror, full stop.
 
-Each researcher works on their own isolated **board** behind a login: they sign in
-with the browser's native prompt, and every browser gets its own roster, notes, and
-picks. The daemon serves all the boards at once from a single shared mirror, so a
-student watched by two researchers is still pulled from production only once.
+Every browser gets its own isolated **board**: its own roster, notes, picks and
+settings. There is no login. A Cloudflare Turnstile check keeps bots off the API.
+The daemon serves all the boards at once from a single shared mirror, so a student
+watched by two researchers is still pulled from production only once. A board can
+also listen to a ZANY study's logs instead of Reflecks, once the research login
+unlocks them.
 
 ## What You Get
 
@@ -75,7 +77,7 @@ production is never touched.
 
     ---
 
-    Student cards, the who-needs-help column, drill-down, and reset.
+    Student cards, the who-needs-help column, the student sheet, and reset.
 
 -   :material-code-tags:{ .lg .middle } **[API Reference](reference/api.md)**
 

@@ -276,7 +276,7 @@ const CohortDashboard = () => {
 
   // Alerts for tracked, present students with the trigger type on. A student
   // who left the room would otherwise send someone to an empty seat. The feed
-  // also keeps a resolved alert for about two minutes (the API's
+  // also keeps a resolved alert for seven minutes (the API's
   // TRIGGER_RECENT_SECONDS), so it doesn't vanish the moment a student recovers.
   const tracked = new Set(roster.map((r) => r.studentID));
   const absent = new Set(roster.filter((r) => r.present === false).map((r) => r.studentID));

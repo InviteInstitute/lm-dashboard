@@ -28,8 +28,9 @@ understanding. Researcher judgment remains central to interpreting those signals
 
 ## Operating Context
 
-- Researchers sign in and maintain a browser-specific board. Boards have separate
-  rosters, notes, picks, dismissals, and controls, backed by a shared student mirror.
+- Each researcher's browser keeps its own board, with no login (a Cloudflare
+  Turnstile check keeps bots off the API). Boards have separate rosters, notes,
+  picks, dismissals, and controls, backed by a shared student mirror.
 - Track students by ID, observe their activity, mark presence and interview picks,
   inspect student details, and attach notes to students or alerts.
 - The live board updates through a server-sent event stream with polling fallback.

@@ -360,7 +360,7 @@ describe("CohortDashboard", () => {
     });
   });
 
-  it("keeps recently-resolved alerts in the feed (they linger ~2 min)", async () => {
+  it("keeps recently-resolved alerts in the feed (the API keeps them 7 min)", async () => {
     api.get.mockImplementation((url) => {
       if (url === "/api/triggers/") {
         return Promise.resolve({

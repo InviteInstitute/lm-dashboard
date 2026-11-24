@@ -1,0 +1,254 @@
+/* Student detail: a sheet over the right edge of the board, so the cohort stays
+   in view behind it. The dialog is the frame; .student-detail is the one scroll
+   container (the header sticks inside it). */
+.student-dialog {
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--lmd-border);
+  width: min(1080px, calc(100vw - 48px));
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  background: var(--lmd-panel);
+  color: var(--lmd-ink);
+  box-shadow: -16px 0 40px -8px rgb(3 5 9 / 28%);
+  overflow: hidden;
+}
+.student-dialog[open] {
+  animation: sheetIn 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.student-dialog::backdrop {
+  background: rgb(3 5 9 / 45%);
+}
+.student-dialog[open]::backdrop {
+  animation: scrimIn 240ms ease-out;
+}
+@keyframes sheetIn {
+  from {
+    transform: translateX(48px);
+    opacity: 0;
+  }
+}
+@keyframes scrimIn {
+  from {
+    opacity: 0;
+  }
+}
+.student-detail {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sd-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px 28px;
+  flex-wrap: wrap;
+  padding: 16px 20px 16px 32px;
+  background: var(--lmd-panel);
+  border-bottom: 1px solid var(--lmd-border);
+}
+#sd-title:focus {
+  outline: none;
+}
+.sd-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-right: auto;
+}
+.sd-who h2 {
+  margin: 0;
+  font-family: var(--lmd-mono);
+  font-size: 20px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.sd-facts {
+  display: flex;
+  gap: 24px;
+  margin: 0;
+}
+.sd-facts div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+.sd-facts dt {
+  font-size: 12px;
+  color: var(--lmd-sub);
+}
+.sd-facts dd {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.sd-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: calc(100% - 73px);
+}
+.sd-main {
+  padding: 8px 32px 48px;
+  min-width: 0;
+}
+.sd-rail {
+  padding: 8px 24px 48px;
+  background: var(--lmd-bg);
+  border-left: 1px solid var(--lmd-border);
+  min-width: 0;
+}
+.sd-section {
+  padding: 24px 0 8px;
+}
+.sd-section + .sd-section {
+  border-top: 1px solid var(--lmd-border);
+  margin-top: 16px;
+}
+.sd-section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 32px;
+  margin-bottom: 12px;
+}
+.sd-section-head h3 {
+  margin: 0 auto 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.sd-count {
+  color: var(--lmd-sub);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sd-empty {
+  margin: 0;
+  color: var(--lmd-sub);
+  font-size: 14px;
+}
+.sd-empty-lead {
+  padding: 32px 0;
+  font-size: 15px;
+}
+.sd-strips {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 16px 12px;
+  align-items: start;
+}
+.sd-strip-label {
+  font-size: 13px;
+  color: var(--lmd-sub);
+  line-height: 28px;
+}
+/* Program view switch: Carbon's content switcher, at its own width. */
+.sd-switch.cds--content-switcher {
+  inline-size: 16rem;
+}
+.sd-code.cds--snippet--multi {
+  max-inline-size: none;
+}
+.sd-code-note {
+  margin: -4px 0 8px;
+  font-size: 13px;
+  color: var(--lmd-sub);
+}
+/* Rail: notes and trigger history */
+.sd-composer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+.sd-composer .cds--form-item {
+  align-self: stretch;
+}
+.sd-notes.cds--contained-list {
+  margin-top: 1rem;
+}
+.sd-note-meta {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.sd-notes p {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sd-history.cds--contained-list .cds--contained-list-item__content > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  font-size: 13px;
+}
+.sd-history-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.sd-history.cds--contained-list .cds--contained-list__label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--lmd-ink);
+}
+.sd-history time,
+.sd-history-status {
+  justify-self: end;
+  color: var(--lmd-sub);
+  font-variant-numeric: tabular-nums;
+}
+.sd-history-value {
+  color: var(--lmd-ink);
+  font-family: var(--lmd-mono);
+  font-size: 12px;
+}
+.sd-id {
+  font-family: var(--lmd-mono);
+}
+
+@media (max-width: 1000px) {
+  .sd-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sd-rail {
+    border-left: 0;
+    border-top: 1px solid var(--lmd-border);
+  }
+}
+@media (max-width: 760px) {
+  .student-dialog {
+    width: 100vw;
+    border-left: 0;
+  }
+  .sd-head {
+    padding: 12px 8px 12px 16px;
+    gap: 8px 20px;
+  }
+  .sd-facts {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .sd-main,
+  .sd-rail {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

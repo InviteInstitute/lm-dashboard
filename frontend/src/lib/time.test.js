@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { relTime, fmtDur, statusMeta, parseTs, noteTime } from "./CohortDashboard.jsx";
+import { relTime, fmtDur, parseTs, noteTime } from "./time";
 
 describe("relTime", () => {
   it("shows a dash for missing input", () => {
@@ -28,19 +28,6 @@ describe("fmtDur", () => {
     expect(fmtDur(120)).toBe("2m");
     expect(fmtDur(5400)).toBe("1h 30m");
     expect(fmtDur(7200)).toBe("2h");
-  });
-});
-
-describe("statusMeta", () => {
-  it("uses the active trigger as the headline", () => {
-    expect(statusMeta("wheel_spin", true).label).toBe("Wheel-spinning");
-    expect(statusMeta("explorer", true).label).toBe("Explorer");
-  });
-  it("is OK when there is data but no active trigger", () => {
-    expect(statusMeta(null, true).label).toBe("OK");
-  });
-  it("is No data when the student has no materialized state", () => {
-    expect(statusMeta(null, false).label).toBe("No data");
   });
 });
 

@@ -5,7 +5,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles/carbon.scss";
-import "./index.css";
+import "./styles/base.css";
+import "./styles/header.css";
+import "./styles/board.css";
+import "./styles/feed.css";
+import "./styles/sheet.css";
+import "./styles/goals.css";
 import CohortDashboard from "./CohortDashboard";
 import TurnstileGate from "./TurnstileGate";
 

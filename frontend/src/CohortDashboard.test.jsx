@@ -5,7 +5,8 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 // real server. Each GET resolves by URL; POSTs are spies we assert on.
 vi.mock("./api", () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 import api from "./api";
-import CohortDashboard, { COMPACT_TAIL } from "./CohortDashboard.jsx";
+import CohortDashboard from "./CohortDashboard.jsx";
+import { COMPACT_TAIL } from "./constants";
 
 const ROUTES = {
   "/api/student_states/": {

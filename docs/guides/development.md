@@ -134,8 +134,10 @@ which also holds the ZANY and ATLAS docs. That site's theme, home page and build
 InviteInstitute/docs, and the INVITE server rebuilds it within two minutes of a change here.
 `.github/workflows/docs.yml` keeps the pages up to date on every push to `main`.
 
-1.  `scripts/docs_sync.py` sends glm-5.3 on NCSA's Lumen the diff of the push, the code and the
-    current docs. Its instructions are the writing rules and skills from
+1.  `scripts/docs_sync.py` sends the diff of the push, the code and the current docs to NCSA's
+    Lumen. It asks glm-5.3 first, then glm, then deepseek-v4.1, one try each, because Lumen's
+    gateway gives up on a request after about six minutes, which a busy model can hit on a long
+    prompt. Its instructions are the writing rules and skills from
     [Maharsh17/claude-config](https://github.com/Maharsh17/claude-config), read fresh on each run,
     so a change to those rules reaches the docs on the next push. A push that only changes the
     docs skips the call.

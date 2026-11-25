@@ -1,6 +1,8 @@
 """Failed-write outbox: parked researcher inputs must survive everything."""
 
+import io
 import json
+import zipfile
 
 from app import db
 
@@ -37,3 +39,9 @@ def test_newest_first_ordering():
     db.record_outbox("first", None, None)
     db.record_outbox("second", None, None)
     assert [r["op"] for r in db.list_outbox()] == ["second", "first"]
+
+
+def test_export_includes_the_outbox():
+    db.record_outbox("note on cobra3", json.dumps({"text": "keep me"}), "timeout")
+    z = zipfile.ZipFile(io.BytesIO(db.export_zip_bytes()))
+    assert "keep me" in z.read("outbox.csv").decode()  # a parked input reaches the export

@@ -39,7 +39,7 @@ else
     echo "scripts/deploy.sh changed in this pull -- re-running the new version ..."
     exec "$SELF" "$@"
   fi
-  # The docs workflow merges a docs-only commit after most merges. Rolling the stack for it
+  # The docs workflow pushes a docs-only commit after most merges. Rolling the stack for it
   # would restart the daemon, which starts a new session and empties every card in the
   # middle of a class, and the image doesn't hold the docs anyway.
   if git diff --quiet "$BEFORE" "$AFTER" -- . ':(exclude)docs' ':(exclude)README.md' \

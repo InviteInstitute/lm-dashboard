@@ -119,6 +119,10 @@ submodule, builds the image, recreates the `api` and `daemon` containers and wai
 answer 200. The database keeps running the whole time. The frontend is built inside the image, so
 there is no separate build step.
 
+A pull that only changes `docs/`, `README.md`, `mkdocs.yml` or `.github/` leaves the stack running.
+Rolling it would restart the daemon, which starts a new session and empties every card, and the
+image doesn't hold the docs anyway.
+
 So shipping a change means merging a pull request into `main`. Don't run `docker compose up` on the
 server by hand.
 
@@ -127,26 +131,27 @@ server by hand.
 The docs are this MkDocs site, built from `docs/` and `mkdocs.yml`.
 `.github/workflows/docs.yml` keeps them up to date and publishes them on every push to `main`.
 
-1.  `scripts/docs_sync.py` sends an LLM on NCSA's Lumen the diff of the push, the current docs and
-    the code they describe. Its instructions are the writing rules and skills from
+1.  `scripts/docs_sync.py` sends glm-5.3 on NCSA's Lumen the diff of the push, the code and the
+    current docs. Its instructions are the writing rules and skills from
     [Maharsh17/claude-config](https://github.com/Maharsh17/claude-config), read fresh on each run,
-    so a change to those rules reaches the docs on the next push.
+    so a change to those rules reaches the docs on the next push. A push that only changes the
+    docs skips the call.
 2.  The model returns only the pages that the change made wrong or incomplete. The script writes
     them, and `mkdocs build --strict` checks that every link and page still holds.
-3.  If any page changed, the job commits the pages to the branch `docs-sync` and merges it into
-    `main` through GitHub's merge API. The InviteInstitute org doesn't let Actions open pull
-    requests, so the bot's commit on `main` is the record of what it wrote.
-4.  The job publishes the site from the new `main` to GitHub Pages.
+3.  If any page changed, the job commits it to `main`. That commit, by `github-actions[bot]`, is the
+    record of what the bot wrote.
+4.  The job publishes the site to GitHub Pages.
 
-The job needs the repository secret `LUMEN_API_KEY`. You can also run it from the Actions tab
-(**Run workflow**), which checks every page against the whole codebase instead of one diff.
+The job needs the repository secret `LUMEN_API_KEY`. A push the bot makes starts no workflow, so
+it never runs on its own commit, and the server's deploy skips a docs-only commit (see
+[Deploying](#deploying)).
 
-To try it on your machine, set `LUMEN_API_KEY` and run the script with the commits to compare.
-Without `--base`, it checks every page. It only edits files in your checkout, so review them with
-`git diff`.
+To try it on your machine, set `LUMEN_API_KEY` and run the script. It compares `--head` (default
+`HEAD`) with `--base` (default the commit before it) and only edits files in your checkout, so
+review them with `git diff`.
 
 ```bash
-python scripts/docs_sync.py --base HEAD~1 --head HEAD --style ../claude-config
+python scripts/docs_sync.py --style ../claude-config
 ```
 
 Edit the docs by hand whenever you like. The bot works from what is on `main`, so it keeps your

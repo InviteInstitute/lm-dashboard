@@ -1,14 +1,14 @@
 """
 Bring the docs in step with the code, with an LLM on NCSA's Lumen.
 
-    python scripts/docs_sync.py --base <sha> [--head <sha>] [--style ../claude-config]
+    python scripts/docs_sync.py --style ../claude-config [--base <sha>] [--head <sha>]
 
 It sends the model the writing rules and skills from Maharsh17/claude-config (--style),
-the diff from --base to --head, every docs page and the code the pages describe. The model
-answers with the full text of each page that the change made wrong or incomplete, and this
-script writes those pages into the checkout. Without --base it checks every page against the
-whole codebase. It needs LUMEN_API_KEY. .github/workflows/docs.yml runs it on every push to
-main; see docs/guides/development.md.
+the diff from --base (default the commit before --head) to --head, every docs page and the
+code the pages describe. The model answers with the full text of each page that the change
+made wrong or incomplete, and this script writes those pages into the checkout. It needs
+LUMEN_API_KEY. .github/workflows/docs.yml runs it on every push to main, and
+docs/guides/development.md#the-docs explains the flow.
 """
 
 import argparse
@@ -58,8 +58,8 @@ You maintain the documentation of lm-dashboard, the Learner Modeling Dashboard. 
 MkDocs Material site in docs/, with its nav in mkdocs.yml, plus the README.md on GitHub.
 Readers are the researchers who use the board and the developers who run and change it.
 
-Your job is to keep the docs true to the code. You get the code, the current docs and,
-usually, a diff of what just changed. Find every statement in the docs that the code now
+Your job is to keep the docs true to the code. You get the code, the current docs and a
+diff of what just changed. Find every statement in the docs that the code now
 contradicts, every behavior the change added or removed that the docs should mention, and
 every page that a reader would now find wrong or incomplete. Fix those, and nothing else.
 
@@ -134,7 +134,8 @@ def read_code(files):
 def read_change(base, head):
     """The commit messages and the diff from base to head, without the docs and lock files."""
     log = git("log", "--format=- %s%n%b", f"{base}..{head}")
-    diff = git("diff", f"{base}..{head}", "--", ".", *DIFF_SKIP)
+    # --submodule=diff shows what changed inside the engine, not only its new commit hash.
+    diff = git("diff", "--submodule=diff", f"{base}..{head}", "--", ".", *DIFF_SKIP)
     if len(diff) > DIFF_MAX:
         diff = diff[:DIFF_MAX] + "\n[The diff was cut here. Read the code for the rest.]\n"
     return log, diff
@@ -194,7 +195,7 @@ def apply(answer):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    ap.add_argument("--base", help="the commit the docs were last in step with")
+    ap.add_argument("--base", help="the commit before the change (default: --head's parent)")
     ap.add_argument("--head", default="HEAD", help="the commit to bring them up to")
     ap.add_argument("--style", required=True, help="a checkout of Maharsh17/claude-config")
     ap.add_argument("--model", default=MODEL, help=f"the Lumen model (default {MODEL})")
@@ -204,21 +205,27 @@ def main(argv=None):
     if not key:
         sys.exit("Set LUMEN_API_KEY.")
 
+    # A push that creates the branch has no commit before it (its "before" is all zeros).
+    base = opts.base
+    if (
+        not base
+        or not base.strip("0")
+        or subprocess.run(
+            ["git", "cat-file", "-e", f"{base}^{{commit}}"], cwd=ROOT, capture_output=True
+        ).returncode
+    ):
+        base = f"{opts.head}~1"
+
     files = tracked(opts.head)
-    if opts.base:
-        log, diff = read_change(opts.base, opts.head)
-        if not diff.strip():
-            print("Only the docs changed since the last sync, so there is nothing to check.")
-            return
-        task = (
-            "These commits just landed on main.\n"
-            f"<commits>\n{log}</commits>\n<diff>\n{diff}</diff>\n"
-            "Bring the docs in step with this change."
-        )
-    else:
-        task = (
-            "No diff this time. Check every page against the whole codebase and fix what is wrong."
-        )
+    log, diff = read_change(base, opts.head)
+    if not diff.strip():
+        print("Only the docs changed, so there is nothing to check.")
+        return
+    task = (
+        "These commits just landed on main.\n"
+        f"<commits>\n{log}</commits>\n<diff>\n{diff}</diff>\n"
+        "Bring the docs in step with this change."
+    )
 
     system = f"{INSTRUCTIONS}\n<style_guide>\n{read_style(opts.style)}</style_guide>\n"
     user = f"<code>\n{read_code(files)}</code>\n<docs>\n{read_docs(files)}</docs>\n\n{task}\n"

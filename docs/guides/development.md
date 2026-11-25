@@ -133,8 +133,9 @@ The docs are this MkDocs site, built from `docs/` and `mkdocs.yml`.
     so a change to those rules reaches the docs on the next push.
 2.  The model returns only the pages that the change made wrong or incomplete. The script writes
     them, and `mkdocs build --strict` checks that every link and page still holds.
-3.  If any page changed, the job pushes the branch `docs-sync`, opens a pull request from it and
-    merges it. The pull request stays as the record of what the bot wrote.
+3.  If any page changed, the job commits the pages to the branch `docs-sync` and merges it into
+    `main` through GitHub's merge API. The InviteInstitute org doesn't let Actions open pull
+    requests, so the bot's commit on `main` is the record of what it wrote.
 4.  The job publishes the site from the new `main` to GitHub Pages.
 
 The job needs the repository secret `LUMEN_API_KEY`. You can also run it from the Actions tab

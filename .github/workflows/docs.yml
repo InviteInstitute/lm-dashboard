@@ -2,9 +2,10 @@ name: Docs
 
 # After every push to main, bring the docs in step with the code and publish them.
 # scripts/docs_sync.py asks an LLM on NCSA's Lumen to fix the pages the push made wrong,
-# in the writing style of Maharsh17/claude-config. Its changes land as a pull request from
-# the docs-sync branch, merged here once the site builds with --strict, and the site goes to
-# GitHub Pages. Run it from the Actions tab to check every page against the whole codebase.
+# in the writing style of Maharsh17/claude-config. Its changes go to the docs-sync branch and
+# are merged into main once the site builds with --strict, and the site goes to GitHub Pages.
+# The org doesn't let Actions open pull requests, so the merge uses GitHub's merge API.
+# Run it from the Actions tab to check every page against the whole codebase.
 # docs/guides/development.md#the-docs has the details.
 #
 # A push made with this job's own token starts no workflow, so the merge below never starts
@@ -21,8 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write # push docs-sync, the docs-synced tag and gh-pages
-  pull-requests: write # open and merge the docs pull request
+  contents: write # push docs-sync, merge it, move the docs-synced tag and push gh-pages
 
 jobs:
   docs:
@@ -57,7 +57,7 @@ jobs:
       - name: Check the site builds
         run: mkdocs build --strict
 
-      - name: Merge the docs pull request
+      - name: Merge the docs into main
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -71,12 +71,9 @@ jobs:
           git add -- docs README.md mkdocs.yml
           git commit -m "Bring the docs in step with ${GITHUB_SHA::7}"
           git push --force origin docs-sync
-          if [ "$(gh pr view docs-sync --json state -q .state 2>/dev/null)" != OPEN ]; then
-            gh pr create --head docs-sync --base main \
-              --title "Bring the docs in step with ${GITHUB_SHA::7}" \
-              --body "The docs workflow checked the docs against ${GITHUB_SHA} with an LLM on Lumen, and this is what it changed. The site built with --strict before this merged."
-          fi
-          gh pr merge docs-sync --squash --delete-branch
+          gh api "repos/$GITHUB_REPOSITORY/merges" -f base=main -f head=docs-sync \
+            -f commit_message="Merge the docs for ${GITHUB_SHA::7}" --silent
+          git push origin --delete docs-sync
 
       - name: Mark the commit the docs are in step with
         run: |

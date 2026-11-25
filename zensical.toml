@@ -1,23 +1,22 @@
-# The docs site, built with Zensical (https://zensical.org) from docs/.
+# The Learner Modeling Dashboard's docs, published as a section of docs.inviteai.org.
+#
+# InviteInstitute/docs builds that site with its own theme, and reads the nav below for this
+# section. This file is for checking the pages here:
 #
 #   zensical serve            # http://localhost:4000, reloads as you edit
-#   zensical build --strict   # what CI runs; fails on a broken link or anchor
-#
-# The look is IBM Carbon in INVITE's palette, like the dashboard: IBM Plex here, and the
-# colors and components in docs/stylesheets/carbon.css.
+#   zensical build --strict   # what the docs bot runs; fails on a broken link or anchor
 
 [project]
 site_name = "Learner Modeling Dashboard"
 site_description = "A live board that shows which students in a VEX coding class need help right now."
-site_url = "https://inviteinstitute.github.io/lm-dashboard/"
+site_url = "https://docs.inviteai.org/lm-dashboard/"
 docs_dir = "docs"
 dev_addr = "localhost:4000"
 repo_url = "https://github.com/InviteInstitute/lm-dashboard"
 repo_name = "InviteInstitute/lm-dashboard"
-extra_css = ["stylesheets/carbon.css"]
 
 nav = [
-  { "Home" = "index.md" },
+  { "Overview" = "index.md" },
   { "Quickstart" = "quickstart.md" },
   { "Concepts" = [
     { "Architecture" = "concepts/architecture.md" },
@@ -37,45 +36,14 @@ nav = [
   ] },
 ]
 
-[project.theme]
-logo = "images/logo.png"
-favicon = "images/logo.png"
-features = [
-  "content.code.copy",
-  "navigation.sections",
-  "navigation.top",
-  "navigation.tracking",
-  "search.highlight",
-  "toc.follow",
-]
-
-[project.theme.font]
-text = "IBM Plex Sans"
-code = "IBM Plex Mono"
-
-# Light or dark follows the reader's system, and the toggle flips it.
-[[project.theme.palette]]
-media = "(prefers-color-scheme: light)"
-scheme = "default"
-primary = "custom"
-accent = "custom"
-toggle.icon = "lucide/moon"
-toggle.name = "Switch to dark mode"
-
-[[project.theme.palette]]
-media = "(prefers-color-scheme: dark)"
-scheme = "slate"
-primary = "custom"
-accent = "custom"
-toggle.icon = "lucide/sun"
-toggle.name = "Switch to light mode"
-
 [project.markdown_extensions]
 admonition = {}
 attr_list = {}
 md_in_html = {}
 tables = {}
 toc.permalink = true
+# GitHub's heading anchors, the same as docs.inviteai.org.
+toc.slugify = { object = "pymdownx.slugs.slugify", kwds = { case = "lower" } }
 pymdownx.details = {}
 pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
 pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"

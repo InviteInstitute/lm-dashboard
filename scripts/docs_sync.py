@@ -20,15 +20,27 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from fnmatch import fnmatch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LUMEN_URL = os.environ.get("LUMEN_URL", "https://lumen.ncsa.illinois.edu/v1")
 MODEL = os.environ.get("LUMEN_MODEL", "glm-5.3")
 
-# The pages the model may write. Anything else it sends back is ignored.
-DOC_PATHS = ("README.md", "zensical.toml")
-DOC_DIR = "docs/"
+# ---- Settings for this repo. The copies in zany and atlas-invite change only this block. ----
+# The pages the model reads and may write (fnmatch globs, where * also crosses folders), minus
+# the protected ones. Anything else it sends back is ignored.
+WRITABLE = ("docs/*.md", "README.md", "zensical.toml")
+PROTECTED = ()
+# Repo files with doc rules of their own, added to the instructions (zany's AGENTS.md, say).
+RULE_FILES = ()
+# What these docs are and who reads them, and where a new page must be linked.
+ABOUT = """\
+lm-dashboard, the Learner Modeling Dashboard. Its docs are the Markdown pages in docs/, with
+their nav in zensical.toml, plus the README.md on GitHub. They are published as the Learner
+Modeling Dashboard section of docs.inviteai.org. Readers are the researchers who use the board
+and the developers who run and change it, technical and semi-technical."""
+NEW_PAGE_RULE = "Add each one to the nav in zensical.toml."
 # The code it reads: tracked files under these paths, minus the noise below.
 CODE_PATHS = ("app", "frontend/src", "scripts", ".github/workflows")
 CODE_FILES = (
@@ -48,15 +60,14 @@ ENGINE_FILES = (
     "vendor/agent-lm-packages/learner_models/README.md",
 )
 # What the diff leaves out: the docs themselves, and lock files.
-DIFF_SKIP = (":(exclude)docs", ":(exclude)README.md", ":(exclude)zensical.toml", ":(exclude)*lock*")
+DIFF_SKIP = (":(exclude)docs", ":(exclude)*.md", ":(exclude)zensical.toml", ":(exclude)*lock*")
+# ---- End of the settings. ----
 DIFF_MAX = 150_000  # characters; a bigger diff is cut, and the model is told so
 
 FILE_BLOCK = re.compile(r"^<<<FILE (\S+)\n(.*?)\n>>>END$", re.S | re.M)
 
 INSTRUCTIONS = """\
-You maintain the documentation of lm-dashboard, the Learner Modeling Dashboard. It is an
-Zensical site in docs/, with its nav in zensical.toml, plus the README.md on GitHub.
-Readers are the researchers who use the board and the developers who run and change it.
+You maintain the documentation of {about}
 
 Your job is to keep the docs true to the code. You get the code, the current docs and a
 diff of what just changed. Find every statement in the docs that the code now
@@ -68,10 +79,10 @@ Rules for the edit:
   a number, a name, a default or a path. If you can't confirm it in the code, leave it out.
 - Keep each page's structure, headings and wording wherever they are still right. Make the
   smallest edit that makes the page true. Don't rewrite a page for style alone.
-- New pages are allowed only when a change adds a whole new area. Add each one to the nav
-  in zensical.toml.
-- Keep every link and anchor working. Anchors are the heading text, lowercased, with
-  spaces as dashes and punctuation dropped. The site is built with `zensical build --strict`.
+- New pages are allowed only when a change adds a whole new area. {new_page_rule}
+- Keep every link and anchor working. Anchors are GitHub's: the heading text, lowercased,
+  with spaces as dashes and punctuation dropped. docs.inviteai.org is built with
+  `zensical build --strict`, which fails on a broken link or anchor.
 - Headings are in Title Case, as they are now.
 - Write in the voice the style guide below describes. It is the author's own writing
   rules and skills, and every rule in it applies to every sentence you write. In
@@ -115,9 +126,20 @@ def tracked(head):
     return git("ls-tree", "-r", "--name-only", head).splitlines()
 
 
+def writable(path):
+    """Whether the model may write this repo path."""
+    if ".." in path.split("/"):
+        return False
+    return any(fnmatch(path, g) for g in WRITABLE) and not any(fnmatch(path, g) for g in PROTECTED)
+
+
 def read_docs(files):
-    docs = [f for f in files if (f.startswith(DOC_DIR) and f.endswith(".md")) or f in DOC_PATHS]
-    return "".join(block(f, (ROOT / f).read_text()) for f in docs)
+    return "".join(block(f, (ROOT / f).read_text()) for f in files if writable(f))
+
+
+def read_rules():
+    found = [f for f in RULE_FILES if (ROOT / f).is_file()]
+    return "".join(block(f, (ROOT / f).read_text()) for f in found)
 
 
 def read_code(files):
@@ -178,12 +200,11 @@ def apply(answer):
     """Write each file block in the answer. Returns the paths that changed."""
     changed = []
     for path, text in FILE_BLOCK.findall(answer):
-        ok = path in DOC_PATHS or (path.startswith(DOC_DIR) and path.endswith(".md"))
-        if not ok or ".." in path:
+        if not writable(path):
             print(f"Ignored {path}: the model may only write the docs.")
             continue
         # The author's rules forbid these two characters outright, so they never land.
-        text = text.replace("—", "-").replace("·", "-").rstrip("\n") + "\n"
+        text = text.replace("\u2014", "-").replace("\u00b7", "-").rstrip("\n") + "\n"
         target = ROOT / path
         if target.is_file() and target.read_text() == text:
             continue
@@ -227,7 +248,13 @@ def main(argv=None):
         "Bring the docs in step with this change."
     )
 
-    system = f"{INSTRUCTIONS}\n<style_guide>\n{read_style(opts.style)}</style_guide>\n"
+    system = INSTRUCTIONS.format(about=ABOUT, new_page_rule=NEW_PAGE_RULE)
+    system += f"\n<style_guide>\n{read_style(opts.style)}</style_guide>\n"
+    if RULE_FILES:
+        system += (
+            "\nThis repo's own rules for its docs follow. They apply on top of everything above.\n"
+            f"<repo_rules>\n{read_rules()}</repo_rules>\n"
+        )
     user = f"<code>\n{read_code(files)}</code>\n<docs>\n{read_docs(files)}</docs>\n\n{task}\n"
     print(f"Prompt: about {(len(system) + len(user)) // 4:,} tokens")
 

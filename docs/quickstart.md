@@ -77,7 +77,8 @@ within a second or two.
 
 ## Read These Docs Locally
 
-The docs are a [Zensical](https://zensical.org) site, configured in `zensical.toml`.
+The docs are published at [docs.inviteai.org](https://docs.inviteai.org/lm-dashboard/). To preview
+them here, with [Zensical](https://zensical.org) and the nav in `zensical.toml`, run this.
 
 ```bash
 pip install zensical

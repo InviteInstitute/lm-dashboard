@@ -27,7 +27,7 @@ LUMEN_URL = os.environ.get("LUMEN_URL", "https://lumen.ncsa.illinois.edu/v1")
 MODEL = os.environ.get("LUMEN_MODEL", "glm-5.3")
 
 # The pages the model may write. Anything else it sends back is ignored.
-DOC_PATHS = ("README.md", "mkdocs.yml")
+DOC_PATHS = ("README.md", "zensical.toml")
 DOC_DIR = "docs/"
 # The code it reads: tracked files under these paths, minus the noise below.
 CODE_PATHS = ("app", "frontend/src", "scripts", ".github/workflows")
@@ -48,14 +48,14 @@ ENGINE_FILES = (
     "vendor/agent-lm-packages/learner_models/README.md",
 )
 # What the diff leaves out: the docs themselves, and lock files.
-DIFF_SKIP = (":(exclude)docs", ":(exclude)README.md", ":(exclude)mkdocs.yml", ":(exclude)*lock*")
+DIFF_SKIP = (":(exclude)docs", ":(exclude)README.md", ":(exclude)zensical.toml", ":(exclude)*lock*")
 DIFF_MAX = 150_000  # characters; a bigger diff is cut, and the model is told so
 
 FILE_BLOCK = re.compile(r"^<<<FILE (\S+)\n(.*?)\n>>>END$", re.S | re.M)
 
 INSTRUCTIONS = """\
 You maintain the documentation of lm-dashboard, the Learner Modeling Dashboard. It is an
-MkDocs Material site in docs/, with its nav in mkdocs.yml, plus the README.md on GitHub.
+Zensical site in docs/, with its nav in zensical.toml, plus the README.md on GitHub.
 Readers are the researchers who use the board and the developers who run and change it.
 
 Your job is to keep the docs true to the code. You get the code, the current docs and a
@@ -69,9 +69,9 @@ Rules for the edit:
 - Keep each page's structure, headings and wording wherever they are still right. Make the
   smallest edit that makes the page true. Don't rewrite a page for style alone.
 - New pages are allowed only when a change adds a whole new area. Add each one to the nav
-  in mkdocs.yml.
+  in zensical.toml.
 - Keep every link and anchor working. Anchors are the heading text, lowercased, with
-  spaces as dashes and punctuation dropped. The site is built with `mkdocs build --strict`.
+  spaces as dashes and punctuation dropped. The site is built with `zensical build --strict`.
 - Headings are in Title Case, as they are now.
 - Write in the voice the style guide below describes. It is the author's own writing
   rules and skills, and every rule in it applies to every sentence you write. In

@@ -77,15 +77,16 @@ within a second or two.
 
 ## Read These Docs Locally
 
-The docs are [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/).
+The docs are a [Zensical](https://zensical.org) site, configured in `zensical.toml`.
 
 ```bash
-pip install mkdocs-material
-mkdocs serve
+pip install zensical
+zensical serve
 ```
 
 They serve on [http://localhost:4000](http://localhost:4000) and reload as you edit anything in
-`docs/`. `mkdocs build --strict` writes the static site to `site/`, which git ignores.
+`docs/`. `zensical build --strict` writes the static site to `site/`, which git ignores, and
+fails on a broken link or anchor.
 
 ## Next Steps
 

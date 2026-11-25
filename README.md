@@ -21,7 +21,7 @@ flowchart LR
     api --> dash["Researcher<br/>dashboard"]
 ```
 
-The full documentation is at <https://inviteinstitute.github.io/lm-dashboard/>. Run `mkdocs serve`
+The full documentation is at <https://inviteinstitute.github.io/lm-dashboard/>. Run `zensical serve`
 to read it locally on port 4000.
 
 ## Quick Start

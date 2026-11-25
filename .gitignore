@@ -23,8 +23,9 @@ exports/
 node_modules/
 frontend/dist/
 
-# Docs build output (MkDocs)
+# Docs build output and cache (Zensical)
 site/
+.cache/
 
 # OS / editors
 .DS_Store

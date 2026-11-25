@@ -119,7 +119,7 @@ submodule, builds the image, recreates the `api` and `daemon` containers and wai
 answer 200. The database keeps running the whole time. The frontend is built inside the image, so
 there is no separate build step.
 
-A pull that only changes `docs/`, `README.md`, `mkdocs.yml` or `.github/` leaves the stack running.
+A pull that only changes `docs/`, `README.md`, `zensical.toml` or `.github/` leaves the stack running.
 Rolling it would restart the daemon, which starts a new session and empties every card, and the
 image doesn't hold the docs anyway.
 
@@ -128,7 +128,9 @@ server by hand.
 
 ## The Docs
 
-The docs are this MkDocs site, built from `docs/` and `mkdocs.yml`.
+The docs are this [Zensical](https://zensical.org) site, built from `docs/` and `zensical.toml`.
+It uses IBM Carbon's look in INVITE's palette, like the dashboard, from
+`docs/stylesheets/carbon.css`.
 `.github/workflows/docs.yml` keeps them up to date and publishes them on every push to `main`.
 
 1.  `scripts/docs_sync.py` sends glm-5.3 on NCSA's Lumen the diff of the push, the code and the
@@ -137,7 +139,7 @@ The docs are this MkDocs site, built from `docs/` and `mkdocs.yml`.
     so a change to those rules reaches the docs on the next push. A push that only changes the
     docs skips the call.
 2.  The model returns only the pages that the change made wrong or incomplete. The script writes
-    them, and `mkdocs build --strict` checks that every link and page still holds.
+    them, and `zensical build --strict` checks that every link and page still holds.
 3.  If any page changed, the job commits it to `main`. That commit, by `github-actions[bot]`, is the
     record of what the bot wrote.
 4.  The job publishes the site to GitHub Pages.

@@ -1,122 +1,108 @@
 ---
-description: The Postgres tables, the event-log-as-truth split, tenancy, and the datetime/JSON contracts in db.py.
+description: The Postgres tables, what is shared and what belongs to one board, and the rules db.py keeps.
 ---
 
 # Data Model
 
-Everything lives in **Postgres**. All the SQL is in `app/db.py` (psycopg 3, no ORM),
-which keeps the whole query surface in one place. Postgres MVCC lets the single writer
-(the daemon) and the many readers (the API) run at once without blocking. Query bodies
-still use `?` placeholders, translated to psycopg's `%s` in one place. Timestamps are
-stored as `text` (the fixed-width contract below) and the old SQLite booleans are
-`smallint` 0/1.
+Everything lives in Postgres. All the SQL is in `app/db.py` (psycopg 3, no ORM), so the whole query
+surface is in one file. Queries use `?` placeholders, and one helper turns them into psycopg's
+`%s`. Timestamps are stored as fixed-width text (see below), and flags are `smallint` 0 or 1.
 
 ## Tables
 
 ```mermaid
 flowchart LR
-    subgraph truth["Event log | source of truth | append-only"]
+    subgraph truth["Event log: the source of truth, append-only"]
         msg[("message")]
         vex[("vex_log")]
     end
-    subgraph cache["Read model | rebuildable cache"]
+    subgraph cache["Derived state: a cache you can rebuild"]
         ss[("student_state")]
         te[("trigger_event")]
+        gp[("goal_profile")]
+        sw[("switch_event")]
     end
     cur[("ingest_cursor")]
-    vex -->|"project / replay"| ss
-    vex -->|"project / replay"| te
-    cur -. "tracks consumed position" .-> vex
+    vex -->|"replay"| ss
+    vex -->|"replay"| te
+    vex -->|"replay"| gp
+    vex -->|"replay"| sw
+    cur -. "how far ingest has read" .-> vex
 ```
 
-| Group | Tables | Role |
+| Group | Tables | What they hold |
 |---|---|---|
-| Event log (truth) | `message`, `vex_log` | append-only raw events, unique `source_event_id` - **shared** |
-| Cursor | `ingest_cursor` | how far we've consumed - shared |
-| Read model (cache) | `student_state`, `trigger_event`, `switch_event` | the materialized projection, rebuildable - **shared** (one per student) |
-| Boards | `workspace` | one board per browser, found by the board ID the browser sends |
-| Roster (per board) | `tracked_student` | a board's allowlist + its presence/picked toggles, keyed `(workspace_id, studentID)` |
-| Researcher input (per board) | `note`, `pick_event`, `trigger_ack`, `outbox` | observations, pick/unpick history, per-board alert dismissals, and failed inputs parked verbatim |
-| Control (per board) | `workspace_setting` | each board's flags (its source, polling on/off, the trigger types it hides, the viewer heartbeat) |
-| Control (shared) | `meta` | the daemon's session start, and the trigger switches from before they were per board (the default for a board that never set its own) |
-| Change counters | `channel_rev` | the per-channel "what changed?" counters for the live stream - shared |
+| Event log | `message`, `vex_log` | every raw event, append-only, each with a unique `source_event_id` (Reflecks) or `zany_seq` (ZANY). Shared |
+| Cursors | `ingest_cursor` | how far each source has been read, one row for Reflecks (`vex_poll`) and one for ZANY (`zany`). Shared |
+| Derived state | `student_state`, `trigger_event`, `goal_profile`, `switch_event` | what the daemon works out, one set per student. Shared |
+| Boards | `workspace` | one row per browser, found by the board ID it sends |
+| Roster | `tracked_student` | a board's students with its presence and picked flags, unique on `(workspace_id, studentID)` |
+| Researcher input | `note`, `pick_event`, `trigger_ack`, `outbox` | a board's notes, its pick history, the alerts it dismissed, and inputs that failed to save |
+| Board settings | `workspace_setting` | per-board keys, which are `source`, `polling_enabled`, `disabled_triggers`, `viewer_last_seen` and `reset_at` |
+| Shared settings | `meta` | the daemon's current session (`session_start`), and the trigger switches from before they were per board |
+| Change counters | `channel_rev` | one counter per live-stream channel |
 
 !!! tip
-    The read-model tables are just a cache of the event log. Delete them and they
-    rebuild from `vex_log` to exactly the same state. A board's
-    [Reset](../guides/using-the-dashboard.md#reset) leaves them alone: it only hides
-    what came before it on that board.
+    The derived tables are a cache of the event log. Drop them, replay `vex_log`, and they come back
+    the same. A board's [reset](../guides/using-the-dashboard.md#reset) doesn't touch them. It only
+    hides what came before it on that board.
 
-### Tables That Are Not A Cache Of The Log
+## Tables The Log Can't Rebuild
 
-Three tables hold things the event log can't reproduce, so they get treated
-differently:
+`note` and `pick_event` hold the researchers' own observations. A reset writes them to a CSV backup
+before it clears them.
 
-- **`note` and `pick_event`** are the researcher's own judgments. Reset writes them
-  into a CSV backup before wiping so nothing is lost.
-- **`outbox`** parks a researcher input verbatim when its write failed its retries (a
-  crash, or a rare lock). It's the one store with no upstream source to re-pull from,
-  so it is deliberately **spared by reset** and rides along in the CSV export. See
-  [resilient writes](read-path.md#resilient-writes-and-the-outbox).
-- **`channel_rev`** is four counter rows, one per dashboard channel, bumped by a
-  Postgres trigger function on every write to a source table (which also fires a
-  `NOTIFY`). The live stream reads them as an O(1) "what changed?" check instead of
-  scanning the tables (see the [read path](read-path.md#the-dashboard)). It's derived
-  state, so a wipe is harmless. The trigger rebuilds it on the next write.
+`outbox` keeps a researcher's input word for word when its write failed every retry. Nothing else
+holds a copy, so a reset leaves it alone and the export includes it. See
+[saving a researcher's input](read-path.md#saving-a-researchers-input).
 
-### Shared vs. Per-Board
+`channel_rev` holds four counter rows, one per dashboard channel. A Postgres trigger function,
+`bump_rev()`, bumps the right one on every write to a source table and sends a `NOTIFY`. The live
+stream reads these counters instead of scanning tables. They are derived too, so losing them is
+harmless, since the next write sets them again.
 
-The raw mirror and the derived analysis are a property of the **student**, so they're
-**shared** across every board: a student watched by two researchers is pulled from prod
-and materialized once. What's **per-board** is the researcher-facing overlay - which
-students that board tracks, its notes and picks, its alert dismissals (`trigger_ack`,
-since the shared `trigger_event` can't hold one board's ack), and its control flags.
-Removing a student from one board only purges the shared mirror once **no** board
-tracks them any more.
+## Shared Or Per Board
 
-### Case-Insensitive Identity
+The raw events and everything worked out from them belong to the student, so every board shares
+them. A student that two researchers watch is pulled from production and analyzed once.
 
-A VEX handle is unique only within a class and sometimes arrives in different casing
-(`cobra3` vs `Cobra3`). `db.canon_id` folds every derived table onto a lowercase key at
-write time so those spellings are one student, while `student_state.display_id` keeps
-the most-recent raw casing for the UI. `switch_event` records when a tracked student's
-handle casing flips or their handle turns up under a new class code, which drives the
-identity-switch toasts and feed.
+What belongs to a board is the researcher's layer on top. That is which students the board
+tracks, its notes and picks, the alerts it dismissed and its settings. Dismissals live in
+`trigger_ack`, because the shared `trigger_event` row can't hold one board's dismissal. (The row's
+own `acknowledged` flag is still set, since the inactive re-alert reads it.)
 
-## Two Contracts That Have To Hold
+Removing a student from a board deletes their shared data only once no board tracks them.
 
-`db.py` enforces two contracts that the rest of the system leans on:
+## One Student, Any Casing
 
-??? note "Datetime Contract"
-    Timestamps are stored UTC-naive in fixed-width `%Y-%m-%d %H:%M:%S.%f` format.
-    Because the width is fixed, comparing the strings is the same as comparing the
-    times, so the cursor and cutoff SQL (`ORDER BY started_at`, `resolved_at >=
-    cutoff`) work directly on the stored strings. Two helper functions are the only
-    place this conversion happens.
+A VEX handle is unique only within a class, and it sometimes arrives in a different casing (`cobra3`
+or `Cobra3`). `db.canon_id` lowercases every key the derived tables use, so those are one student.
+`student_state.display_id` keeps the newest raw casing for the screen. `switch_event` records when a
+tracked handle changes casing or shows up under a new class code, and that feeds the
+identity-switch toasts.
 
-??? note "JSON Contract"
-    The `runs`, `episodes`, and `detail` columns are stored as JSON text and go
-    through `json.loads` / `json.dumps` helpers. Where the daemon needs to query
-    inside a blob, it casts to `jsonb`, for example the momentary-trigger per-run
-    dedupe on `detail->>'run_index'`.
+ZANY students are keyed `zany:<study>:<participant ID>`, so they never collide with a Reflecks ID.
 
-## Event Log As Truth
+## Two Rules In db.py
 
-`vex_log` is append-only, and each row carries a unique `source_event_id` that's what
-makes ingestion idempotent (see
-[Write path](write-path.md#cursor-and-idempotency)). Everything else, `student_state`
-and `trigger_event`, is just a projection built from that log. That's the property
-that lets you treat the derived tables as a disposable cache, and it's why reset and
-recovery are so simple.
+??? note "Timestamps"
+    Timestamps are stored as UTC text in the fixed-width format `%Y-%m-%d %H:%M:%S.%f`. Because
+    every value has the same width, comparing the strings is the same as comparing the times, so
+    SQL like `ORDER BY started_at` and `resolved_at >= cutoff` works on the stored text. Two
+    helpers, `dt_to_db` and `db_to_dt`, are the only place this conversion happens.
+
+??? note "JSON"
+    `runs`, `episodes`, `detail` and `profile` are JSON stored as text, read and written through
+    two helpers. Where SQL needs to look inside one, it casts to `jsonb`, as the momentary
+    trigger's duplicate check does with `detail::jsonb->>'run_index'`.
 
 ## Why Postgres
 
-| Reason | Detail |
+| Reason | What it buys |
 |---|---|
-| Concurrent boards | Many researchers on their own boards, all writing (roster, notes, picks) at once - MVCC handles it where SQLite's single-writer lock would contend. |
-| Real tenancy | Foreign keys + composite uniques (`(workspace_id, studentID)`) enforce per-board isolation cleanly. |
-| LISTEN/NOTIFY | The change-counter trigger emits a notification the live stream can build on. |
-| One command | It's a container in the same compose stack, so there's still nothing to install by hand. |
+| Many boards write at once | researchers add notes and picks at the same time, and Postgres handles that where SQLite's single writer lock would queue them |
+| Real tenancy | foreign keys and unique keys like `(workspace_id, studentID)` keep boards apart |
+| `LISTEN` and `NOTIFY` | the change counters notify, and the daemon listens for ATLAS's deletions in ZANY's store |
+| Still one command | it is one more container in the same compose stack |
 
-All the SQL stays behind `app/db.py`, which is what kept the move off SQLite a
-self-contained rewrite of one file.
+All the SQL stays behind `app/db.py`, which is why the move off SQLite was a rewrite of one file.

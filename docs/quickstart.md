@@ -1,104 +1,91 @@
 ---
-description: Bring up the whole stack (Postgres, API, daemon) with one docker compose command.
+description: Run the whole stack (Postgres, the API and the daemon) with one docker compose command.
 ---
 
 # Quickstart
 
-The whole stack - Postgres, the read API (which also serves the dashboard), and the
-ingestion daemon - runs from one `docker compose` file, the same on your laptop and
-in production.
+One compose file runs the whole stack. That is Postgres, the API (which also serves the dashboard)
+and the ingestion daemon. It is the same file on your laptop and on the server.
 
 ## Before You Start
 
-!!! info
-    You only need **Docker** (Docker Desktop on macOS/Windows, or Docker + the
-    Compose v2 plugin on Linux). The daemon also needs network access to the
-    Reflecks production server and a real account on it.
+You need Docker. On macOS and Windows that is Docker Desktop. On Linux it is Docker with the
+Compose v2 plugin. The daemon also needs network access to the Reflecks production server and an
+account on it.
 
 ## Configure
 
-Two small files, both gitignored:
+Make two small files. Git ignores both.
 
-1.  **App secrets** - copy the example and fill it in:
+1.  Copy the example for the app's secrets and fill it in.
 
     ```bash
-    cp .env.example .env.mirror     # fill in the secrets it lists
+    cp .env.example .env.mirror
     ```
 
-    `PROD_USERNAME` / `PROD_PASSWORD` are the daemon's Reflecks login.
-    `SESSION_SECRET` signs the API's cookies, and `TURNSTILE_SECRET` is the
-    Cloudflare Turnstile secret key. [Configuration](guides/configuration.md) lists
-    every setting.
+    `PROD_USERNAME` and `PROD_PASSWORD` are the daemon's Reflecks login. `SESSION_SECRET` signs the
+    API's cookies, and `TURNSTILE_SECRET` is the Cloudflare Turnstile secret key.
+    [Configuration](guides/configuration.md) lists every setting.
 
-2.  **Database password** for compose:
+2.  Pick a database password for compose.
 
     ```bash
     echo "POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_hex(16))')" > .env
     ```
 
-Compose builds `DATABASE_URL` for you (pointing at the `db` service), so you don't
-set it yourself. The schema is created automatically on API startup - there is no
-separate migration step.
+You don't set `DATABASE_URL` yourself, because compose builds it from that password. The API
+creates the schema when it starts, so there is no migration step either.
 
 ## Run
 
 ```bash
-docker compose up -d      # or: make dev
+make dev      # the same as: docker compose up
 ```
 
-`make dev` is the shortcut. See [Development](guides/development.md) for the full make
-vocabulary. In **dev**, compose auto-loads `compose.override.yml`, which adds:
+In development, compose also loads `compose.override.yml`. That runs the dashboard under Vite with
+hot reload at [http://localhost:3000](http://localhost:3000), which sends `/api` on to the API. It
+also mounts `app/` into the API and daemon containers. The API runs with `--reload` and restarts
+when you change the code. The daemon picks up a change when you run `docker compose restart daemon`.
+It also turns off the dead-man's switch, so a local board is polled as soon as it has students.
 
-- the dashboard under **Vite with hot-reload** at [http://localhost:3000](http://localhost:3000)
-  (it proxies `/api` to the API), and
-- the API and daemon running with `--reload`, so code changes restart instantly.
+On a server, only the base file runs, and the API serves the built dashboard on
+`127.0.0.1:8000`. Put nginx or another reverse proxy in front of it for TLS.
+[Development](guides/development.md#deploying) shows how the INVITE server deploys it.
 
-In **production**, run the base file only so the API serves the pre-built dashboard
-on `:8000` (put a reverse proxy / TLS in front of it):
+!!! warning "Run exactly one daemon"
+    The ingest cursor and the duplicate check assume one writer. Compose starts one, so don't
+    start a second by hand.
 
-```bash
-docker compose -f compose.yml up -d
-```
-
-!!! warning
-    Exactly one daemon runs (compose starts one). The cursor and idempotency logic
-    assume a single writer.
-
-Handy commands:
+A few commands you will use often.
 
 ```bash
-docker compose ps                    # status
-docker compose logs -f daemon        # follow a service (api / daemon / db)
-docker compose down                  # stop everything
+docker compose ps                  # what is running
+docker compose logs -f daemon      # follow one service (api, daemon or db)
+docker compose down                # stop everything
 ```
 
 ## Track Your First Student
 
-Open the dashboard. The first time, the browser passes a Cloudflare Turnstile check,
-which is remembered for 12 hours. Then type a student ID into **Track student IDs**.
-The daemon backfills their recent history, works out their state, and their card
-appears within a tick or two.
+Open the dashboard. The first time, the browser passes a Turnstile check, and it remembers that for
+12 hours. Type a student ID into **Track student IDs** beside the Students heading. The daemon
+copies the student's activity since it started, works out their state, and their card appears
+within a second or two.
 
 !!! note "Each browser is its own board"
-    There is no login. Every browser gets its own isolated board (roster, notes,
-    picks and settings), kept by an ID in the browser's local storage. Clearing
-    site data starts a fresh board.
+    The board ID lives in the browser's local storage. Clearing the site's data starts a new,
+    empty board.
 
-!!! success
-    The dashboard is read-only against your Postgres mirror. Tracking, analyzing,
-    and resetting never reach back to production.
+## Read These Docs Locally
 
-## Run These Docs Locally
-
-This site is [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/):
+The docs are [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/).
 
 ```bash
-pip install mkdocs-material && mkdocs serve
+pip install mkdocs-material
+mkdocs serve
 ```
 
-It serves on [http://localhost:4000](http://localhost:4000) (pinned via `dev_addr`)
-and live-reloads as you edit anything under `docs/`. `mkdocs build` writes a static
-site to the gitignored `site/`.
+They serve on [http://localhost:4000](http://localhost:4000) and reload as you edit anything in
+`docs/`. `mkdocs build --strict` writes the static site to `site/`, which git ignores.
 
 ## Next Steps
 
@@ -114,12 +101,12 @@ site to the gitignored `site/`.
 
     ---
 
-    Environment variables and CLI flags.
+    Environment variables and daemon flags.
 
 -   :material-wrench:{ .lg .middle } **[Development](guides/development.md)**
 
     ---
 
-    The make targets, the ruff and prettier style, and CI.
+    The make targets, code style, CI and deploys.
 
 </div>

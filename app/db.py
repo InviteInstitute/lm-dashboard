@@ -724,6 +724,7 @@ def _workspace_export_queries(workspace_id):
         "note": ("SELECT * FROM note WHERE workspace_id = ?", (ws,)),
         "pick_event": ("SELECT * FROM pick_event WHERE workspace_id = ?", (ws,)),
         "trigger_ack": ("SELECT * FROM trigger_ack WHERE workspace_id = ?", (ws,)),
+        "outbox": ("SELECT * FROM outbox WHERE workspace_id = ?", (ws,)),
         "student_state": (f"SELECT * FROM student_state WHERE {roster}", (ws,)),
         "trigger_event": (f"SELECT * FROM trigger_event WHERE {roster}", (ws,)),
         "switch_event": (f"SELECT * FROM switch_event WHERE {roster}", (ws,)),

@@ -39,6 +39,14 @@ else
     echo "scripts/deploy.sh changed in this pull -- re-running the new version ..."
     exec "$SELF" "$@"
   fi
+  # The docs workflow merges a docs-only commit after most merges. Rolling the stack for it
+  # would restart the daemon, which starts a new session and empties every card in the
+  # middle of a class, and the image doesn't hold the docs anyway.
+  if git diff --quiet "$BEFORE" "$AFTER" -- . ':(exclude)docs' ':(exclude)README.md' \
+    ':(exclude)mkdocs.yml' ':(exclude).github'; then
+    echo "Only the docs changed, so the running stack stays as it is."
+    exit 0
+  fi
 fi
 
 # The trigger/learner-model engine is the agent-lm-packages git submodule under

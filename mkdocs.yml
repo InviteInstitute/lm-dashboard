@@ -1,5 +1,5 @@
 site_name: Learner Modeling Dashboard
-site_description: A live who-needs-help dashboard for a cohort of students coding in the VEX block environment.
+site_description: A live board that shows which students in a VEX coding class need help right now.
 site_url: https://inviteinstitute.github.io/lm-dashboard/
 docs_dir: docs
 dev_addr: localhost:4000
@@ -37,17 +37,17 @@ nav:
   - Quickstart: quickstart.md
   - Concepts:
       - Architecture: concepts/architecture.md
-      - Write path (the daemon): concepts/write-path.md
-      - Read path and dashboard: concepts/read-path.md
-      - Data model: concepts/data-model.md
+      - Write Path (The Daemon): concepts/write-path.md
+      - Read Path And Dashboard: concepts/read-path.md
+      - Data Model: concepts/data-model.md
+      - Reflecks And ZANY: concepts/sources.md
   - Guides:
-      - Using the dashboard: guides/using-the-dashboard.md
+      - Using The Dashboard: guides/using-the-dashboard.md
       - Configuration: guides/configuration.md
       - Development: guides/development.md
-      - Running the tests: guides/testing.md
+      - Running The Tests: guides/testing.md
   - Reference:
-      - API reference: reference/api.md
-  - System Design: DESIGN.md
+      - API Reference: reference/api.md
 
 markdown_extensions:
   - attr_list

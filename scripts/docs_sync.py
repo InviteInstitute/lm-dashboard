@@ -14,6 +14,7 @@ docs/guides/development.md#the-docs explains the flow.
 import argparse
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -127,8 +128,9 @@ def tracked(head):
 
 
 def writable(path):
-    """Whether the model may write this repo path."""
-    if ".." in path.split("/"):
+    """Whether the model may write this repo path. A path that normalizes to a different one
+    (docs//changes/x.md, ../x, an absolute path) could slip past PROTECTED, so it is refused."""
+    if posixpath.normpath(path) != path or path.startswith("/"):
         return False
     return any(fnmatch(path, g) for g in WRITABLE) and not any(fnmatch(path, g) for g in PROTECTED)
 

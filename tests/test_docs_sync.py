@@ -35,3 +35,12 @@ def test_writable_respects_protected(monkeypatch):
     assert docs_sync.writable("README.md")
     assert not docs_sync.writable("AGENTS.md")
     assert not docs_sync.writable("docs/../app/x.md")
+
+
+def test_writable_rejects_paths_that_normalize_elsewhere(monkeypatch):
+    monkeypatch.setattr(docs_sync, "WRITABLE", ("docs/*.md",))
+    monkeypatch.setattr(docs_sync, "PROTECTED", ("docs/changes/*",))
+    assert not docs_sync.writable("docs//changes/x.md")
+    assert not docs_sync.writable("docs/./changes/x.md")
+    assert not docs_sync.writable("/docs/a.md")
+    assert docs_sync.writable("docs/a.md")

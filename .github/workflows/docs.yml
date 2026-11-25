@@ -3,8 +3,9 @@ name: Docs
 # After every push to main, bring the docs in step with the code and publish them.
 # scripts/docs_sync.py sends an LLM on NCSA's Lumen the push's diff, the code and the docs,
 # with the writing rules of Maharsh17/claude-config, and writes the pages it fixes. If the
-# site still builds with --strict, the job commits them to main and publishes to GitHub
-# Pages. docs/guides/development.md#the-docs has the details.
+# site still builds with `zensical build --strict`, the job commits them to main and
+# publishes the site to the gh-pages branch, which GitHub Pages serves.
+# docs/guides/development.md#the-docs has the details.
 #
 # A push made with this job's own token starts no workflow, so its commit never starts this
 # job again.
@@ -31,7 +32,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install mkdocs-material
+      - run: pip install zensical==0.1.3 ghp-import # zensical: the version in pyproject.toml
+      - run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Bring the docs in step with the push
         env:
@@ -41,21 +45,19 @@ jobs:
           --base "${{ github.event.before }}" --head "$GITHUB_SHA"
 
       - name: Check the site builds
-        run: mkdocs build --strict
+        run: zensical build --strict
 
       - name: Commit the docs to main
         run: |
-          if [ -z "$(git status --porcelain -- docs README.md mkdocs.yml)" ]; then
+          if [ -z "$(git status --porcelain -- docs README.md zensical.toml)" ]; then
             echo "The docs are current."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- docs README.md mkdocs.yml
+          git add -- docs README.md zensical.toml
           git commit -m "Bring the docs in step with ${GITHUB_SHA::7}"
           # main may have moved while the model worked. A docs-only commit rebases cleanly.
           git pull --rebase origin main
           git push origin HEAD:main
 
       - name: Publish the site
-        run: mkdocs gh-deploy --force
+        run: ghp-import --no-jekyll --push --force site

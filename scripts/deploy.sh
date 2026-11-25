@@ -43,7 +43,7 @@ else
   # would restart the daemon, which starts a new session and empties every card in the
   # middle of a class, and the image doesn't hold the docs anyway.
   if git diff --quiet "$BEFORE" "$AFTER" -- . ':(exclude)docs' ':(exclude)README.md' \
-    ':(exclude)mkdocs.yml' ':(exclude).github'; then
+    ':(exclude)zensical.toml' ':(exclude).github'; then
     echo "Only the docs changed, so the running stack stays as it is."
     exit 0
   fi

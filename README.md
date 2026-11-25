@@ -21,8 +21,8 @@ flowchart LR
     api --> dash["Researcher<br/>dashboard"]
 ```
 
-The full documentation is at <https://inviteinstitute.github.io/lm-dashboard/>. Run `zensical serve`
-to read it locally on port 4000.
+The full documentation is at <https://docs.inviteai.org/lm-dashboard/>, beside the ZANY and ATLAS
+docs. Run `zensical serve` to preview it locally on port 4000.
 
 ## Quick Start
 
@@ -44,8 +44,8 @@ is no login. Each browser gets its own board, and a student's activity starts to
 board is open.
 
 `make help` lists the shared commands, which are `dev`, `test`, `lint`, `format`, `build` and
-`deploy`. The [Quickstart](https://inviteinstitute.github.io/lm-dashboard/quickstart/) has the full
-setup, and [Development](https://inviteinstitute.github.io/lm-dashboard/guides/development/) has the
+`deploy`. The [Quickstart](https://docs.inviteai.org/lm-dashboard/quickstart/) has the full
+setup, and [Development](https://docs.inviteai.org/lm-dashboard/guides/development/) has the
 day-to-day workflow.
 
 ## What You Get

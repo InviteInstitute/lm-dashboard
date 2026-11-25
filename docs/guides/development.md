@@ -128,10 +128,11 @@ server by hand.
 
 ## The Docs
 
-The docs are this [Zensical](https://zensical.org) site, built from `docs/` and `zensical.toml`.
-It uses IBM Carbon's look in INVITE's palette, like the dashboard, from
-`docs/stylesheets/carbon.css`.
-`.github/workflows/docs.yml` keeps them up to date and publishes them on every push to `main`.
+The docs are the pages in `docs/`, with their nav in `zensical.toml`. They are published as the
+Learner Modeling Dashboard section of [docs.inviteai.org](https://docs.inviteai.org/lm-dashboard/),
+which also holds the ZANY and ATLAS docs. That site's theme, home page and build live in
+InviteInstitute/docs, and the INVITE server rebuilds it within two minutes of a change here.
+`.github/workflows/docs.yml` keeps the pages up to date on every push to `main`.
 
 1.  `scripts/docs_sync.py` sends glm-5.3 on NCSA's Lumen the diff of the push, the code and the
     current docs. Its instructions are the writing rules and skills from
@@ -141,14 +142,15 @@ It uses IBM Carbon's look in INVITE's palette, like the dashboard, from
 2.  The model returns only the pages that the change made wrong or incomplete. The script writes
     them, and `zensical build --strict` checks that every link and page still holds.
 3.  If any page changed, the job commits it to `main`. That commit, by `github-actions[bot]`, is the
-    record of what the bot wrote.
-4.  The job publishes the site to GitHub Pages.
+    record of what the bot wrote, and docs.inviteai.org shows it a few minutes later.
 
 The job needs the repository secret `LUMEN_API_KEY`. A push the bot makes starts no workflow, so
 it never runs on its own commit, and the server's deploy skips a docs-only commit (see
 [Deploying](#deploying)).
 
-To try it on your machine, set `LUMEN_API_KEY` and run the script. It compares `--head` (default
+The settings at the top of `scripts/docs_sync.py` say which pages the bot may write. zany and
+atlas-invite run copies of the same script with their own settings. To try it on your machine, set
+`LUMEN_API_KEY` and run the script. It compares `--head` (default
 `HEAD`) with `--base` (default the commit before it) and only edits files in your checkout, so
 review them with `git diff`.
 

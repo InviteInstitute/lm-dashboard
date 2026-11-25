@@ -144,15 +144,17 @@ InviteInstitute/docs, and the INVITE server rebuilds it within two minutes of a 
 3.  If any page changed, the job commits it to `main`. That commit, by `github-actions[bot]`, is the
     record of what the bot wrote, and docs.inviteai.org shows it a few minutes later.
 
-The job needs the repository secret `LUMEN_API_KEY`. A push the bot makes starts no workflow, so
-it never runs on its own commit, and the server's deploy skips a docs-only commit (see
+The job needs the repository secret `LUMEN_API_KEY`. The workflow runs one push at a time, so two
+quick pushes never race to commit the docs. A push the bot makes starts no workflow, so it never
+runs on its own commit, and the server's deploy skips a docs-only commit (see
 [Deploying](#deploying)).
 
-The settings at the top of `scripts/docs_sync.py` say which pages the bot may write. zany and
-atlas-invite run copies of the same script with their own settings. To try it on your machine, set
-`LUMEN_API_KEY` and run the script. It compares `--head` (default
-`HEAD`) with `--base` (default the commit before it) and only edits files in your checkout, so
-review them with `git diff`.
+The settings at the top of `scripts/docs_sync.py` say which pages the bot may write. A path that
+normalizes to a different file, like `docs//changes/x.md` or `../x`, is refused, and so is an
+absolute path, because either could slip past the protected list. zany and atlas-invite run
+copies of the same script with their own settings. To try it on your machine, set `LUMEN_API_KEY`
+and run the script. It compares `--head` (default `HEAD`) with `--base` (default the commit
+before it) and only edits files in your checkout, so review them with `git diff`.
 
 ```bash
 python scripts/docs_sync.py --style ../claude-config

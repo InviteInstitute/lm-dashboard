@@ -52,8 +52,8 @@ frontend/coverage/
 .ua/
 scripts/loadtest.py
 
-# Impeccable design-review scratch (large before/after PNGs)
-.impeccable/review/
+# Impeccable
+.impeccable/
 
 # Local goal-evidence screenshot harness (renders GoalEvidence vs an engine fixture)
 /frontend/goalharness.html

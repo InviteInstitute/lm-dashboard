@@ -1,74 +1,74 @@
 ---
-description: Every endpoint the FastAPI read API exposes, with request and response shapes.
+description: Every endpoint the API serves, with its request and response.
 ---
 
 # API Reference
 
-The read API runs at `http://localhost:8000` and also serves the built dashboard at
-`/`. It serves the materialized state the daemon computes and performs only small,
-per-board writes (track, ack, notes, toggles, reset, export, polling).
+The API runs at `http://localhost:8000` and serves the built dashboard at `/`. It returns what the
+daemon worked out and makes only small writes for the caller's board. Every route is in
+`app/main.py`.
 
-**The gate.** There is no login. Every `/api/` route below needs the signed
-`ts_verified` cookie a browser gets by passing **Cloudflare Turnstile** (see
-[`POST /api/turnstile/verify/`](#post-apiturnstileverify)). Without it, a route answers
-`403 {"error": "turnstile_required"}`, which the dashboard takes as its cue to show the
-check. `/healthz`, the static app and the verify route itself are open.
+## Before Any Call
 
-**Boards.** Each request also carries the browser's **board id** - the `X-Board-Id`
-header, or a `?board_id=` query param on the SSE stream - which scopes the response to
-that board's own roster, notes, picks and settings. A request with no board id acts on
-one shared default board.
+Every `/api/` route needs the signed `ts_verified` cookie that a browser gets by passing Cloudflare
+Turnstile (see [`POST /api/turnstile/verify/`](#post-apiturnstileverify)). Without it, a route
+answers `403 {"error": "turnstile_required"}`, and the dashboard shows the check when it sees that.
+`/healthz`, the static app and the verify route are open.
 
-**ZANY boards.** A board set to a ZANY study answers `403 {"detail": "zany_locked"}`
-on every route except `/api/source/` and `/api/zany/*` until its browser unlocks ZANY
-with the research login.
+Each request also names the browser's board, in the `X-Board-Id` header or, for the stream, a
+`?board_id=` query parameter. The answer is scoped to that board's roster, notes, picks and
+settings. A request without a board ID acts on one shared default board.
 
-## Endpoints At A Glance
+A board set to a ZANY study answers `403 {"detail": "zany_locked"}` on every route except
+`/api/source/` and `/api/zany/*` until its browser unlocks ZANY.
 
-| Method | Path | Purpose |
+Every board-scoped read shows only the board's source, only activity since its last reset, and
+only the trigger types it shows.
+
+## All Endpoints
+
+| Method | Path | What it does |
 |--------|------|---------|
-| `GET`  | `/healthz` | health check (outside the Turnstile gate) |
-| `POST` | `/api/turnstile/verify/` | pass the Turnstile check and get the cookie the gate wants |
+| `GET`  | `/healthz` | health check, outside the Turnstile gate |
+| `POST` | `/api/turnstile/verify/` | pass the Turnstile check and get the cookie |
 | `GET`  | `/api/source/` | which logs this board listens to |
-| `POST` | `/api/source/` | point this board at Reflecks or at one ZANY study |
-| `GET`  | `/api/zany/` | whether ZANY's logs are connected and unlocked here, and its studies |
-| `POST` | `/api/zany/unlock/` | unlock ZANY's logs in this browser with the research login |
-| `POST` | `/api/zany/lock/` | lock them again |
+| `POST` | `/api/source/` | point this board at Reflecks or one ZANY study |
+| `GET`  | `/api/zany/` | whether ZANY is connected and unlocked here, and its studies |
+| `POST` | `/api/zany/unlock/` | unlock ZANY in this browser with the research login |
+| `POST` | `/api/zany/lock/` | lock it again |
 | `GET`  | `/api/zany/participants/` | the participant IDs with records in one study |
-| `GET`  | `/api/stream/` | the live Server-Sent Events stream (pushes which channels changed) |
-| `GET`  | `/api/student_states/` | materialized per-student state (the dashboard's main read) |
-| `GET`  | `/api/student_states/{id}/` | the heavy single-student payload (incl. the playground prompt, readable program and goal evidence) |
-| `GET`  | `/api/tracked/` | the tracked-student roster |
+| `GET`  | `/api/stream/` | the live stream that says which channels changed |
+| `GET`  | `/api/student_states/` | the state of every student on the board |
+| `GET`  | `/api/student_states/{student_id}/` | one student's full payload, with the program and goal evidence |
+| `GET`  | `/api/tracked/` | the board's roster |
 | `POST` | `/api/tracked/` | track or untrack a student |
-| `GET`  | `/api/triggers/` | active + recently-resolved intervention feed |
-| `POST` | `/api/triggers/ack/` | dismiss a trigger |
-| `GET`  | `/api/triggers/history/` | one student's full trigger history (the student sheet) |
+| `GET`  | `/api/triggers/` | the alert feed |
+| `POST` | `/api/triggers/ack/` | dismiss an alert, or all of a student's |
+| `GET`  | `/api/triggers/history/` | one student's alert history |
 | `GET`  | `/api/triggers/config/` | which trigger types this board shows |
 | `POST` | `/api/triggers/config/` | show or hide a trigger type on this board |
-| `GET`  | `/api/switches/` | identity switches (casing flips, new class codes) for tracked students |
+| `GET`  | `/api/switches/` | identity switches for the board's students |
 | `POST` | `/api/switches/ack/` | dismiss an identity switch |
-| `POST` | `/api/presence/` | toggle whether a student is present in the room |
-| `POST` | `/api/picked/` | toggle whether a student has been picked/interviewed |
+| `POST` | `/api/presence/` | set whether a student is in the room |
+| `POST` | `/api/picked/` | set whether a student was picked for an interview |
 | `GET`  | `/api/notes/` | a student's notes |
 | `POST` | `/api/notes/` | add a note |
-| `GET`  | `/api/outbox/` | failed researcher inputs parked for replay |
-| `POST` | `/api/outbox/` | park a failed researcher input |
-| `POST` | `/api/export/` | download a zip of CSV snapshots of this board's data |
-| `POST` | `/api/reset/` | start THIS board fresh: clear its notes, picks and acks, and hide all activity from before now; the shared mirror stays |
-| `GET`  | `/api/polling/` | whether the daemon is currently polling production |
-| `POST` | `/api/polling/` | pause or resume the daemon's production polling |
+| `GET`  | `/api/outbox/` | the inputs that failed to save |
+| `POST` | `/api/outbox/` | park an input that failed to save |
+| `POST` | `/api/export/` | download a zip of CSV files of this board's data |
+| `POST` | `/api/reset/` | start this board fresh |
+| `GET`  | `/api/polling/` | whether the daemon polls production for this board |
+| `POST` | `/api/polling/` | pause or resume that polling |
 
 !!! tip "Responses are gzipped"
-    Any JSON response over ~1KB is gzip-compressed when the client accepts it (the
-    run arrays and playground payloads compress roughly 10x). The SSE stream is the
-    one exception. It's sent uncompressed so events are never buffered.
+    Any response over about 1 KB is gzipped when the client accepts it. The stream is the one
+    exception, so events are never held back.
 
 ---
 
 ## GET /healthz
 
-Liveness check. It's at `/healthz` rather than `/` so the static dashboard can be
-served from the root in remote builds.
+A health check. It lives at `/healthz` and not `/` because the dashboard is served from `/`.
 
 ```json title="Response"
 { "service": "luc-dashboard", "ok": true }
@@ -78,9 +78,8 @@ served from the root in remote builds.
 
 ## POST /api/turnstile/verify/
 
-Checks a Turnstile widget token with Cloudflare. On success it sets `ts_verified`, a
-signed, HTTP-only cookie good for 12 hours, which the gate checks on every other
-`/api/` call.
+Checks a Turnstile widget token with Cloudflare. On success it sets `ts_verified`, a signed,
+HTTP-only cookie that lasts 12 hours.
 
 ```json title="Request"
 { "token": "<the widget's response token>" }
@@ -92,7 +91,7 @@ Returns `{ "ok": true }`, or `403` when Cloudflare rejects the token.
 
 ## GET /api/source/
 
-Which logs this board listens to: `"reflecks"` (VEXcode VR), or one ZANY study as
+Which logs this board listens to. That is `"reflecks"` (VEXcode VR), or one ZANY study as
 `"zany:<study>"`.
 
 ```json title="Response"
@@ -103,24 +102,22 @@ Which logs this board listens to: `"reflecks"` (VEXcode VR), or one ZANY study a
 
 ## POST /api/source/
 
-Points this board at Reflecks or at one ZANY study. Every read on the board then shows
-only that source's students, and each source keeps its own roster.
+Points this board at Reflecks or at one ZANY study. Each source keeps its own roster.
 
 ```json title="Request"
 { "source": "zany:STUDY-0001" }
 ```
 
-Returns `{ "source": "zany:STUDY-0001" }`. `400` for an unknown source or a study with
-no records, `403 zany_locked` when this browser hasn't unlocked ZANY, `503` when ZANY's
-log store isn't answering.
+Returns `{ "source": "zany:STUDY-0001" }`. It answers `400` for an unknown source or a study with
+no records, `403 zany_locked` when this browser hasn't unlocked ZANY, and `503` when ZANY's store
+doesn't answer.
 
 ---
 
 ## GET /api/zany/
 
-Whether this deployment can read ZANY's logs (`enabled`, set by `ZANY_LOG_DSN`),
-whether this browser has unlocked them, and the studies with records once it has,
-newest activity first.
+Whether this server can read ZANY's logs (`enabled`, set by `ZANY_LOG_DSN`), whether this browser
+unlocked them, and once it has, the studies with records, newest activity first.
 
 ```json title="Response"
 {
@@ -132,23 +129,22 @@ newest activity first.
 }
 ```
 
-`code` is the class code students type in ZANY. `503` when the store isn't answering.
+`code` is the class code students type in ZANY. It answers `503` when the store doesn't answer.
 
 ---
 
 ## POST /api/zany/unlock/
 
-Unlocks ZANY's logs in this browser with the research login, the same one as
-ATLAS-invite's research pages. ATLAS checks it. On success it sets a signed,
-HTTP-only `zany_unlocked` cookie good for 12 hours.
+Unlocks ZANY's logs in this browser with the research login, which ATLAS-invite checks. On success
+it sets a signed, HTTP-only `zany_unlocked` cookie that lasts 12 hours.
 
 ```json title="Request"
 { "email": "researcher@example.edu", "password": "..." }
 ```
 
-Returns `{ "unlocked": true, "studies": [...] }`. `401` with ATLAS's reason for a wrong
-login, `404` when ZANY isn't connected here, and `429` after five wrong tries from one
-address in ten minutes.
+Returns `{ "unlocked": true, "studies": [...] }`. It answers `401` with the reason for a wrong
+login, `404` when ZANY isn't connected here, and `429` after five wrong tries from one address in
+ten minutes.
 
 ---
 
@@ -160,8 +156,8 @@ Clears the unlock cookie. Returns `{ "unlocked": false }`.
 
 ## GET /api/zany/participants/
 
-`?study=STUDY-0001`. The participant IDs with records in that study, sorted, for
-**Track everyone**. Needs an unlocked browser.
+Takes `?study=STUDY-0001` and returns the participant IDs with records in that study, sorted, for
+**Track everyone in**. The browser must be unlocked.
 
 ```json title="Response"
 { "participants": ["R01", "R02", "R03"] }
@@ -171,13 +167,12 @@ Clears the unlock cookie. Returns `{ "unlocked": false }`.
 
 ## GET /api/stream/
 
-The live feed the dashboard actually runs on: one long-lived Server-Sent Events
-connection instead of polling. On connect the server sends a `hello` (the client does
-one full fetch), then it checks an O(1) per-channel change counter four times a
-second and pushes a `changed` event naming only the channels that moved. The client
-refetches just those endpoints.
+The live stream the dashboard runs on, as Server-Sent Events. On connect the server sends `hello`,
+and the client fetches everything once. After that the server checks the change counters four
+times a second and sends `changed` with the channels that moved. Every 10 seconds it sends a
+keepalive comment.
 
-```text title="Response stream (text/event-stream)"
+```text title="Response (text/event-stream)"
 event: hello
 data: {}
 
@@ -187,97 +182,78 @@ data: {"channels": ["triggers", "states"]}
 : keepalive
 ```
 
-The channels are `states`, `triggers`, `switches`, and `roster`, mapping to
-`/api/student_states/`, `/api/triggers/`, `/api/switches/`, and `/api/tracked/`.
+The channels are `states`, `triggers`, `switches` and `roster`. They match
+`/api/student_states/`, `/api/triggers/`, `/api/switches/` and `/api/tracked/`.
 
-**Query parameters**
-
-| Parameter | Type | Description |
+| Parameter | Type | What it does |
 |---|---|---|
-| `once` | bool | return just the `hello` and close (used by tests) |
+| `board_id` | string | the board, since `EventSource` can't send headers |
+| `once` | bool | send `hello` and close, which the tests use |
 
 !!! note "The stream is the viewer heartbeat"
-    While a dashboard holds this connection open, the server stamps this board's
-    `viewer_last_seen` (on connect and every ~10 seconds), which is what the daemon's
-    per-board dead-man's switch reads. A hidden tab closes the stream. If no dashboard
-    is connected or polling, prod polling can wind down. See
+    While a dashboard holds the stream, the server stamps the board's `viewer_last_seen` on
+    connect and every 10 seconds. The daemon's dead-man's switch reads that stamp. See
     [Configuration](../guides/configuration.md#the-dead-mans-switch).
 
 ---
 
 ## GET /api/student_states/
 
-The dashboard's main read: the materialized per-student state.
+The dashboard's main read. It returns the state of every student on the board, newest activity
+first.
 
-**Query parameters**
-
-| Parameter | Type | Description |
+| Parameter | Type | What it does |
 |---|---|---|
-| `students` | string | comma-separated student IDs to filter to (`?students=a,b`) |
-| `classCode` | string | filter to a single class code |
+| `classCode` | string | only students with this class code |
 
 ```json title="Response"
 {
   "students": [
     {
-      "studentID": "...",
-      "classCode": "...",
-      "run_count": 12,
+      "studentID": "cobra3",
+      "display": "Cobra3",
+      "classCode": "FPFVDH",
+      "run_count": 3,
       "event_count": 240,
-      "last_seen": "2026-06-14T10:31:00",
+      "last_seen": "2026-06-14T10:31:00+00:00",
       "runs": {
         "runs": [
-          { "index": 0, "edit_distance": null, "ts": "2026-06-14T10:20:00" },
-          { "index": 1, "edit_distance": 0, "ts": "2026-06-14T10:22:00" },
-          { "index": 2, "edit_distance": 7, "ts": "2026-06-14T10:25:00" }
+          { "index": 0, "edit_distance": null, "ts": 1781432400.0, "playground": "CastleCrasherPlus" },
+          { "index": 1, "edit_distance": 0, "ts": 1781432520.0, "playground": "CastleCrasherPlus" },
+          { "index": 2, "edit_distance": 7, "ts": 1781432700.0, "playground": "CastleCrasherPlus" }
         ],
-        "run_count": 12
+        "run_count": 3
       },
-      "episodes": { "events": [], "episodes": [], "pauses": [] },
-      "updated_at": "2026-06-14T10:31:01"
+      "episodes": { "episodes": [], "pauses": [], "event_count": 240, "episode_count": 0, "pause_count": 0 },
+      "updated_at": "2026-06-14T10:31:01+00:00"
     }
   ],
   "student_count": 1
 }
 ```
 
-!!! note
-    Rows are sorted by most recent activity. Each run's `edit_distance` is the integer
-    APTED tree-edit-distance from the previous run (`null` for the first run). That
-    sequence is what the dashboard colours and what every trigger reads. There is no
-    stored status field, the dashboard derives a student's headline state from the
-    triggers feed. This is the *light* shape: it omits the bulky playground `block`,
-    which you get from the single-student endpoint below. A request for more than 500
-    student IDs returns `400`.
+Each run's `edit_distance` is the APTED tree edit distance from the run before it, and `null` for
+the first run on a playground. Run times are epoch seconds. There is no status field, because the
+dashboard works out the headline from the alert feed. This is the light shape, without the program,
+which comes from the single-student endpoint.
 
 !!! note "Viewer heartbeat"
-    A `GET` here also stamps `meta.viewer_last_seen`, and so does an open
-    [`/api/stream/`](#get-apistream) connection. Either way, a fresh stamp means a
-    dashboard is open, which is what the daemon's dead-man's switch reads. See
-    [Configuration](../guides/configuration.md#the-dead-mans-switch).
+    Each call here also stamps the board's `viewer_last_seen`, as an open stream does.
 
 ---
 
-## GET /api/student_states/{id}/
+## GET /api/student_states/{student_id}/
 
-The heavy payload for one student. Same fields as a row above (including `display`,
-the handle in its most-recent casing), plus the playground `block`:
+One student's full payload, which the student sheet fetches when it opens. It has the fields of a
+row above plus the program in `block`.
 
-```json title="Response (extra field)"
+```json title="Response (extra fields)"
 {
   "block": {
     "llm_prompt": "...",
-    "timestamp": "2026-06-14T10:31:00",
+    "timestamp": "2026-06-14T10:31:00+00:00",
     "readable": "when started\ndrive for forward, mm, amount 200\nturn for right, amount 90"
-  }
-}
-```
-
-It also carries the student's goal evidence, one entry per profiled Castle Crashers
-run since this board's last reset:
-
-```json title="Response (goal evidence)"
-{
+  },
   "goal_recognition_enabled": true,
   "goal_runs": [
     {
@@ -293,32 +269,31 @@ run since this board's last reset:
 }
 ```
 
-Each run lists every goal's indicators with the rung reached and its uncertainty
-flags, the rung-change `timeline`, the sensor-test `battery`, the rolled-up claim per
-goal (`rollup`), the provisional execution `rubric`, and run-level facts (`summary`,
-such as whether the robot left the island). This is evidence with explicit
-abstentions, not a score. `goal_runs` is `[]` when goal recognition is off
-(`GOAL_RECOGNITION_ENABLED=0`) or shaping fails.
+`readable` is the student's latest blocks as a program listing, with block names from the official
+VEX mapping and every value spelled out, including how far the robot drives and how much it turns.
+Nested conditions print inline, like `if (not ((object distance < 200) and eye near object))`. A
+snapshot that is missing or can't be parsed gives `""`.
 
-`readable` is the student's latest blocks rendered as a program listing, with block
-names from the official VEX mapping and every parameter spelled out, including the
-numbers (how far they drive, how much they turn). Nested conditions render inline,
-for example `if (not ((object distance < 200) and eye near object))`. It's
-best-effort: an unparseable or missing snapshot yields `""`.
+`goal_runs` has one entry per profiled Castle Crashers run since the board's reset. Each lists every
+goal's indicators with the rung reached and their uncertainty flags, the rung-change `timeline`,
+the sensor test `battery`, the claim per goal (`rollup`), the provisional execution `rubric`, and
+facts about the run (`summary`), such as whether the robot left the island. It is `[]` when goal
+recognition is off (`GOAL_RECOGNITION_ENABLED=0`) or shaping fails.
 
-Returns `404` when the student is tracked but has no materialized state yet.
+It answers `404` when the student isn't on the board or has no state yet.
 
 ---
 
 ## GET /api/tracked/
 
-The tracked-student roster.
+The board's roster for its current source.
 
 ```json title="Response"
 {
   "tracked": [
     {
-      "studentID": "...",
+      "studentID": "cobra3",
+      "display": "Cobra3",
       "backfilled": true,
       "has_data": true,
       "present": true,
@@ -326,7 +301,8 @@ The tracked-student roster.
       "picked_at": null
     }
   ],
-  "count": 1
+  "count": 1,
+  "source": "reflecks"
 }
 ```
 
@@ -334,40 +310,41 @@ The tracked-student roster.
 
 ## POST /api/tracked/
 
-Add or remove a tracked student. Adding triggers a one-time backfill by the daemon.
+Tracks or untracks a student on this board. Tracking starts a one-time backfill in the daemon. On
+a ZANY board, an ID is a participant ID in the board's study.
 
 ```json title="Track a student"
-{ "studentID": "abc123" }
+{ "studentID": "cobra3" }
 ```
 
-```json title="Untrack and delete local data"
-{ "studentID": "abc123", "remove": true }
+```json title="Untrack a student"
+{ "studentID": "cobra3", "remove": true }
 ```
 
-Responses are `{ "added": "abc123" }` or `{ "removed": "abc123" }`. A missing
-`studentID` returns `400`.
+Returns `{ "added": "cobra3" }` or `{ "removed": "cobra3" }`. Untracking deletes the student's
+shared data only when no other board tracks them. A missing `studentID` answers `400`.
 
 ---
 
 ## GET /api/triggers/
 
-The intervention feed: active triggers plus ones resolved in the last 120 seconds,
-newest first, unacknowledged only.
+The alert feed. It has open alerts and those resolved in the last 7 minutes, newest first, that
+this board hasn't dismissed, of the types it shows.
 
 ```json title="Response"
 {
   "triggers": [
     {
       "id": 42,
-      "studentID": "...",
+      "studentID": "cobra3",
       "trigger_type": "wheel_spin",
       "label": "Wheel-spinning",
       "value": "6 identical reruns",
-      "started_at": "2026-06-14T10:25:00",
+      "started_at": "2026-06-14T10:25:00+00:00",
       "resolved_at": null,
       "active": true,
       "age_seconds": 360.0,
-      "prev": { "trigger_type": "explorer", "label": "Explorer", "at": "2026-06-14T10:12:00" }
+      "prev": { "trigger_type": "explorer", "label": "Explorer", "at": "2026-06-14T10:12:00+00:00" }
     }
   ],
   "active_count": 1,
@@ -375,73 +352,68 @@ newest first, unacknowledged only.
 }
 ```
 
-`prev` is the student's most recent trigger before this one (what it was and at what
-time), so the alert card can show context at a glance. It's `null` for a student's
-first-ever alert.
-
-There are five trigger types, all defined on the per-run `edit_distance`:
+`prev` is the student's alert before this one, so the feed can show it. It is `null` for a
+student's first alert. `counts` counts the open alerts by type.
 
 | `trigger_type` | Label | Fires when | Example `value` |
 |---|---|---|---|
-| `wheel_spin` | Wheel-spinning | 6+ consecutive `edit_distance == 0` | `6 identical reruns` |
-| `resilience` | Resilience | an edit after 4+ zeros | `recovered after 5 reruns` |
-| `inactive` | Inactive | idle >= 240s (4 min) | `idle 7m` |
+| `wheel_spin` | Wheel-spinning | 6 runs in a row with `edit_distance == 0` | `6 identical reruns` |
+| `resilience` | Resilience | an edit after 4 or more zeros | `recovered after 5 reruns` |
+| `inactive` | Inactive | idle for 240 seconds | `idle 7m` |
 | `explorer` | Explorer | a run with `edit_distance >= 13` | `changed 21` |
-| `iterative` | Step-by-Step | 6 runs with `edit_distance >= 1` | `6 steady edits` |
+| `iterative` | Step-by-Step | the playground's count of runs with `edit_distance >= 1` (6 by default) | `6 steady edits` |
 
-`wheel_spin`, `resilience`, `explorer`, and `iterative` are momentary (one row per
-qualifying run). `inactive` is sustained (open while idle, re-alerts after 10 min if
-acked and still holding).
+The first four are momentary, with one row per run that fires them. `inactive` is sustained. It
+stays open while the student is idle and opens again after 10 minutes if it was dismissed and the
+student is still idle.
 
 ---
 
 ## POST /api/triggers/ack/
 
-Dismiss a trigger by `id`, or all open triggers for a student.
+Dismisses one alert by `id`, or every alert of one student, for this board.
 
 ```json title="By id"
 { "id": 42 }
 ```
 
 ```json title="By student"
-{ "studentID": "abc123" }
+{ "studentID": "cobra3" }
 ```
 
-Returns `{ "acknowledged": n }`. Providing neither returns `400`.
+Returns `{ "acknowledged": n }`. Sending neither answers `400`.
 
 ---
 
 ## GET /api/triggers/history/
 
-One student's full trigger history for the session, newest first, open, resolved, and
-dismissed alike. This is what the detail modal's trigger-history grid renders.
+One student's alert history since the board's reset, newest first, whether open, resolved or
+dismissed. The student sheet shows it.
 
-**Query parameters**
-
-| Parameter | Type | Description |
+| Parameter | Type | What it does |
 |---|---|---|
-| `studentID` | string | required, case-insensitive |
+| `studentID` | string | required, and case doesn't matter |
 
 ```json title="Response"
 {
   "history": [
     { "id": 44, "trigger_type": "inactive", "label": "Inactive", "value": "idle 6m",
-      "started_at": "2026-06-14T10:31:00", "resolved_at": null, "status": "active" },
+      "started_at": "2026-06-14T10:31:00+00:00", "resolved_at": null, "status": "active" },
     { "id": 42, "trigger_type": "wheel_spin", "label": "Wheel-spinning", "value": "6 identical reruns",
-      "started_at": "2026-06-14T10:25:00", "resolved_at": "2026-06-14T10:27:00", "status": "dismissed" }
+      "started_at": "2026-06-14T10:25:00+00:00", "resolved_at": "2026-06-14T10:25:00+00:00", "status": "dismissed" }
   ],
   "count": 2
 }
 ```
 
-`status` is `active` (still open), `resolved` (closed by new activity), or
-`dismissed` (acknowledged by the researcher).
+`status` is `active` (still open), `resolved` (closed by new activity, or a momentary alert) or
+`dismissed`.
 
 ---
 
 ## GET /api/triggers/config/
 
-Which trigger types **this board** shows (all on by default), with their labels.
+Which trigger types this board shows, all of them by default, with their labels.
 
 ```json title="Response"
 {
@@ -457,46 +429,42 @@ Which trigger types **this board** shows (all on by default), with their labels.
 
 ## POST /api/triggers/config/
 
-Show or hide one trigger type on **this board** (stored in `workspace_setting`). The
-daemon keeps firing every type, since alerts are shared by all boards, so this only
-filters this board's [feed](#get-apitriggers). Switching a type back on brings back its
-alerts that are still current. A board that has never set its own switches uses the
-shared setting from before they were per board.
+Shows or hides one trigger type on this board. The daemon keeps firing every type, because alerts
+are shared by all boards, so this only filters this board's [feed](#get-apitriggers). Showing a
+type again brings back its alerts that are still current. A board that never set its own switches
+uses the shared setting from before the switches were per board.
 
 ```json title="Request"
 { "trigger_type": "inactive", "enabled": false }
 ```
 
-Returns the full `enabled` map. An unknown `trigger_type` returns `400`.
+Returns the full `enabled` map. An unknown `trigger_type` answers `400`.
 
 ---
 
 ## GET /api/switches/
 
-Identity switches detected for tracked students, newest first: a handle arriving in a
-different casing (`cobra3` to `Cobra3`), or a handle turning up under a new class
-code. These drive the dashboard's switch toasts and the Identity Switches feed.
+Identity switches for the board's students, newest first, up to 100. A switch is an ID that arrives
+in a different casing (`cobra3` to `Cobra3`) or under a new class code.
 
 ```json title="Response"
 {
   "switches": [
     { "id": 5, "studentID": "cobra3", "kind": "class",
       "from": "FPFVDH", "to": "AFURRR",
-      "ts": "2026-06-14T10:31:00", "acknowledged": false }
+      "ts": "2026-06-14T10:31:00+00:00", "acknowledged": false }
   ],
   "unacked": 1
 }
 ```
 
-`kind` is `casing` or `class`. Identity is folded case-insensitively, so both
-spellings are one student. The switch is the signal that the same handle is active
-from a new spelling or class (often a shared device).
+`kind` is `casing` or `class`.
 
 ---
 
 ## POST /api/switches/ack/
 
-Dismiss one identity switch so it stops showing as new.
+Dismisses one identity switch so it no longer shows as new. The dismissal is shared by every board.
 
 ```json title="Request"
 { "id": 5 }
@@ -508,70 +476,72 @@ Returns `{ "acknowledged": 1 }`.
 
 ## POST /api/presence/
 
-Toggle whether a tracked student is present in the room. Stored on `tracked_student`,
-so it's included in the CSV export.
+Sets whether a tracked student is in the room, on this board.
 
 ```json title="Request"
-{ "studentID": "abc123", "present": false }
+{ "studentID": "cobra3", "present": false }
 ```
 
-Returns `{ "studentID": "abc123", "present": false }`. A missing `studentID`
-returns `400`.
+Returns `{ "studentID": "cobra3", "present": false }`. A missing `studentID` answers `400`.
 
 ---
 
 ## POST /api/picked/
 
-Toggle whether a tracked student has been picked/interviewed this session. Stored on
-`tracked_student` (with `picked_at`) and logged to `pick_event`.
+Sets whether a tracked student was picked for an interview this session, on this board. It sets
+`picked_at` on the roster row and adds a row to `pick_event`, which records where the pick came
+from.
 
 ```json title="Request"
-{ "studentID": "abc123", "picked": true }
+{ "studentID": "cobra3", "picked": true, "source": "intervention", "trigger_id": 42, "trigger_type": "wheel_spin" }
 ```
 
-Returns `{ "studentID": "abc123", "picked": true }`. A missing `studentID`
-returns `400`.
+`source` is `roster` (the default, from a card) or `intervention` (from an alert, with the alert's
+`trigger_id` and `trigger_type`). Returns `{ "studentID": "cobra3", "picked": true }`. A missing
+`studentID` answers `400`.
 
 ---
 
 ## GET /api/notes/
 
-A student's notes, oldest first.
+This board's notes for one student, oldest first.
 
-**Query parameters**
-
-| Parameter | Type | Description |
+| Parameter | Type | What it does |
 |---|---|---|
-| `studentID` | string | required, the student to list notes for |
+| `studentID` | string | required |
 
 ```json title="Response"
-{ "notes": [ { "id": 1, "studentID": "...", "ts": "...", "text": "...", "trigger_id": null, "trigger_type": null, "created_at": "..." } ], "count": 1 }
+{
+  "notes": [
+    { "id": 1, "studentID": "cobra3", "ts": "2026-06-14 10:31:00.000000", "text": "talked through the loop",
+      "trigger_id": null, "trigger_type": null, "created_at": "2026-06-14 10:31:00.000000" }
+  ],
+  "count": 1
+}
 ```
 
-A missing `studentID` returns `400`.
+A missing `studentID` answers `400`.
 
 ---
 
 ## POST /api/notes/
 
-Add a note for a learner. Include `trigger_id` / `trigger_type` to link it to the
-alert it was written from. Omit both for a free-standing note.
+Adds a note for a student on this board. Send `trigger_id` and `trigger_type` to tie it to the
+alert it was written from, or leave both out.
 
 ```json title="Request"
-{ "studentID": "abc123", "text": "talked through the loop", "trigger_id": 42, "trigger_type": "wheel_spin" }
+{ "studentID": "cobra3", "text": "talked through the loop", "trigger_id": 42, "trigger_type": "wheel_spin" }
 ```
 
-Returns the created note row. A missing `studentID` or empty `text` returns `400`.
+Returns the new note. A missing `studentID` or empty `text` answers `400`.
 
 ---
 
 ## POST /api/outbox/
 
-Park a researcher input whose write failed its retries. The dashboard calls this
-automatically as the last step of its resilient-write path (see the
-[read path](../concepts/read-path.md#resilient-writes-and-the-outbox)). You normally
-never call it by hand. The raw payload is stored verbatim so the input can be
-replayed later.
+Parks an input whose write failed every retry. The dashboard calls this itself as the last step of
+[saving a researcher's input](../concepts/read-path.md#saving-a-researchers-input). The payload is
+stored as sent, so the input can be replayed by hand.
 
 ```json title="Request"
 { "op": "note on cobra3", "payload": { "studentID": "cobra3", "text": "..." }, "error": "Network Error" }
@@ -583,16 +553,15 @@ Returns `{ "stored": true }`.
 
 ## GET /api/outbox/
 
-The parked failed inputs, newest first. The outbox is deliberately spared by
-[reset](#post-apireset) and included in the CSV export, so a failed input survives
-everything.
+This board's parked inputs, newest first, up to 200. Reset leaves the outbox alone, and the export
+includes it.
 
 ```json title="Response"
 {
   "outbox": [
     { "id": 1, "op": "note on cobra3",
       "payload": "{\"studentID\": \"cobra3\", \"text\": \"...\"}",
-      "error": "Network Error", "created_at": "2026-06-14 10:31:00" }
+      "error": "Network Error", "created_at": "2026-06-14 10:31:00.000000" }
   ],
   "count": 1
 }
@@ -602,40 +571,36 @@ everything.
 
 ## POST /api/export/
 
-Download a **zip of CSV snapshots** of **this board's** data (one CSV per table: the
-board's roster/notes/picks, plus the shared events, materialized state, and triggers
-for the students it tracks). The zip is built entirely in memory and streamed to the
-browser, so nothing is written to disk and the database is never touched. This is
-**read-only** and safe to run any time.
+Downloads a zip with one CSV per table. It has this board's roster, notes, picks and dismissals,
+and the events, state, alerts, goal evidence and switches of the students it tracks. The zip is
+built in memory, and nothing is written.
 
 ```http title="Response"
 200 OK
 Content-Type: application/zip
 Content-Disposition: attachment; filename="lm-dashboard_export_2026-06-14_103100.zip"
 
-<binary zip: student_state.csv, trigger_event.csv, vex_log.csv, ...>
+<zip: tracked_student.csv, note.csv, pick_event.csv, student_state.csv, vex_log.csv, ...>
 ```
 
 ---
 
 ## POST /api/reset/
 
-Clear **this board's** researcher state for a fresh session: its notes, the
-interview-pick state (picked toggles + pick history), and its trigger dismissals.
-Its roster and presence stay. Unlike the old single-board reset, the **shared**
-per-student mirror (`vex_log`, `student_state`, `trigger_event`) is left intact -
-other boards depend on it, and this board just re-derives its view from it.
+Starts this board fresh. It clears the board's notes, picks and pick history, and its dismissals,
+and from then on every read shows only activity after the reset. The roster and presence stay, and
+the shared student data stays, since other boards use it.
 
 !!! info
-    A CSV backup of this board (notes and picks included) is written to
-    `exports/reset_<timestamp>/` before anything is cleared, so nothing is lost. The
-    [outbox](#get-apioutbox) is deliberately spared. Production is untouched.
+    Before it clears anything, it writes a CSV backup of the board, notes and picks included, to
+    `exports/reset_<timestamp>/`. The [outbox](#get-apioutbox) is left alone. Production is never
+    touched.
 
 ```json title="Response"
 {
   "reset": true,
-  "at": "2026-06-14T10:31:00",
-  "backup": "/.../exports/reset_2026-06-14_103100"
+  "at": "2026-06-14T10:31:00+00:00",
+  "backup": "/app/exports/reset_2026-06-14_103100"
 }
 ```
 
@@ -643,8 +608,7 @@ other boards depend on it, and this board just re-derives its view from it.
 
 ## GET /api/polling/
 
-Whether the daemon is polling production for **this board**. New boards default to
-enabled.
+Whether the daemon polls production for this board. A new board starts with it on.
 
 ```json title="Response"
 { "enabled": true }
@@ -654,25 +618,17 @@ enabled.
 
 ## POST /api/polling/
 
-Pause or resume the daemon's production polling. When it's paused, the daemon makes
-zero requests to prod. It keeps running locally and picks back up within about a
-second of being re-enabled. This is how you stop loading production between sessions
-without killing the process.
+Pauses or resumes the daemon's production polling for this board. While it is paused, the daemon
+makes no production calls for the board. It picks up again within about a second of resuming, and
+backfills the board's students to fill the gap.
 
 ```json title="Pause"
 { "enabled": false }
 ```
 
-```json title="Resume"
-{ "enabled": true }
-```
-
-Returns the new state, e.g. `{ "enabled": false }`. This is a per-board control flag
-(stored in `workspace_setting`). Production is untouched.
+Returns the new state, like `{ "enabled": false }`.
 
 !!! note
-    This is the *manual* pause. When the daemon runs with `--require-viewer` (the prod
-    deployment arms it), there's also an *automatic* pause: prod polling stops for a
-    board whenever its dashboard hasn't polled recently. The two are independent - the
-    daemon polls a board only when it's manually enabled **and** a viewer is present. See
-    [Configuration](../guides/configuration.md#the-dead-mans-switch).
+    This is the manual pause. With `--require-viewer`, which `compose.yml` turns on, the daemon
+    also stops polling a board whose dashboard nobody has open. It polls a board only when both
+    allow it. See [Configuration](../guides/configuration.md#the-dead-mans-switch).

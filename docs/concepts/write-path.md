@@ -1,230 +1,204 @@
 ---
-description: How the single-writer daemon ingests events, computes per-run edit distances and episodes, and fires intervention triggers.
+description: How the daemon pulls events, keeps a restart lossless, measures each run and fires the triggers.
 ---
 
 # Write Path (The Daemon)
 
-The daemon (`python -m app.pipeline`) is the only thing in the system that writes.
-It's one blocking loop, and every pass through it runs the whole pipeline start to
-finish - serving **every board at once** from one shared mirror.
+The daemon (`python -m app.pipeline`) is the only process that writes student data. It is one
+blocking loop, and each pass through it runs the whole pipeline for every board at once.
 
-## Tick Order
+## A Tick
 
 ```mermaid
 flowchart LR
-    a["1. Live boards<br/>+ union roster"] --> b["2. Backfill<br/>new students"] --> c["3. Drain<br/>ingest"]
-    c --> d["4. Recompute<br/>dirty workers"] --> e["5. Evaluate<br/>triggers"] --> f["6. Adaptive<br/>sleep"]
+    a["1. Find live<br/>boards"] --> b["2. Backfill<br/>new students"] --> c["3. Drain<br/>new events"]
+    c --> d["4. Recompute<br/>changed students"] --> e["5. Check<br/>inactive"] --> f["6. Sleep"]
     f -. "next tick" .-> a
 ```
 
-Each tick moves through these stages in order:
+1.  The daemon finds the live boards. A board is live when its polling is on and, with the
+    dead-man's switch armed, someone has looked at it in the last 90 seconds. If no board is live,
+    it waits a second and checks again.
+2.  It keeps a worker for every student on any board's roster. A student who was just added to a
+    live board gets a one-time backfill of their history since the daemon started.
+3.  It drains everything new from production (and from ZANY's store, when that is connected) for
+    the students on live boards, and stores it.
+4.  It recomputes each student who got new events in this tick, once each.
+5.  It checks every student for the inactive trigger.
+6.  It sleeps until the next tick, longer when nothing is happening.
 
-1.  **Live boards and roster.** Work out which boards are *live* (polling enabled and,
-    with the dead-man's switch armed, a fresh viewer). If none are, pause. Otherwise
-    keep a worker for every student on the **union** of all boards' rosters, and take
-    the union of the **live** boards' rosters as the prod-poll allowlist.
-2.  **Backfill new students.** One-time history backfill for any newly-tracked student
-    on a live board (shared, so it runs once per student).
-3.  **Drain (ingest).** Pull everything new since the cursor for the poll allowlist and
-    persist it idempotently.
-4.  **Recompute dirty workers.** Re-run inference once per student who got events
-    this tick.
-5.  **Evaluate triggers.** One sweep over all students to open and resolve
-    intervention flags.
-6.  **Adaptive sleep.** Wait for the current poll interval, with idle backoff
-    applied.
+A reset has no step here. Reset is an API action that records when the board was reset, and the
+API hides anything older on that board. It never touches the shared data, so the daemon doesn't
+need to know.
 
-There's no reset step any more: reset is a per-board API action that clears that
-board's own notes/picks/acks and records when it happened, and the API then hides
-anything older on that board. It never touches the shared mirror, so the daemon has
-nothing to do on a reset.
+## Sessions
 
-Each daemon start is a new session: workers replay only events from that moment
-on, so run numbers restart at 0. Stored goal evidence and the per-run alert dedupe
-are keyed by session as well as run number, so a restart never overwrites an
-earlier session's runs or silences a reused run number. A newly tracked student's
-history is backfilled into the log first, then the worker is rebuilt from it in
-time order.
+Each start of the daemon is a new session. It ingests only events from the moment it started, for
+both the backfill and the live drain, and it rebuilds every tracked student's card from those
+events. So a student ID that a class reuses on a later day doesn't pull in its earlier sessions.
+The older rows stay in `vex_log`.
 
-## Client And Polling
+Run numbers start again at 0 each session. Stored goal evidence and the duplicate check for alerts
+are keyed by session as well as run number, so a restart never overwrites an earlier session's runs
+or silences an alert on a reused run number.
 
-The client is a normal authenticated REST client (token auth, a keep-alive session,
-re-auth on a 401). It has two backoffs that do different jobs:
+## Polling Production
 
-- **Idle backoff.** 0.5s when things are active, growing up to `PIPELINE_IDLE_MAX`
-  (5s) when nothing's happening. Any activity resets it. This is what keeps load off
-  prod.
-- **Failure backoff.** Exponential up to 30s when requests error out, and it logs
-  `UNHEALTHY` after five failures in a row. This is just resilience.
+The client signs in with a token, reuses one keep-alive connection and signs in again when a
+request comes back 401. It has two kinds of backoff, and they do different jobs.
+
+The idle backoff keeps load off production. While events flow, the daemon polls every 0.5
+seconds. When a tick finds nothing, the wait doubles each time up to `PIPELINE_IDLE_MAX` (5
+seconds), and the first new event brings it straight back to 0.5.
+
+The failure backoff handles errors. When a request fails, the wait grows up to 30 seconds, and
+after five failures in a row the daemon logs `UNHEALTHY`.
 
 !!! tip
-    Poll load tracks event volume, not how many students you're tracking. Thanks to
-    the backoff, a quiet cohort barely touches prod no matter how big the roster is.
+    Poll load follows how much is happening, not how many students are on the roster. A quiet
+    class barely touches production, however big it is.
 
-## Cursor And Idempotency
+## The Cursor And Duplicates
 
-This is the part that makes a restart lossless, and it's the most important bit of
-correctness machinery in the whole thing.
+This is what makes a restart lose nothing.
 
-- The cursor is a timestamp (`last_event_time`) plus `last_source_id`.
-- Each drain pages prod with `dateFrom = last_event_time - overlap`, where overlap is
-  a 2-second window, so events sitting right on a timestamp boundary don't slip
-  through.
-- Prod returns pages newest-first, so a drain collects every page, sorts the events
-  oldest-first, and only then persists and routes them. Workers must see a student's
-  events in the order they happened: a run's outcome follows its run, and run
-  numbers count up.
-- It persists, then advances. The cursor only moves after a full drain is safely
-  written.
-- Inserts are idempotent. Every event has a unique `source_event_id`, so re-fetched
-  overlap events get dropped (there's an existence check, plus a `UNIQUE` constraint
-  to catch races).
+The cursor is a timestamp (`last_event_time`) and the highest source ID seen. Each drain asks
+production for events from 2 seconds before the cursor, so an event that shares a timestamp with
+the last one isn't skipped.
 
-Put it together and a crash mid-drain is a non-event: on restart it just re-fetches
-the overlap and de-dupes. At-least-once delivery plus dedup gives you effectively-once
-processing, with nothing lost.
+Production pages newest first. The daemon collects every page, sorts the events oldest first, and
+only then stores them and hands them to the workers. A worker must see a student's events in the
+order they happened, because a run's outcome follows the run and run numbers count up.
 
-## Roster Allowlist And Fan-Out
+The daemon stores first and moves the cursor second. The cursor only moves after a whole drain is
+written. Every event has a unique `source_event_id`, so an event fetched twice is dropped, first by
+a lookup and then by a `UNIQUE` constraint if two writes race.
 
-The daemon only ingests and computes students that appear on some board's
-`tracked_student` roster - it takes the **union** across all boards, so a student
-watched by two researchers is polled and materialized exactly once. It polls prod only
-for students on a **live** board (polling on + a fresh viewer under the dead-man's
-switch), so a paused or unwatched board's exclusive students don't cost any prod calls,
-while a shared student stays live as long as *any* watching board is. Adding a student
-kicks off a one-time backfill of their recent history (separate from the cursor) so
-their card fills in within a tick or two. The backfill runs once per student and marks
-every board's roster row for them.
+So a crash in the middle of a drain costs nothing. On restart the daemon fetches the overlap
+again and drops what it already has. At-least-once delivery plus the duplicate check means each
+event counts exactly once.
+
+## Rosters And Backfill
+
+The daemon only stores and analyzes students on some board's roster. It takes the union of every
+board's roster, so a student on two boards is polled and analyzed once. It only polls production
+for students on a live board, so a paused or closed board's own students cost nothing. A student
+on two boards stays live while either board is.
+
+Adding a student starts a backfill of their history since the session began, separate from the
+cursor, so their card fills in within a tick or two. The backfill runs once per student, then the
+daemon rebuilds the student's worker from the log in time order. Turning a board's polling back on
+marks its students for backfill again, which fills the gap from the pause.
 
 ## Per-Student Workers
 
-Every tracked student gets a `StudentWorker` that holds a rolling
-`deque(maxlen=5000)` of recent events.
+Each tracked student gets a `StudentWorker` that keeps their last 5,000 events in memory.
 
-- **Debounced recompute.** A `dirty` flag means a worker recomputes once per tick, no
-  matter how many events landed.
-- **Rehydrate on cold start.** If a worker is missing, it reloads its tail from
-  `vex_log` (the one SQL read on the hot path). In-memory state is lost on restart,
-  but it's reconstructed straight from the log, and each trigger's already-fired run
-  indices are re-seeded from `trigger_event` so a restart can't repeat old alerts.
-- **Identity-switch detection.** Workers are keyed on the case-folded handle, so
-  `cobra3` and `Cobra3` land in one worker. On each ingested event the worker compares
-  the incoming casing and class code against its last-seen values and records any flip
-  to `switch_event`, which is what feeds the dashboard's identity-switch toasts and
-  feed. The most-recent raw casing is kept as `display_id` for the UI.
+A worker recomputes once per tick no matter how many events arrived, because a `dirty` flag marks
+it for the end of the tick. If a worker is missing, after a restart for example, it reloads its
+events from `vex_log`. That is the one SQL read on the hot path. It also reloads the run numbers
+each trigger already fired on, so a restart never repeats an old alert.
 
-## Inference
+Workers are keyed on the student ID in lowercase, so `cobra3` and `Cobra3` are one student. On
+every event the worker compares the incoming casing and class code with the last ones it saw, and
+records any change in `switch_event`. Those records feed the identity-switch toasts. The worker
+keeps the newest casing as `display_id` for the dashboard.
 
-There is no machine-learning model here anymore, no HMM, no numpy, no `model.pkl`.
-Inference is a single deterministic number per run: the **edit distance** between one
-`runProject` and the previous one.
+Clocks on two devices can disagree. When `cobra3` and `Cobra3` feed one worker from two machines, the
+last event to arrive isn't always the last to happen (one pair was about four minutes apart). So a
+worker only takes a new program snapshot when its time is not older than the one it holds. A
+snapshot without a time is always taken, since there is nothing to compare.
 
-`compute_run_edit_distances` walks a student's runs in order and, for each one:
+## Measuring Each Run
 
-1.  **Extract the scoring tree.** Parse the code that actually runs into a tree:
-    stacks under a hat and the My Blocks they call, with the numbers and text typed
-    into each block. Detached blocks, disabled blocks and comments are left out.
-2.  **Compute the edit distance.** APTED tree-edit-distance against the previous run,
-    an integer, with a hashed-pair cache so the same comparison isn't recomputed.
-    Adding, deleting, changing or moving a block each costs 1, so the number reads
-    as "how many blocks changed." The full rules are in agent-lm-packages
-    (`learner_models/README.md`, and `test_scoring_policy.py` for every kind of edit).
+There is no machine-learning model. Each run gets one number, its edit distance from the run
+before it. The engine is the `learner_models` package in the
+[agent-lm-packages](https://github.com/InviteInstitute/agent-lm-packages) submodule under
+`vendor/`, and the worker feeds it one event at a time through `RunDistanceStream`.
+
+For each `runProject` event, the engine parses the code that runs into a tree. That is every stack
+under an enabled hat block, the My Blocks those stacks call, and the numbers and text typed into
+each block. Detached blocks, disabled blocks and comments are left out. Then it computes the APTED
+tree edit distance from the previous run's tree. Adding, deleting, changing or moving a block each
+costs 1, so the number reads as "how many blocks changed."
 
 ```mermaid
 flowchart LR
-    run["runProject"] --> ast["Block AST"]
-    ast --> ed["edit_distance (int)<br/>APTED vs previous run"]
-    ed --> track["Per-run track<br/>0 = no change | small = edit | large = rewrite"]
+    run["runProject"] --> ast["Tree of the<br/>code that runs"]
+    ast --> ed["edit_distance<br/>APTED vs the previous run"]
+    ed --> track["Run track<br/>0 = same code, small = an edit,<br/>13+ = a big change"]
 ```
 
-The first run has no predecessor, so its `edit_distance` is `null`. Every later run
-gets an integer: `0` means the code that runs is identical, a small number is an
-incremental edit, a large one is a structural rewrite. That single sequence of
-integers is all five triggers read.
+The first run has nothing to compare with, so its `edit_distance` is `null`. After that, `0` means
+the code that runs is the same, a small number is an edit and a large one is a rewrite. A program
+over 600 blocks also gets `null`, because APTED is roughly cubic and real programs stay under 200
+blocks. The engine's README and `test_scoring_policy.py` list every kind of edit and its cost.
 
-On top of the edit distances, every tick also segments the session into episodes (the
-vendored, dependency-free `app.episode_engine` package) and builds a "playground" LLM
-prompt describing the current blocks. The [Read path](read-path.md) page covers how
-all of this surfaces.
+Each tick also splits the session into episodes with the engine's `SessionSegmenter`, and renders
+the student's current blocks as a compact prompt for an LLM. Episodes are CODE, RUN and RESET
+stretches. A gap of 5 minutes or more between events becomes an inactive pause, and a wait of 5
+seconds to 5 minutes after a run becomes a post-run pause.
 
-!!! note "The playground snapshot is monotonic in event-time"
-    Because handles are folded case-insensitively (`canon_id`), two devices with
-    disagreeing clocks can feed one worker (the cobra3/Cobra3 pair had about four
-    minutes of skew). So "last
-    event to arrive" is not "last to happen," and a delayed upload used to be able to
-    overwrite newer code with an older snapshot. The worker now accepts a `project`
-    snapshot only when its `event_time` is not older than the one it holds. A missing
-    timestamp still accepts, since a clock that isn't there can't be compared.
-    Rehydrate already sorts by event time, so live ingest and the restart path agree.
+For Castle Crashers runs, the worker also feeds every event to the `goal_strategy` engine, which
+profiles what goal each run shows evidence for. The worker stores one `goal_profile` row per
+profiled run, and the student sheet shows them as goal evidence.
 
-!!! note "Every write bumps a channel counter"
-    Each write to `student_state`, `trigger_event`, `switch_event`, or
-    `tracked_student` also bumps that channel's row in `channel_rev`, via a Postgres
-    trigger function in the schema (which also fires a `NOTIFY`). The daemon doesn't
-    know or care. The trigger fires inside its own transaction. That counter is what
-    lets the live stream answer "what changed?" in O(1) (see the
-    [read path](read-path.md#the-dashboard)).
+!!! note "Every write bumps a change counter"
+    A Postgres trigger in the schema bumps a counter in `channel_rev` on every write to
+    `student_state`, `goal_profile`, `trigger_event`, `switch_event` or `tracked_student`, and
+    sends a `NOTIFY`. The daemon doesn't know about it. That counter is how the live stream answers
+    "did anything change?" with one tiny read (see the [read path](read-path.md#the-live-stream)).
 
 ## Triggers
 
-Every intervention rule is defined on the per-run `edit_distance` sequence. Their
-lifecycle is stored in `trigger_event`, and there are two kinds:
+Four triggers read the run's edit distances and one reads time. Their history is in
+`trigger_event`.
 
-- **Momentary** (wheel-spin, resilience, explorer, iterative). These fire from the
-  worker the instant a run lands, straight out of `detect_run_triggers`, a single pure
-  pass over the edit-distance list. Each is deduped per type by `run_index` (via
-  `detail::jsonb->>'run_index'`), and the dedupe set is seeded from the database on
-  rehydrate, so a backfill or restart can't drop or repeat a run's alert.
-- **Sustained** (inactive). The one time-based rule, evaluated by the per-tick
-  `evaluate` sweep: it opens while a student is idle past
-  `INACTIVE_TRIGGER_SECONDS`, stays fresh while idle, and resolves when a new event
-  arrives.
+The four momentary triggers (wheel-spinning, resilience, explorer and step-by-step) fire from the
+worker as soon as a run lands. Each one is stored once per run, keyed by run number and session.
 
-The five rules:
+Inactive is the one sustained trigger. The per-tick sweep opens it when a student has been idle
+for `INACTIVE_TRIGGER_SECONDS`, keeps it fresh while they stay idle, and resolves it when a new
+event arrives.
 
-| Trigger | Type | Fires when |
+| Trigger | Kind | Fires when |
 |---|---|---|
-| **Wheel-spinning** | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) consecutive `edit_distance == 0` runs, silent until a real edit re-arms it |
-| **Resilience** | momentary | a real edit (`edit_distance > 0`) right after `RESILIENCE_ZERO_RUNS` (4) or more zeros |
-| **Explorer** | momentary | a single run with `edit_distance >= EXPLORER_EDIT_DISTANCE` (13) |
-| **Step-by-Step** | momentary | the count of runs with `edit_distance >= 1` reaches the iterative threshold (per playground, default 6), resets on a zero-edit run |
-| **Inactive** | sustained | no event for at least `INACTIVE_TRIGGER_SECONDS` (240s / 4 min) |
+| Wheel-spinning | momentary | `WHEEL_SPIN_ZERO_RUNS` (6) runs in a row with `edit_distance == 0`, then stays quiet until a real edit |
+| Resilience | momentary | a real edit (`edit_distance > 0`) right after `RESILIENCE_ZERO_RUNS` (4) or more zeros |
+| Explorer | momentary | one run with `edit_distance >= EXPLORER_EDIT_DISTANCE` (13) |
+| Step-by-Step | momentary | the count of runs with `edit_distance >= 1` reaches the playground's threshold (6 by default). A zero-edit run starts the count again |
+| Inactive | sustained | no event for `INACTIVE_TRIGGER_SECONDS` (240 seconds) |
 
-!!! note "Analyzed per playground"
-    A student can switch VEX playgrounds mid-session, and diffing code from one
-    challenge against another is meaningless. So the run sequence is sliced into
-    contiguous same-playground stretches (each run carries its `playground`, read from
-    the telemetry). At every switch the baseline resets, the first run of the new
-    stretch gets a `null` `edit_distance`, and all four momentary triggers count only
-    within the current stretch, so a challenge switch (or jumping back to an earlier
-    one) starts every counter fresh. Step-by-Step also picks its threshold per stretch
-    from `ITERATIVE_THRESHOLDS` (`CastleCrasherPlus` 6, `CoralReefRescue` 5,
-    `RoverRescue` 3), falling back to `ITERATIVE_DEFAULT_THRESHOLD` (6) for any
-    unlisted playground. `detect_run_triggers` stays a pure single-stretch function.
-    the segmentation wraps it in `detect_run_triggers_by_playground`.
+The numbers live in the engine's `learner_models/constants.py`. `app/constants.py` imports them
+from there, so the dashboard can't drift from the engine.
 
-!!! note "Wheel-spin and resilience are two sides of one streak"
-    On the sequence `[0 0 0 0 0 0 1]`, wheel-spin fires on the sixth zero (the student
-    is stuck re-running identical code) and resilience fires on the `1` (they finally
-    made a real edit). Both are logged. `TRIGGER_PRIORITY` only decides which one wins
-    the card's headline badge (`wheel_spin` outranks `resilience`).
+!!! note "Each playground is measured on its own"
+    A student can switch playgrounds during a session, and comparing code for one challenge with
+    code for another means nothing. So the runs are split into stretches on the same playground.
+    The first run after a switch gets a `null` edit distance, and the four momentary triggers count
+    only within the current stretch. Step-by-Step takes its threshold from `ITERATIVE_THRESHOLDS`,
+    which is 6 for Castle Crashers Plus, 5 for Coral Reef Rescue and 3 for Rover Rescue, and 6 for
+    any playground not listed.
 
-### Re-Alert On A Persistent Inactive
+!!! note "Wheel-spinning and Resilience read one streak"
+    On the runs `0 0 0 0 0 0 1`, wheel-spinning fires on the sixth zero, because the student is
+    re-running the same code. Resilience fires on the `1`, because they finally changed it. Both
+    are stored. When a student has several active alerts, the card's headline is the first in
+    `TRIGGER_PRIORITY` (`frontend/src/constants.js`).
 
-The one sustained trigger, inactive, moves through this lifecycle:
+### Inactive Comes Back
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> Open: idle past 240s
+    [*] --> Open: idle 240s
     Open --> Resolved: a new event arrives
-    Open --> Acked: researcher acks
-    Acked --> Resolved: a new event arrives
-    Acked --> Open: still idle after RE_ALERT_SECONDS
+    Open --> Dismissed: a researcher dismisses it
+    Dismissed --> Resolved: a new event arrives
+    Dismissed --> Open: still idle after RE_ALERT_SECONDS
     Resolved --> [*]
 ```
 
-Acking it doesn't silence it forever: if the student stays idle for another
-`RE_ALERT_SECONDS` (10 minutes) past the acked row's `started_at`, the evaluator
-closes that row and opens a fresh, unacked one, so someone who never came back keeps
-resurfacing in the feed.
+Dismissing the inactive alert doesn't silence it for good. If the student is still idle
+`RE_ALERT_SECONDS` (10 minutes) after the alert started, the sweep closes that alert and opens a
+new one. A student who never comes back keeps showing up in the feed.

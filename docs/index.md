@@ -1,61 +1,58 @@
 ---
-description: A live who-needs-help dashboard for a cohort of students coding in the VEX block environment.
+description: A live board that shows which students in a VEX coding class need help right now.
 ---
 
-# LM Dashboard
+# Learner Modeling Dashboard
 
-LM Dashboard is a live "who needs help" board for a room full of students coding in
-the VEX block environment. It mirrors what they're doing from the Reflecks
-production backend onto your own machine, measures how much each student's code
-**changes between runs** (a plain edit distance, no black-box model), splits their
-session into **episodes**, raises **intervention flags** when someone is
-wheel-spinning, idle, exploring, or grinding through steady edits, and lays it all
-out on one screen.
+The Learner Modeling Dashboard is a live board for a room of students who code in VEXcode VR. It
+shows a researcher who is stuck, who is idle and who is trying big changes, while it happens, and
+it keeps a record of the session for later research.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 90, "rankSpacing": 110}, "themeVariables": {"fontSize": "22px"}}}%%
 flowchart LR
-    students["Students coding<br/>in VEX"] --> prod[("Reflecks<br/>production server")]
+    students["Students coding<br/>in VEXcode VR"] --> prod[("Reflecks<br/>production server")]
     prod -. "polls, read-only" .-> daemon["Daemon<br/>mirror and analyze"]
     daemon --> pg[("Postgres<br/>mirror")]
     pg --> api["Read API"]
     api --> dash["Researcher<br/>dashboards"]
 ```
 
-## How It Works, In One Paragraph
+## How It Works
 
-Students code in VEX, and their logs land in the Reflecks production server. A
-**daemon** asks that server's REST API for new events (keeping a cursor and backing
-off when things go quiet), drops the raw logs into **Postgres**, and keeps each
-tracked student's derived state, per-run edit distances, episodes, and flags, up to
-date in a **materialized table**. A small **read API** serves that table to a
-**React dashboard** over a live stream, so changes land on screen in about a quarter
-second. Only the daemon writes. The dashboard recomputes nothing, it just reads
-what's already there. And nothing ever flows back to production. It's a read-only
-mirror, full stop.
+Students code in VEXcode VR, and their logs go to the Reflecks production server. A daemon asks
+that server for new events every half second or so and copies them into a local Postgres
+database. For each student it tracks, the daemon works out three things.
 
-Every browser gets its own isolated **board**: its own roster, notes, picks and
-settings. There is no login. A Cloudflare Turnstile check keeps bots off the API.
-The daemon serves all the boards at once from a single shared mirror, so a student
-watched by two researchers is still pulled from production only once. A board can
-also listen to a ZANY study's logs instead of Reflecks, once the research login
-unlocks them.
+- How many blocks changed between one run of the code and the next, as a plain tree edit distance.
+- The episodes of the session, which are stretches of coding, running and resetting with the pauses
+  between them.
+- Five alerts, called triggers, that fire on simple rules over those numbers.
 
-## What You Get
+A small API serves the results to a React dashboard over a live stream, so a change shows up on
+screen about a quarter of a second after the daemon writes it. Nothing ever goes back to
+production. The dashboard only reads.
 
-For each student you track, the daemon takes a raw stream of VEX events and turns it
-into three things you can actually act on:
+There is no login. Each browser gets its own board, with its own roster, notes, interview picks
+and settings. A Cloudflare Turnstile check keeps bots off the API. All the boards share one copy of
+each student's data, so a student that two researchers watch is still pulled from production only
+once.
 
-```mermaid
-flowchart LR
-    ev["One student's<br/>VEX event stream"] --> d{{"Local daemon<br/>read-only mirror"}}
-    d --> strat["Per-run edit distance<br/>0 = re-run | small = edit | large = rewrite"]
-    d --> epi["Episodes<br/>code | run | reset + pauses"]
-    d --> flags["Intervention flags<br/>wheel-spin | resilience | inactive | explorer | step-by-step"]
-```
+A board can also listen to a ZANY study instead of Reflecks. ZANY's logs come from ATLAS-invite,
+and the research login unlocks them.
 
-The whole thing runs as a small Docker stack (Postgres + the API + the daemon), and
-production is never touched.
+## The Five Triggers
+
+| Trigger | Fires when |
+|---|---|
+| Wheel-spinning | a student re-runs the same code six times in a row |
+| Resilience | a student makes a real edit after four or more identical re-runs |
+| Inactive | a student sends no events for four minutes |
+| Explorer | one run changes 13 or more blocks |
+| Step-by-Step | a student makes a steady run of small edits (six on most playgrounds) |
+
+They are rules over what students did, not a judgment of what they know. The researcher decides
+what an alert means.
 
 ## Where To Go Next
 
@@ -65,24 +62,24 @@ production is never touched.
 
     ---
 
-    Install it, add your credentials, and get all three processes running.
-
--   :material-sitemap:{ .lg .middle } **[Architecture](concepts/architecture.md)**
-
-    ---
-
-    The CQRS plus materialized-view design and the polled micro-batch model.
+    Get the whole stack running on your machine with one command.
 
 -   :material-monitor:{ .lg .middle } **[Using The Dashboard](guides/using-the-dashboard.md)**
 
     ---
 
-    Student cards, the who-needs-help column, the student sheet, and reset.
+    Cards, the alert column, the student sheet, export and reset.
+
+-   :material-sitemap:{ .lg .middle } **[Architecture](concepts/architecture.md)**
+
+    ---
+
+    How the daemon, the API and Postgres fit together, and why.
 
 -   :material-code-tags:{ .lg .middle } **[API Reference](reference/api.md)**
 
     ---
 
-    Every endpoint the read API exposes.
+    Every endpoint, with its request and response.
 
 </div>

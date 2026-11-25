@@ -1,89 +1,94 @@
 ---
-description: Environment variables, accounts, and CLI flags for the API and the ingestion daemon.
+description: Environment variables, daemon flags, access and the dead-man's switch.
 ---
 
 # Configuration
 
-Configuration is split across two gitignored files:
+Settings live in two files, and git ignores both.
 
-- **`.env`** - read by `docker compose` itself. Holds `POSTGRES_PASSWORD`. Compose
-  uses it for the `db` service and to build `DATABASE_URL`.
-- **`.env.mirror`** - the app's own secrets (loaded by both the API and the daemon).
+- `.env` is read by `docker compose` itself. It holds `POSTGRES_PASSWORD`, which compose uses for
+  the `db` service and to build `DATABASE_URL`.
+- `.env.mirror` holds the app's own secrets. The API and the daemon both load it.
+
+`app/config.py` reads every setting once, at import. Each one has a default that works locally, so a
+fresh clone runs without any of them except the database and the Reflecks login.
 
 ## Environment Variables
 
-| Variable | Where | Default | What It Does |
+| Variable | Read by | Default | What it does |
 |---|---|---|---|
-| `POSTGRES_PASSWORD` | `.env` (compose) | (none) | password for the `db` service, compose folds it into `DATABASE_URL` |
-| `DB_DATA` | `.env` (compose) | `pgdata` (a compose volume) | where Postgres keeps its files. Prod sets `/data/lm-dashboard/postgres`, on the server's data disk. Copy the data there with the database stopped before setting it, or Postgres starts with an empty database |
-| `DATABASE_URL` | app | (compose sets it) | Postgres connection string. Under compose it points at the `db` service. Set it yourself only for a non-compose venv run |
-| `PROD_USERNAME` / `PROD_PASSWORD` | daemon | (none) | auth to the prod server (unrelated to the dashboard's own bot gate) |
-| `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | prod server base URL |
-| `TURNSTILE_SECRET` | API | (none) | Cloudflare Turnstile secret key, verified against the public site key baked into the frontend build |
-| `SESSION_SECRET` | API | insecure dev default | signs the "this browser solved Turnstile" cookie. Set a long random value in any real deployment |
-| `CORS_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | allowed dashboard origins (dev only, prod is same-origin) |
-| `PIPELINE_INTERVAL` | daemon | `0.5` | base seconds per tick while events are flowing |
-| `PIPELINE_IDLE_MAX` | daemon | `5.0` | idle-backoff ceiling (how far the poll gap stretches when it's quiet) |
-| `PIPELINE_PAGE_LIMIT` | daemon | `500` | events fetched per page |
-| `PIPELINE_BACKFILL_HOURS` | daemon | `24` | on the first run only, how far back the initial drain goes (`<= 0` = replay all history) |
-| `PIPELINE_REQUIRE_VIEWER` | daemon | `0` (dev) / `1` (prod compose) | arms the per-board dead-man's switch (below) |
-| `ZANY_LOG_DSN` | API and daemon | (none: ZANY off) | ATLAS-invite's ZANY log store, read-only (role `lmdash_reader`, table `log_record`), e.g. `postgresql://lmdash_reader:...@/zany?host=/var/run/postgresql`. Prod keeps it in `/etc/lm-dashboard/zany.env`, which compose reads when it exists, and mounts the host's Postgres socket read-only |
-| `ATLAS_URL` | API | `https://zany.inviteai.org` | ATLAS-invite, which checks the research login that unlocks ZANY's logs |
-| `GOAL_RECOGNITION_ENABLED` | daemon and API | `1` | profile each Castle Crashers run for goal evidence. `0` turns off the profiling, its storage and the sheet's Goal Evidence section |
-| `GOAL_TIMELINE_ENABLED` | daemon | `1` | also record each run's goal-progression timeline (cheap) |
-| `GOAL_BATTERY_ENABLED` | daemon | `1` | also run the sensor-test battery, 19 extra simulations per program that reads a sensor. `0` sheds the heaviest goal work under load |
-| `GOAL_ROLLUP_ENABLED` | daemon | `1` | also roll the battery up into one claim per goal |
-| `GOAL_RUBRIC_ENABLED` | daemon | `1` | also score the provisional execution rubric |
+| `POSTGRES_PASSWORD` | compose | none | the `db` service's password. Compose puts it into `DATABASE_URL` |
+| `DB_DATA` | compose | `pgdata`, a compose volume | where Postgres keeps its files. The INVITE server sets `/data/lm-dashboard/postgres`. Copy the data there with the database stopped before you set it, or Postgres starts empty |
+| `DATABASE_URL` | API and daemon | set by compose | the Postgres connection string. Set it yourself only when you run outside compose |
+| `PROD_USERNAME`, `PROD_PASSWORD` | daemon | none | the daemon's Reflecks login, which has nothing to do with the dashboard's own bot check |
+| `VEX_PROD_API_BASE` | daemon | `https://inviteinstitutehub.org` | the Reflecks server |
+| `TURNSTILE_SECRET` | API | none | the Cloudflare Turnstile secret key. It pairs with the public site key in `frontend/src/constants.js` |
+| `SESSION_SECRET` | API | an unsafe dev value | signs the Turnstile and ZANY unlock cookies. Set a long random value on any real server |
+| `CORS_ORIGINS` | API | `http://localhost:3000,http://localhost:5173` | the origins a browser may call from. Only development needs it, since a served dashboard has the same origin as the API |
+| `PIPELINE_INTERVAL` | daemon | `0.5` | seconds per tick while events are flowing |
+| `PIPELINE_IDLE_MAX` | daemon | `5.0` | the longest wait between polls when nothing is happening |
+| `PIPELINE_PAGE_LIMIT` | daemon | `500` | events per page from Reflecks |
+| `PIPELINE_BACKFILL_HOURS` | daemon | `24` | how far back the very first drain goes, on an empty cursor. `0` or less replays all history |
+| `PIPELINE_REQUIRE_VIEWER` | daemon | `1` in `compose.yml`, `0` in development | arms the dead-man's switch (below) |
+| `ZANY_LOG_DSN` | API and daemon | none, so ZANY is off | ATLAS-invite's ZANY log store, read-only, like `postgresql://lmdash_reader:...@/zany?host=/var/run/postgresql`. The INVITE server keeps it in `/etc/lm-dashboard/zany.env`, which compose reads when it exists |
+| `ATLAS_URL` | API | `https://zany.inviteai.org` | ATLAS-invite, which checks the research login that unlocks ZANY |
+| `GOAL_RECOGNITION_ENABLED` | daemon and API | `1` | profiles each Castle Crashers run for goal evidence. `0` turns off the profiling, its storage and the sheet's Goal Evidence section |
+| `GOAL_TIMELINE_ENABLED` | daemon | `1` | also records each run's goal timeline, which is cheap |
+| `GOAL_BATTERY_ENABLED` | daemon | `1` | also runs the sensor test battery, 19 extra simulations for each program that reads a sensor. `0` sheds the heaviest goal work under load |
+| `GOAL_ROLLUP_ENABLED` | daemon | `1` | also rolls the battery up into one claim per goal |
+| `GOAL_RUBRIC_ENABLED` | daemon | `1` | also scores the provisional execution rubric |
+
+The goal flags are off for any of `0`, `false`, `no` or an empty value.
 
 ## Access
 
-The dashboard is public - reachable by anyone who knows a board's student IDs - so
-there's no login. The only gate is **Cloudflare Turnstile**, which keeps bots (not
-people) off the API: a browser solves the widget once, and success is remembered via
-a signed cookie for 12 hours (`app/turnstile.py`). Losing/clearing that cookie just
-means solving the widget again, not signing back in - there's nothing to log out of.
+The dashboard is public, and there is no login. Anyone who knows a student ID can track that
+student. The only gate is Cloudflare Turnstile, which keeps bots off the API. A browser solves the
+widget once, and a signed `ts_verified` cookie remembers it for 12 hours (`app/turnstile.py`).
+Losing the cookie only means solving the widget again.
 
-Each browser is isolated into its own **board** via a persistent id it stores in
-`localStorage` and sends as `X-Board-Id`. A request with no board id falls back to
-one shared default workspace.
+Each browser keeps its board ID in local storage and sends it as the `X-Board-Id` header. A request
+without one acts on a shared default board.
 
-## CLI Flags (daemon)
+ZANY's logs need the research login on top of that. See [Sources](../concepts/sources.md#the-research-login).
 
-The daemon's settings are also flags, and a flag wins over the matching env var:
+## Daemon Flags
+
+Every daemon setting is also a flag, and a flag wins over its environment variable.
 
 ```bash
 python -m app.pipeline --interval 1 --idle-max 8 --backfill-hours 2
 ```
 
-The full set is `--interval`, `--idle-max`, `--limit` (events per page), `--overlap`
-(cursor overlap seconds), `--backfill-hours`, and `--require-viewer`. Run
-`python -m app.pipeline --help` for the inline reference.
+The flags are `--interval`, `--idle-max`, `--limit` (events per page), `--overlap` (cursor overlap
+in seconds, default 2), `--backfill-hours` and `--require-viewer`. `python -m app.pipeline --help`
+describes each.
 
 ## Polling And Idle Backoff
 
-While students are active, the daemon polls every `PIPELINE_INTERVAL` seconds. When
-nothing's happening, it backs off exponentially toward `PIPELINE_IDLE_MAX` (so
-0.5 → 1 → 2 → 4 → 5s) instead of hammering prod, and snaps back to fast the moment
-activity returns.
+While students are active, the daemon polls every `PIPELINE_INTERVAL` seconds. When nothing is
+happening, it doubles the wait each tick up to `PIPELINE_IDLE_MAX`, so 0.5, 1, 2, 4 and then 5
+seconds. The first sign of activity brings it straight back to 0.5.
 
 !!! tip
-    Poll load tracks event volume, not roster size - and a student watched by
-    several boards is still polled only once (the daemon ingests the union of all
-    boards' rosters into one shared mirror).
+    Poll load follows how much is happening, not the size of the roster. A student on several
+    boards is still polled once, since the daemon reads the union of all rosters into one shared
+    copy.
 
 ## The Dead-Man's Switch
 
-Per board: the dead-man's switch stops prod polling for a board while nobody is watching it.
-With `--require-viewer` (or `PIPELINE_REQUIRE_VIEWER=1`, the prod default) the daemon
-only polls a board's students while that board's dashboard is actually open.
+The dead-man's switch stops polling production for a board that nobody is watching. With
+`--require-viewer` (or `PIPELINE_REQUIRE_VIEWER=1`, the default in `compose.yml`), the daemon only
+polls a board's students while that board's dashboard is open.
 
-It works off a heartbeat. The read API stamps a per-board `viewer_last_seen` while a
-dashboard holds the live stream open (on connect and every ~10s) and on each grid
-fetch. The frontend closes the stream when its tab is hidden. Each tick the daemon
-polls prod only for the students on **live** boards (polling enabled and a fresh
-viewer). The staleness window is the `VIEWER_PRESENT_SECONDS` constant in
-`app/constants.py` (90 seconds).
+It works from a heartbeat. The API stamps the board's `viewer_last_seen` when a dashboard opens
+the live stream, every 10 seconds while it stays open, and on every fetch of the card grid. The
+dashboard closes the stream when its tab is hidden. Each tick, the daemon polls only for students
+on boards that are live, meaning polling is on and the stamp is less than `VIEWER_PRESENT_SECONDS`
+(90 seconds, in `app/constants.py`) old.
 
-In the prod compose file the daemon runs with `PIPELINE_REQUIRE_VIEWER=1`, so a
-served deployment stops hitting prod for any board whose dashboard is closed. Dev
-leaves it off so a local run polls as soon as a board has students.
+So a served deployment stops calling production for any board whose dashboard is closed.
+Development turns the switch off, so a local board is polled as soon as it has students.
+
+The switch and the **Pause polling** button are separate. The daemon polls a board only when its
+polling is on and someone is watching it.

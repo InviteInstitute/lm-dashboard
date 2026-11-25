@@ -72,8 +72,8 @@ Institute. Existing identity assets include `frontend/public/logo_INVITE.png` an
 
 - `README.md`: product overview and operation.
 - `docs/guides/using-the-dashboard.md`: researcher workflows and terminology.
-- `docs/DESIGN.md`: system architecture, source-data boundaries, and isolation.
-  This is an engineering document, not a visual design specification.
+- `docs/concepts/architecture.md`: system architecture, source-data boundaries, and
+  isolation. This is an engineering document, not a visual design specification.
 - `frontend/src/CohortDashboard.jsx` and `app/main.py`: incumbent interface and
   behavior when documentation details differ.
 - No outcome benchmarks or testimonials were confirmed during initialization;

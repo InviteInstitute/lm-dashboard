@@ -44,3 +44,23 @@ def test_writable_rejects_paths_that_normalize_elsewhere(monkeypatch):
     assert not docs_sync.writable("docs/./changes/x.md")
     assert not docs_sync.writable("/docs/a.md")
     assert docs_sync.writable("docs/a.md")
+
+
+def test_ask_falls_back_to_the_next_model(monkeypatch):
+    import io
+    import json
+    import urllib.error
+
+    tried = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        tried.append(model)
+        if model == "slow":
+            raise urllib.error.HTTPError(req.full_url, 500, "Upstream error", {}, io.BytesIO(b""))
+        out = {"choices": [{"message": {"content": "NO_CHANGES"}, "finish_reason": "stop"}]}
+        return io.BytesIO(json.dumps(out).encode())
+
+    monkeypatch.setattr(docs_sync.urllib.request, "urlopen", fake_urlopen)
+    assert docs_sync.ask("s", "u", ["slow", "fast", "never"], "key") == "NO_CHANGES"
+    assert tried == ["slow", "fast"]  # one try each, and none after an answer

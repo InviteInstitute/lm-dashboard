@@ -18,7 +18,6 @@ import posixpath
 import re
 import subprocess
 import sys
-import time
 import urllib.error
 import urllib.request
 from fnmatch import fnmatch
@@ -26,7 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LUMEN_URL = os.environ.get("LUMEN_URL", "https://lumen.ncsa.illinois.edu/v1")
-MODEL = os.environ.get("LUMEN_MODEL", "glm-5.3")
+# The models to ask, in order. The next one answers when one fails. LUMEN_MODEL names one to use alone.
+MODELS = (
+    [os.environ["LUMEN_MODEL"]]
+    if os.environ.get("LUMEN_MODEL")
+    else ["glm-5.3", "glm", "deepseek-v4.1"]
+)
 
 # ---- Settings for this repo. The copies in zany and atlas-invite change only this block. ----
 # The pages the model reads and may write (fnmatch globs, where * also crosses folders), minus
@@ -165,25 +169,29 @@ def read_change(base, head):
     return log, diff
 
 
-def ask(system, user, model, key, attempts=3):
-    """One chat completion on Lumen. It retries a failed call twice, since a long answer
-    can time out on a busy server."""
-    body = json.dumps(
-        {
-            "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "temperature": 0.2,
-            "max_tokens": 100_000,  # reasoning models think first, so leave room
-        }
-    ).encode()
-    req = urllib.request.Request(
-        f"{LUMEN_URL}/chat/completions",
-        data=body,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-    )
-    for attempt in range(1, attempts + 1):
+def ask(system, user, models, key):
+    """One chat completion on Lumen, from the first model that answers. Lumen's gateway gives up
+    on a request after about six minutes, which a busy model can hit on a long prompt, so a
+    failed model is not tried again: the next one is."""
+    for model in models:
+        body = json.dumps(
+            {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 100_000,  # reasoning models think first, so leave room
+            }
+        ).encode()
+        req = urllib.request.Request(
+            f"{LUMEN_URL}/chat/completions",
+            data=body,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        )
         try:
-            with urllib.request.urlopen(req, timeout=1200) as resp:
+            with urllib.request.urlopen(req, timeout=600) as resp:
                 out = json.load(resp)
             choice = out["choices"][0]
             print(f"{model}: {out.get('usage')}, finish_reason={choice.get('finish_reason')}")
@@ -191,11 +199,8 @@ def ask(system, user, model, key, attempts=3):
                 print("The answer hit the token limit, so its last file may be cut off.")
             return choice["message"]["content"] or ""
         except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as e:
-            if attempt == attempts:
-                raise
-            print(f"Lumen call {attempt} failed ({e}), trying again")
-            time.sleep(20 * attempt)
-    return ""
+            print(f"{model} failed ({e}), so the next model gets the question")
+    raise RuntimeError(f"No Lumen model answered: {', '.join(models)}")
 
 
 def apply(answer):
@@ -221,7 +226,11 @@ def main(argv=None):
     ap.add_argument("--base", help="the commit before the change (default: --head's parent)")
     ap.add_argument("--head", default="HEAD", help="the commit to bring them up to")
     ap.add_argument("--style", required=True, help="a checkout of Maharsh17/claude-config")
-    ap.add_argument("--model", default=MODEL, help=f"the Lumen model (default {MODEL})")
+    ap.add_argument(
+        "--model",
+        action="append",
+        help=f"a Lumen model to ask, in order (default {', '.join(MODELS)})",
+    )
     opts = ap.parse_args(argv)
 
     key = os.environ.get("LUMEN_API_KEY")
@@ -260,7 +269,7 @@ def main(argv=None):
     user = f"<code>\n{read_code(files)}</code>\n<docs>\n{read_docs(files)}</docs>\n\n{task}\n"
     print(f"Prompt: about {(len(system) + len(user)) // 4:,} tokens")
 
-    answer = ask(system, user, opts.model, key)
+    answer = ask(system, user, opts.model or MODELS, key)
     if answer.strip() == "NO_CHANGES":
         print("The docs are current.")
         return

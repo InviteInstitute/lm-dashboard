@@ -1,27 +1,87 @@
-name: Deploy docs
+name: Docs
 
-# Rebuild and publish the MkDocs site to GitHub Pages on every push to main
-# that touches the docs (or this workflow). Replaces running `mkdocs gh-deploy`
-# by hand.
+# After every push to main, bring the docs in step with the code and publish them.
+# scripts/docs_sync.py asks an LLM on NCSA's Lumen to fix the pages the push made wrong,
+# in the writing style of Maharsh17/claude-config. Its changes land as a pull request from
+# the docs-sync branch, merged here once the site builds with --strict, and the site goes to
+# GitHub Pages. Run it from the Actions tab to check every page against the whole codebase.
+# docs/guides/development.md#the-docs has the details.
+#
+# A push made with this job's own token starts no workflow, so the merge below never starts
+# this job again.
 on:
   push:
     branches: [main]
-    paths:
-      - "docs/**"
-      - "mkdocs.yml"
-      - ".github/workflows/docs.yml"
   workflow_dispatch: {}
 
+# One run at a time, in order. The docs-synced tag marks the last commit the docs were
+# checked against, so a run that GitHub skips while another is busy loses no change.
+concurrency:
+  group: docs
+  cancel-in-progress: false
+
 permissions:
-  contents: write   # gh-deploy pushes the built site to the gh-pages branch
+  contents: write # push docs-sync, the docs-synced tag and gh-pages
+  pull-requests: write # open and merge the docs pull request
 
 jobs:
-  deploy:
+  docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+      - uses: actions/checkout@v4
+        with:
+          repository: Maharsh17/claude-config
+          path: .claude-config
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install mkdocs-material
-      - run: mkdocs gh-deploy --force
+
+      - name: Bring the docs in step with the code
+        env:
+          LUMEN_API_KEY: ${{ secrets.LUMEN_API_KEY }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          base=$(git rev-parse -q --verify refs/tags/docs-synced || true)
+          if [ "$MANUAL" = true ] || [ -z "$base" ]; then
+            python scripts/docs_sync.py --style .claude-config --head "$GITHUB_SHA"
+          else
+            python scripts/docs_sync.py --style .claude-config --base "$base" --head "$GITHUB_SHA"
+          fi
+
+      - name: Check the site builds
+        run: mkdocs build --strict
+
+      - name: Merge the docs pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -z "$(git status --porcelain -- docs README.md mkdocs.yml)" ]; then
+            echo "The docs are current."
+            exit 0
+          fi
+          git switch -C docs-sync
+          git add -- docs README.md mkdocs.yml
+          git commit -m "Bring the docs in step with ${GITHUB_SHA::7}"
+          git push --force origin docs-sync
+          if [ "$(gh pr view docs-sync --json state -q .state 2>/dev/null)" != OPEN ]; then
+            gh pr create --head docs-sync --base main \
+              --title "Bring the docs in step with ${GITHUB_SHA::7}" \
+              --body "The docs workflow checked the docs against ${GITHUB_SHA} with an LLM on Lumen, and this is what it changed. The site built with --strict before this merged."
+          fi
+          gh pr merge docs-sync --squash --delete-branch
+
+      - name: Mark the commit the docs are in step with
+        run: |
+          git tag -f docs-synced "$GITHUB_SHA"
+          git push -f origin refs/tags/docs-synced
+
+      - name: Publish the site
+        run: mkdocs gh-deploy --force

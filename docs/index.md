@@ -54,6 +54,8 @@ and the research login unlocks them.
 They are rules over what students did, not a judgment of what they know. The researcher decides
 what an alert means.
 
+![The board with eight test students: cards with their run and episode tracks, and five alerts in the Needs Intervention column](images/board.png)
+
 ## Where To Go Next
 
 <div class="grid cards" markdown>

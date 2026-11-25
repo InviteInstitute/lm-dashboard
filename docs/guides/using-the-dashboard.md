@@ -12,6 +12,8 @@ The board holds one live stream to the API and refetches only what changed, so a
 in about a quarter second. If the stream drops, the board polls until it reconnects, and you won't
 notice the difference.
 
+![The board with eight test students: cards with their run and episode tracks, and five alerts in the Needs Intervention column](../images/board.png)
+
 ## VEXcode VR Or ZANY
 
 A board listens to one source, which you pick in **Listening to** beside the Students heading.
@@ -137,6 +139,8 @@ is paused, the green **Live** tag by the title turns grey and reads **Polling pa
 The daemon keeps running while you're paused. Only the polling stops.
 
 ## Student Sheet
+
+![A test student's sheet, with the episode and run tracks, the latest program spelled out, notes and the trigger history](../images/student-sheet.png)
 
 Click a card or an alert to open that student's sheet. It slides in over the right of the board, so
 the rest of the class stays in view.

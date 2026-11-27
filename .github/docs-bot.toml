@@ -1,0 +1,29 @@
+# The docs bot's settings for lm-dashboard. scripts/docs_sync.py lists every key and its default.
+
+about = """
+lm-dashboard, the Learner Modeling Dashboard. Its docs are the Markdown pages in docs/, with
+their nav in zensical.toml, plus the README.md on GitHub. They are published as the Learner
+Modeling Dashboard section of docs.inviteai.org. Readers are the researchers who use the board
+and the developers who run and change it, technical and semi-technical."""
+new_page_rule = "Add each one to the nav in zensical.toml."
+
+writable = ["docs/*.md", "README.md", "zensical.toml"]
+
+code_paths = ["app", "frontend/src", "scripts", ".github/workflows"]
+code_files = [
+  "Makefile",
+  "Dockerfile",
+  "compose.yml",
+  "compose.override.yml",
+  "pyproject.toml",
+  ".env.example",
+  "PRODUCT.md",
+]
+code_skip = '(\.test\.|/test/|\.css$|\.scss$|\.png$|\.svg$|\.ico$)'
+# The engine lives in a submodule, which `git ls-tree` does not list. The docs quote its
+# thresholds and scoring rules, so these two files go in too.
+engine_files = [
+  "vendor/agent-lm-packages/learner_models/constants.py",
+  "vendor/agent-lm-packages/learner_models/README.md",
+]
+diff_skip = [":(exclude)docs", ":(exclude)*.md", ":(exclude)zensical.toml", ":(exclude)*lock*"]

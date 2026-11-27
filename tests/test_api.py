@@ -264,9 +264,8 @@ def test_reset_backs_up_then_wipes(client, seed_state, tmp_path, monkeypatch):
     assert client.get("/api/tracked/").json()["count"] == 1
     assert client.get("/api/student_states/").json()["student_count"] == 1
     assert client.get("/api/notes/?studentID=s1").json()["count"] == 0
-    # the note survived into the backup CSV
-    import os
+    # the note survived into the backup zip, the same one the Export button gives
+    import zipfile
 
-    note_csv = os.path.join(r.json()["backup"], "note.csv")
-    with open(note_csv) as f:
-        assert "keep me in the backup" in f.read()
+    with zipfile.ZipFile(r.json()["backup"]) as z:
+        assert "keep me in the backup" in z.read("note.csv").decode()

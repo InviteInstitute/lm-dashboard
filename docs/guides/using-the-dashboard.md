@@ -185,6 +185,6 @@ your board simply stops showing what came before. Run numbers don't restart, so 
 number on the run track, in goal evidence and in alerts.
 
 !!! info
-    Reset first writes a CSV backup of your board, notes and picks included, to
-    `exports/reset_<timestamp>/` on the server. The outbox is left alone. Production is never
+    Reset first saves the same zip Export gives you, notes and picks included, to
+    `exports/reset_<timestamp>.zip` on the server. The outbox is left alone. Production is never
     touched.

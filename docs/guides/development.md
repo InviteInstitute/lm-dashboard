@@ -76,7 +76,7 @@ The backend is the `app/` package.
 | `app/goal_evidence.py` | shapes the goal engine's per-run profiles for the student sheet |
 | `app/turnstile.py` | the Cloudflare Turnstile gate |
 | `app/config.py`, `app/constants.py` | settings from the environment, and the numbers you can tune |
-| `scripts/` | `deploy.sh`, `export_csv.py` for a CSV dump from the terminal, `follow_logs.py`, and `docs_sync.py` for the docs |
+| `scripts/` | `deploy.sh`, `follow_logs.py`, and `docs_sync.py` for the docs |
 | `vendor/agent-lm-packages` | the engine, as a git submodule: `learner_models` (edit distance, triggers, episodes), `goal_strategy` (goal evidence) and `log_parser_delta_engine` (the readable program and the prompt) |
 
 The dashboard is `frontend/src/`. `CohortDashboard.jsx` holds the board's state and actions and

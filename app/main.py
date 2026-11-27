@@ -691,17 +691,16 @@ def reset(wsid: int = Depends(current_workspace_id)):
     show only activity after this moment on every part of the student tile (runs,
     episodes, goal evidence, alerts, trigger history, switches). The roster and
     presence stay, and the SHARED per-student mirror is left intact (other boards
-    depend on it); this board just reads it from the reset on. A CSV snapshot of
-    this workspace, notes and picks included, is written to
-    exports/reset_<timestamp>/ first, so nothing is lost. Production is never
+    depend on it). This board just reads it from the reset on. The same zip the
+    Export button gives, notes and picks included, is saved to
+    exports/reset_<timestamp>.zip first, so nothing is lost. Production is never
     touched."""
     stamp = db.now()
-    backup_dir, _ = db.export_csv(
-        str(config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}"),
-        workspace_id=wsid,
-    )
+    backup = config.BASE_DIR / "exports" / f"reset_{stamp.strftime('%Y-%m-%d_%H%M%S')}.zip"
+    backup.parent.mkdir(exist_ok=True)
+    backup.write_bytes(db.export_zip_bytes(workspace_id=wsid))
     db.reset_workspace(workspace_id=wsid)
-    return {"reset": True, "at": stamp.isoformat(), "backup": backup_dir}
+    return {"reset": True, "at": stamp.isoformat(), "backup": str(backup)}
 
 
 def _polling_enabled(wsid) -> bool:

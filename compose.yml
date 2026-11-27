@@ -39,8 +39,10 @@ services:
       # the host's Postgres socket below. Without the file the ZANY source is off.
       - path: /etc/lm-dashboard/zany.env
         required: false
-    volumes: &pgsocket
+    volumes:
       - /var/run/postgresql:/var/run/postgresql:ro
+      # The zip each board reset saves first (app/main.py reset), kept across rebuilds.
+      - exports:/app/exports
     environment:
       DATABASE_URL: postgresql://lmdash:${POSTGRES_PASSWORD}@db:5432/lm_dashboard
     depends_on:
@@ -54,7 +56,8 @@ services:
     restart: unless-stopped
     command: python -m app.pipeline
     env_file: *env
-    volumes: *pgsocket
+    volumes:
+      - /var/run/postgresql:/var/run/postgresql:ro
     environment:
       DATABASE_URL: postgresql://lmdash:${POSTGRES_PASSWORD}@db:5432/lm_dashboard
       PIPELINE_REQUIRE_VIEWER: "1"     # prod: only poll a board while its dashboard is open
@@ -64,3 +67,4 @@ services:
 
 volumes:
   pgdata:
+  exports:

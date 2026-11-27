@@ -27,7 +27,6 @@ and cutoff SQL (ORDER BY started_at, resolved_at >= cutoff) work on the text.
 import csv
 import io
 import json
-import os
 import threading
 import time
 import zipfile
@@ -705,8 +704,8 @@ def reset_workspace(workspace_id=None):
 
 
 # --------------------------------------------------------------------------
-# CSV export, scoped to one workspace. Two callers: scripts/export_csv.py for an
-# end-of-day dump, and the reset endpoint to snapshot a board before it wipes.
+# CSV export, scoped to one workspace. Two callers: the Export button, and the
+# reset endpoint to snapshot a board before it wipes.
 # Per-workspace tables filter on workspace_id; the shared per-student tables
 # (student_state, trigger_event, switch_event, vex_log) filter on that board's
 # roster. Skipped entirely: control/bookkeeping tables and the raw message
@@ -768,52 +767,25 @@ def _csv_value(col, val):
 
 
 def _cursor_csv(cur):
-    """Render an executed cursor's rows as a CSV string. Returns (text, count).
-    JSON columns come out as raw JSON text; cells are flattened to one line."""
+    """Render an executed cursor's rows as a CSV string. JSON columns come out
+    as raw JSON text, and cells are flattened to one line."""
     cols = [d[0] for d in cur.description]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(cols)
-    n = 0
     for row in cur:
-        w.writerow([_csv_value(cols[i], row[i]) for i in range(len(cols))])
-        n += 1
-    return buf.getvalue(), n
+        w.writerow([_csv_value(c, v) for c, v in zip(cols, row.values())])
+    return buf.getvalue()
 
 
-def export_csv(out_dir, workspace_id=None, db_path=None):
-    """Write one CSV file per table (scoped to the workspace) into out_dir. Purely
-    a read; nothing is modified. Returns (out_dir, {table: rows})."""
-    os.makedirs(out_dir, exist_ok=True)
-    con = psycopg.connect(db_path or DATABASE_URL)
-    try:
-        written = {}
+def export_zip_bytes(workspace_id=None):
+    """An in-memory zip of one CSV per table, scoped to the workspace. Purely a
+    read. The Export button streams it, and a reset saves it before it clears."""
+    buf = io.BytesIO()
+    with _get_pool().connection() as con, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for table, (sql, params) in _workspace_export_queries(_ws(workspace_id)).items():
-            text, n = _cursor_csv(con.execute(_ph(sql), params))
-            with open(
-                os.path.join(out_dir, f"{table}.csv"), "w", newline="", encoding="utf-8"
-            ) as f:
-                f.write(text)
-            written[table] = n
-        return out_dir, written
-    finally:
-        con.close()
-
-
-def export_zip_bytes(workspace_id=None, db_path=None):
-    """Build an in-memory zip of one CSV per table (scoped to the workspace) and
-    return its bytes. Same read-only snapshot as export_csv, but nothing touches
-    the filesystem: the API streams these bytes straight to the browser."""
-    con = psycopg.connect(db_path or DATABASE_URL)
-    try:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            for table, (sql, params) in _workspace_export_queries(_ws(workspace_id)).items():
-                text, _ = _cursor_csv(con.execute(_ph(sql), params))
-                z.writestr(f"{table}.csv", text)
-        return buf.getvalue()
-    finally:
-        con.close()
+            z.writestr(f"{table}.csv", _cursor_csv(con.execute(_ph(sql), params)))
+    return buf.getvalue()
 
 
 # --------------------------------------------------------------------------

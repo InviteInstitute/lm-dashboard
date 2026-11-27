@@ -2,16 +2,20 @@
 reset wipe (what it clears vs keeps)."""
 
 import csv
-import os
+import io
+import zipfile
 
 from app import db
 
 
-def test_export_skips_internal_and_bookkeeping_tables(tmp_path, seed_state):
+def _export():
+    return zipfile.ZipFile(io.BytesIO(db.export_zip_bytes()))
+
+
+def test_export_skips_internal_and_bookkeeping_tables(seed_state):
     seed_state("s1")
     db.tracked_add("s1")
-    out, written = db.export_csv(str(tmp_path / "exp"))
-    files = {f for f in os.listdir(out) if f.endswith(".csv")}
+    files = set(_export().namelist())
     # dropped: pipeline bookkeeping + control flags + duplicated raw envelope
     assert "ingest_cursor.csv" not in files
     assert "meta.csv" not in files
@@ -43,12 +47,10 @@ def test_csv_value_flattens_newlines_in_non_prompt_columns():
     assert db._csv_value("anything", 123) == 123  # non-str passes through
 
 
-def test_exported_rows_are_single_line(tmp_path, seed_state):
+def test_exported_rows_are_single_line(seed_state):
     """The whole point of the bracketing: every cell stays on one physical line."""
     seed_state("s1", playground_prompt="[Active]\n a\n  b\n  c")
-    out, _ = db.export_csv(str(tmp_path / "exp"))
-    with open(os.path.join(out, "student_state.csv"), newline="") as f:
-        rows = list(csv.reader(f))
+    rows = list(csv.reader(io.StringIO(_export().read("student_state.csv").decode())))
     # header + exactly one data row, and no embedded newline split a row
     assert len(rows) == 2
     prompt_col = rows[0].index("playground_prompt")

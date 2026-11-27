@@ -1,7 +1,7 @@
 """End-to-end API tests through the FastAPI TestClient -- the contract the
 frontend depends on."""
 
-from app import config, db
+from app import db
 
 
 # --- health / basics -------------------------------------------------------
@@ -236,7 +236,7 @@ def test_presence_and_picked_require_student_id(client):
     assert client.post("/api/picked/", json={"studentID": "  ", "picked": True}).status_code == 400
 
 
-# --- export / reset (redirect output dir to a tmp path) --------------------
+# --- export / reset ---------------------------------------------------------
 def test_export_streams_zip_download(client, seed_state):
     import io
     import zipfile
@@ -251,8 +251,7 @@ def test_export_streams_zip_download(client, seed_state):
     assert "student_state.csv" in names
 
 
-def test_reset_backs_up_then_wipes(client, seed_state, tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+def test_reset_backs_up_then_wipes(client, seed_state):
     db.tracked_add("s1")
     seed_state("s1")
     db.add_note("s1", "keep me in the backup")
@@ -264,9 +263,8 @@ def test_reset_backs_up_then_wipes(client, seed_state, tmp_path, monkeypatch):
     assert client.get("/api/tracked/").json()["count"] == 1
     assert client.get("/api/student_states/").json()["student_count"] == 1
     assert client.get("/api/notes/?studentID=s1").json()["count"] == 0
-    # the note survived into the backup CSV
-    import os
+    # the note survived into the backup zip, the same one the Export button gives
+    import zipfile
 
-    note_csv = os.path.join(r.json()["backup"], "note.csv")
-    with open(note_csv) as f:
-        assert "keep me in the backup" in f.read()
+    with zipfile.ZipFile(r.json()["backup"]) as z:
+        assert "keep me in the backup" in z.read("note.csv").decode()

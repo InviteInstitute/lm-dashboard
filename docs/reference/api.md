@@ -592,15 +592,16 @@ and from then on every read shows only activity after the reset. The roster and 
 the shared student data stays, since other boards use it.
 
 !!! info
-    Before it clears anything, it writes a CSV backup of the board, notes and picks included, to
-    `exports/reset_<timestamp>/`. The [outbox](#get-apioutbox) is left alone. Production is never
+    Before it clears anything, it saves the same zip [export](#post-apiexport) gives, notes and
+    picks included, to `exports/reset_<timestamp>.zip`. Those zips live in the `exports` volume, so
+    a rebuild keeps them. The [outbox](#get-apioutbox) is left alone. Production is never
     touched.
 
 ```json title="Response"
 {
   "reset": true,
   "at": "2026-06-14T10:31:00+00:00",
-  "backup": "/app/exports/reset_2026-06-14_103100"
+  "backup": "/app/exports/reset_2026-06-14_103100.zip"
 }
 ```
 

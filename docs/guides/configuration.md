@@ -28,7 +28,6 @@ fresh clone runs without any of them except the database and the Reflecks login.
 | `PIPELINE_INTERVAL` | daemon | `0.5` | seconds per tick while events are flowing |
 | `PIPELINE_IDLE_MAX` | daemon | `5.0` | the longest wait between polls when nothing is happening |
 | `PIPELINE_PAGE_LIMIT` | daemon | `500` | events per page from Reflecks |
-| `PIPELINE_BACKFILL_HOURS` | daemon | `24` | how far back the very first drain goes, on an empty cursor. `0` or less replays all history |
 | `PIPELINE_REQUIRE_VIEWER` | daemon | `1` in `compose.yml`, `0` in development | arms the dead-man's switch (below) |
 | `ZANY_LOG_DSN` | API and daemon | none, so ZANY is off | ATLAS-invite's ZANY log store, read-only, like `postgresql://lmdash_reader:...@/zany?host=/var/run/postgresql`. The INVITE server keeps it in `/etc/lm-dashboard/zany.env`, which compose reads when it exists |
 | `ATLAS_URL` | API | `https://zany.inviteai.org` | ATLAS-invite, which checks the research login that unlocks ZANY |
@@ -57,11 +56,11 @@ ZANY's logs need the research login on top of that. See [Sources](../concepts/so
 Every daemon setting is also a flag, and a flag wins over its environment variable.
 
 ```bash
-python -m app.pipeline --interval 1 --idle-max 8 --backfill-hours 2
+python -m app.pipeline --interval 1 --idle-max 8
 ```
 
 The flags are `--interval`, `--idle-max`, `--limit` (events per page), `--overlap` (cursor overlap
-in seconds, default 2), `--backfill-hours` and `--require-viewer`. `python -m app.pipeline --help`
+in seconds, default 2) and `--require-viewer`. `python -m app.pipeline --help`
 describes each.
 
 ## Polling And Idle Backoff

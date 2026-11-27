@@ -1,7 +1,7 @@
 """
 The ingestion + inference daemon. This is the system's single writer.
 
-    python -m app.pipeline [--interval 0.5] [--limit 500] [--backfill-hours 0]
+    python -m app.pipeline [--interval 0.5] [--limit 500]
 
 It runs one blocking loop. Each tick drains new events from prod into the raw
 log (idempotently, advancing a cursor), re-runs inference for the students whose
@@ -17,7 +17,7 @@ import logging
 import os
 import random
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from app import db, zany
 from app.constants import PAUSED_POLL_S, VIEWER_PRESENT_SECONDS  # pause cadence + dead-man's window
@@ -65,13 +65,6 @@ def _parse_args(argv=None):
         "with no dashboard activity and resumes when one returns. "
         "Off by default; meant for served/remote sessions.",
     )
-    p.add_argument(
-        "--backfill-hours",
-        type=float,
-        default=float(os.environ.get("PIPELINE_BACKFILL_HOURS", 24)),
-        help="On first run (empty cursor) only backfill the last N hours "
-        "(default 24, <=0 = replay all history). Bounds the initial drain.",
-    )
     return p.parse_args(argv)
 
 
@@ -107,13 +100,6 @@ def main(argv=None):
     db.init_db()  # builds the schema on a fresh DB, no-op on an existing one
     client = ProdClient()
     cursor = poller.get_cursor()
-
-    # On a brand-new cursor, anchor it back only `backfill_hours` so the first
-    # drain doesn't try to replay months of history.
-    if cursor.last_event_time is None and opts.backfill_hours > 0:
-        cursor.last_event_time = db.now() - timedelta(hours=opts.backfill_hours)
-        cursor.save()
-        log.info("seeded cursor: backfilling last %sh", opts.backfill_hours)
 
     log.info(
         "Pipeline up. interval=%ss limit=%s cursor.last_event_time=%s",

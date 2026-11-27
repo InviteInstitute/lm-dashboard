@@ -96,10 +96,15 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
     behind on the full stream. `since` (a UTC datetime, or None) is the session
     cutoff: events older than it are skipped (not persisted) so a returning
     student's earlier sessions don't leak in -- the cursor still advances past
-    them. Returns the number of newly-inserted events."""
-    date_from = None
-    if cursor.last_event_time:
-        date_from = (cursor.last_event_time - timedelta(seconds=overlap_seconds)).isoformat()
+    them. Paging starts at the later of `since` and the cursor (less the overlap),
+    so a fresh or stale cursor never pages through events only to drop them.
+    Returns the number of newly-inserted events."""
+    starts = [
+        since,
+        cursor.last_event_time and cursor.last_event_time - timedelta(seconds=overlap_seconds),
+    ]
+    starts = [t for t in starts if t]
+    date_from = max(starts).isoformat() if starts else None
 
     offset, new_count = 0, 0
     max_et = cursor.last_event_time

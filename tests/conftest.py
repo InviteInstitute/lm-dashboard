@@ -25,16 +25,17 @@ os.environ["DATABASE_URL"] = _test_url
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db  # noqa: E402
+from app import config, db  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
 from app.pipeline import workers  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def fresh_db():
+def fresh_db(tmp_path, monkeypatch):
     """Recreate the schema and truncate every table before each test, and clear
     the daemon's in-memory worker registry (a module global that would otherwise
-    persist across tests)."""
+    persist across tests). Reset backups land in tmp_path, not the checkout."""
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     db.init_db()
     # Truncate every app table for a clean slate. RESTART IDENTITY resets the id
     # sequences so ids start at 1 each test (matching the old fresh-file behavior

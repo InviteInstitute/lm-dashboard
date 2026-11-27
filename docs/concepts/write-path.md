@@ -63,8 +63,9 @@ after five failures in a row the daemon logs `UNHEALTHY`.
 This is what makes a restart lose nothing.
 
 The cursor is a timestamp (`last_event_time`) and the highest source ID seen. Each drain asks
-production for events from 2 seconds before the cursor, so an event that shares a timestamp with
-the last one isn't skipped.
+production for events from the later of the session cutoff and 2 seconds before the cursor. The
+overlap means an event that shares a timestamp with the last one isn't skipped, and the cutoff
+means a fresh or stale cursor never pages through events from before the session.
 
 Production pages newest first. The daemon collects every page, sorts the events oldest first, and
 only then stores them and hands them to the workers. A worker must see a student's events in the
@@ -140,7 +141,7 @@ stretches. A gap of 5 minutes or more between events becomes an inactive pause, 
 seconds to 5 minutes after a run becomes a post-run pause.
 
 For Castle Crashers runs, the worker also feeds every event to the `goal_strategy` engine, which
-profiles what goal each run shows evidence for. The worker stores one `goal_profile` row per
+profiles what goal each run shows evidence for. The Worker stores one `goal_profile` row per
 profiled run, and the student sheet shows them as goal evidence.
 
 !!! note "Every write bumps a change counter"

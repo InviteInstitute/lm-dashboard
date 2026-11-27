@@ -1,0 +1,96 @@
+name: Docs bot
+
+# The docs bot that zany, atlas-invite, agent and lm-dashboard share. Each repo's
+# .github/workflows/docs.yml calls this workflow after a push, and its .github/docs-bot.toml says
+# what the bot may write and which code it reads.
+#
+# scripts/docs_sync.py sends an LLM on NCSA's Lumen the commit's diff, the code and the docs, with
+# the writing rules of Maharsh17/claude-config, and writes the pages it fixes. If the repo's check
+# still passes, the job commits those pages to the branch. docs.inviteai.org shows them within two
+# minutes (InviteInstitute/docs), and each repo's deploy skips a docs-only commit.
+#
+# A push made with the job's own token starts no workflow, so the bot's commit never starts CI or
+# the bot again. lm-dashboard is public, so private and public repos can all call this workflow.
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The runner, as JSON. Private repos use '["self-hosted", "invite-runner"]'.
+        type: string
+        default: '"ubuntu-latest"'
+      check:
+        description: The command that must pass before the bot commits.
+        type: string
+        default: uvx --from zensical==0.1.3 zensical build --strict
+      node:
+        description: Set up Node from .nvmrc and run npm ci before the check.
+        type: boolean
+        default: false
+    secrets:
+      LUMEN_API_KEY:
+        required: true
+
+jobs:
+  docs:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    # One run at a time per repo, so two quick pushes never race to commit the docs.
+    concurrency:
+      group: docs-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      # A push brings its own commit. After CI (workflow_run), the commit is the one CI ran on.
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          submodules: true
+      - uses: actions/checkout@v7
+        with:
+          repository: Maharsh17/claude-config
+          path: .claude-config
+      - uses: actions/checkout@v7
+        with:
+          repository: InviteInstitute/lm-dashboard
+          path: .docs-bot
+          sparse-checkout: scripts/docs_sync.py
+          sparse-checkout-cone-mode: false
+      # Neither checkout is part of the repo, so a check like zany's docs:check must not see them.
+      - run: printf '.claude-config/\n.docs-bot/\n' >> .git/info/exclude
+      - if: inputs.node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - if: inputs.node
+        run: npm ci
+      - uses: astral-sh/setup-uv@v6
+
+      # Without a push's "before", the diff is the commit against its first parent: one squash
+      # commit, or a whole merge.
+      - name: Bring the docs in step with the commit
+        id: sync
+        env:
+          LUMEN_API_KEY: ${{ secrets.LUMEN_API_KEY }}
+        run: >-
+          python3 .docs-bot/scripts/docs_sync.py --style .claude-config
+          --branch "$BRANCH" --base "${{ github.event.before }}" --head "$HEAD_SHA"
+
+      - name: Check the docs
+        run: ${{ inputs.check }}
+
+      - name: Commit the docs
+        if: steps.sync.outputs.changed != ''
+        env:
+          CHANGED: ${{ steps.sync.outputs.changed }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $CHANGED
+          git commit -m "Bring the docs in step with ${HEAD_SHA::7}"
+          # The branch may have moved while the model worked. A docs-only commit rebases cleanly.
+          git pull --rebase origin "$BRANCH"
+          git push origin "HEAD:$BRANCH"

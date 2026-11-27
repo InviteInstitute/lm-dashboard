@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.16.2", "httpx2==2.16.2"]  # httpx2: Starlette's test client
-docs = ["zensical==0.1.3"]  # the docs site; .github/workflows/docs.yml pins the same
+docs = ["zensical==0.1.3"]  # the docs site; .github/workflows/docs-bot.yml pins the same
 
 # Scope pytest to this repo's own suite. The agent-lm-packages submodule ships
 # its own tests under vendor/ (some need optional extras like pandas); those are

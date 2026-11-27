@@ -76,7 +76,7 @@ The backend is the `app/` package.
 | `app/goal_evidence.py` | shapes the goal engine's per-run profiles for the student sheet |
 | `app/turnstile.py` | the Cloudflare Turnstile gate |
 | `app/config.py`, `app/constants.py` | settings from the environment, and the numbers you can tune |
-| `scripts/` | `deploy.sh`, `follow_logs.py`, and `docs_sync.py` for the docs |
+| `scripts/` | `deploy.sh`, `follow_logs.py`, and `docs_sync.py`, the docs bot that every INVITE repo shares |
 | `vendor/agent-lm-packages` | the engine, as a git submodule: `learner_models` (edit distance, triggers, episodes), `goal_strategy` (goal evidence) and `log_parser_delta_engine` (the readable program and the prompt) |
 
 The dashboard is `frontend/src/`. `CohortDashboard.jsx` holds the board's state and actions and
@@ -132,7 +132,9 @@ The docs are the pages in `docs/`, with their nav in `zensical.toml`. They are p
 Learner Modeling Dashboard section of [docs.inviteai.org](https://docs.inviteai.org/lm-dashboard/),
 which also holds the ZANY and ATLAS docs. That site's theme, home page and build live in
 InviteInstitute/docs, and the INVITE server rebuilds it within two minutes of a change here.
-`.github/workflows/docs.yml` keeps the pages up to date on every push to `main`.
+`.github/workflows/docs.yml` keeps the pages up to date on every push to `main`. It calls
+`.github/workflows/docs-bot.yml`, the docs bot that zany, atlas-invite and agent call too, so the
+one copy of the bot lives here.
 
 1.  `scripts/docs_sync.py` sends the diff of the push, the code and the current docs to NCSA's
     Lumen. It asks glm-5.3 first, then glm, then deepseek-v4.1, one try each, because Lumen's
@@ -151,11 +153,15 @@ quick pushes never race to commit the docs. A push the bot makes starts no workf
 runs on its own commit, and the server's deploy skips a docs-only commit (see
 [Deploying](#deploying)).
 
-The settings at the top of `scripts/docs_sync.py` say which pages the bot may write. A path that
+Each repo's `.github/docs-bot.toml` says which pages the bot may write and which code it reads,
+and `SETTINGS` at the top of `scripts/docs_sync.py` lists every key with its default. A path that
 normalizes to a different file, like `docs//changes/x.md` or `../x`, is refused, and so is an
-absolute path, because either could slip past the protected list. zany and atlas-invite run
-copies of the same script with their own settings. To try it on your machine, set `LUMEN_API_KEY`
-and run the script. It compares `--head` (default `HEAD`) with `--base` (default the commit
+absolute path, because either could slip past the protected list. A repo picks its runner and its
+check in its `docs.yml`. zany and atlas-invite run the bot on `invite-runner` after CI, and zany
+checks with `npm run docs:check` instead of the Zensical build.
+
+To try it on your machine, set `LUMEN_API_KEY` and run the script from the root of the repo whose
+docs it should fix. It compares `--head` (default `HEAD`) with `--base` (default the commit
 before it) and only edits files in your checkout, so review them with `git diff`.
 
 ```bash

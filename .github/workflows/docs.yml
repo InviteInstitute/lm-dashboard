@@ -1,65 +1,17 @@
 name: Docs
 
-# After every push to main, bring the docs in step with the code and publish them.
-# scripts/docs_sync.py sends an LLM on NCSA's Lumen the push's diff, the code and the docs,
-# with the writing rules of Maharsh17/claude-config, and writes the pages it fixes. If the
-# pages still build with `zensical build --strict`, the job commits them to main. The INVITE
-# server then picks them up for docs.inviteai.org within two minutes (InviteInstitute/docs).
-# docs/guides/development.md#the-docs has the details.
-#
-# A push made with this job's own token starts no workflow, so its commit never starts this
-# job again.
+# After every push to main, the docs bot brings the docs in step with the code
+# (docs/guides/development.md#the-docs). The bot itself is docs-bot.yml, shared with zany,
+# atlas-invite and agent, and .github/docs-bot.toml holds this repo's settings.
 on:
   push:
     branches: [main]
-
-# One run at a time, so two quick pushes never race to commit the docs.
-concurrency:
-  group: docs
-  cancel-in-progress: false
 
 permissions:
   contents: write # push the docs commit to main
 
 jobs:
   docs:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: true
-      - uses: actions/checkout@v4
-        with:
-          repository: Maharsh17/claude-config
-          path: .claude-config
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install zensical==0.1.3 # the version in pyproject.toml
-      - run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Bring the docs in step with the push
-        env:
-          LUMEN_API_KEY: ${{ secrets.LUMEN_API_KEY }}
-        run: >-
-          python scripts/docs_sync.py --style .claude-config
-          --base "${{ github.event.before }}" --head "$GITHUB_SHA"
-
-      - name: Check the site builds
-        run: zensical build --strict
-
-      - name: Commit the docs to main
-        run: |
-          if [ -z "$(git status --porcelain -- docs README.md zensical.toml)" ]; then
-            echo "The docs are current."
-            exit 0
-          fi
-          git add -- docs README.md zensical.toml
-          git commit -m "Bring the docs in step with ${GITHUB_SHA::7}"
-          # main may have moved while the model worked. A docs-only commit rebases cleanly.
-          git pull --rebase origin main
-          git push origin HEAD:main
+    uses: ./.github/workflows/docs-bot.yml
+    secrets:
+      LUMEN_API_KEY: ${{ secrets.LUMEN_API_KEY }}

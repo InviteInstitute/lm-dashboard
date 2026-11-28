@@ -181,7 +181,6 @@ The channels are `states`, `triggers`, `switches` and `roster`. They match
 | Parameter | Type | What it does |
 |---|---|---|
 | `board_id` | string | the board, since `EventSource` can't send headers |
-| `once` | bool | send `hello` and close, which the tests use |
 
 !!! note "The stream is the viewer heartbeat"
     While a dashboard holds the stream, the server stamps the board's `viewer_last_seen` on

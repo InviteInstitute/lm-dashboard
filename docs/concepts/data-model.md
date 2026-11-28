@@ -38,7 +38,7 @@ flowchart LR
 | Roster | `tracked_student` | a board's students with its presence and picked flags, unique on `(workspace_id, studentID)` |
 | Researcher input | `note`, `pick_event`, `trigger_ack`, `outbox` | a board's notes, its pick history, the alerts it dismissed, and inputs that failed to save |
 | Board settings | `workspace_setting` | per-board keys, which are `source`, `polling_enabled`, `disabled_triggers`, `viewer_last_seen` and `reset_at` |
-| Shared settings | `meta` | the daemon's current session (`session_start`), and the trigger switches from before they were per board |
+| Shared settings | `meta` | the daemon's current session (`session_start`) |
 | Change counters | `channel_rev` | one counter per live-stream channel |
 
 !!! tip

@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 from app import db
 from app.constants import CURSOR_NAME
-from app.pipeline.workers import route
+from app.pipeline.workers import evict, route
 
 logger = logging.getLogger("pipeline")
 
@@ -148,9 +148,7 @@ def drain(client, cursor, limit=500, overlap_seconds=2, tracked=None, since=None
                 # in-memory worker failed. Discard that worker so the next
                 # tick rebuilds it from the DB (which now has this event),
                 # rather than keep serving a buffer that's silently missing it.
-                from app.pipeline import workers
-
-                workers._workers.pop(db.canon_id(norm["studentID"]), None)
+                evict(norm["studentID"])
                 logger.exception(
                     "route failed for %s after persist; dropped worker for rehydrate",
                     norm["studentID"],

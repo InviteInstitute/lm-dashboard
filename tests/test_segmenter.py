@@ -2,8 +2,7 @@
 two pause detectors."""
 
 from learner_models import segment_session
-
-from app.constants import PAUSE_THRESHOLD_S, SHORT_PAUSE_MIN_S
+from learner_models.constants import PAUSE_THRESHOLD_S, SHORT_PAUSE_MIN_S
 
 
 def _e(et, ts):

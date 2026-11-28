@@ -34,8 +34,6 @@ fresh clone runs without any of them except the database and the Reflecks login.
 | `GOAL_RECOGNITION_ENABLED` | daemon and API | `1` | profiles each Castle Crashers run for goal evidence. `0` turns off the profiling, its storage and the sheet's Goal Evidence section |
 | `GOAL_TIMELINE_ENABLED` | daemon | `1` | also records each run's goal timeline, which is cheap |
 | `GOAL_BATTERY_ENABLED` | daemon | `1` | also runs the sensor test battery, 19 extra simulations for each program that reads a sensor. `0` sheds the heaviest goal work under load |
-| `GOAL_ROLLUP_ENABLED` | daemon | `1` | also rolls the battery up into one claim per goal |
-| `GOAL_RUBRIC_ENABLED` | daemon | `1` | also scores the provisional execution rubric |
 
 The goal flags are off for any of `0`, `false`, `no` or an empty value.
 
@@ -51,17 +49,14 @@ without one acts on a shared default board.
 
 ZANY's logs need the research login on top of that. See [Sources](../concepts/sources.md#the-research-login).
 
-## Daemon Flags
+## Running The Daemon By Hand
 
-Every daemon setting is also a flag, and a flag wins over its environment variable.
+The daemon reads its settings from the `PIPELINE_*` variables above, so set them for one run like
+this.
 
 ```bash
-python -m app.pipeline --interval 1 --idle-max 8
+PIPELINE_INTERVAL=1 PIPELINE_IDLE_MAX=8 python -m app.pipeline
 ```
-
-The flags are `--interval`, `--idle-max`, `--limit` (events per page), `--overlap` (cursor overlap
-in seconds, default 2) and `--require-viewer`. `python -m app.pipeline --help`
-describes each.
 
 ## Polling And Idle Backoff
 
@@ -77,7 +72,7 @@ seconds. The first sign of activity brings it straight back to 0.5.
 ## The Dead-Man's Switch
 
 The dead-man's switch stops polling production for a board that nobody is watching. With
-`--require-viewer` (or `PIPELINE_REQUIRE_VIEWER=1`, the default in `compose.yml`), the daemon only
+`PIPELINE_REQUIRE_VIEWER=1`, the default in `compose.yml`, the daemon only
 polls a board's students while that board's dashboard is open.
 
 It works from a heartbeat. The API stamps the board's `viewer_last_seen` when a dashboard opens

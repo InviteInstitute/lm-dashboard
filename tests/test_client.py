@@ -1,10 +1,9 @@
-"""The prod REST client, with requests mocked out -- auth, token caching, the
-401 re-auth retry, paging, and credential loading."""
+"""The prod REST client, with its HTTP session faked: auth, token caching, the
+401 re-auth retry, paging, and network errors."""
 
+import httpx
 import pytest
-import requests
 
-from app.pipeline import client as client_mod
 from app.pipeline.client import ProdClient, ProdClientError
 
 
@@ -42,21 +41,6 @@ def _client(session):
     return c
 
 
-# --- credentials -----------------------------------------------------------
-def test_credentials_from_env(monkeypatch):
-    monkeypatch.setenv("PROD_USERNAME", "u")
-    monkeypatch.setenv("PROD_PASSWORD", "p")
-    assert client_mod._credentials() == ("u", "p")
-
-
-def test_credentials_from_env_mirror_file(monkeypatch, tmp_path):
-    monkeypatch.delenv("PROD_USERNAME", raising=False)
-    monkeypatch.delenv("PROD_PASSWORD", raising=False)
-    (tmp_path / ".env.mirror").write_text("PROD_USERNAME=fileuser\nPROD_PASSWORD=filepass\n")
-    monkeypatch.setattr(client_mod, "_BASE_DIR", str(tmp_path))
-    assert client_mod._credentials() == ("fileuser", "filepass")
-
-
 # --- auth ------------------------------------------------------------------
 def test_authenticate_success_and_token_caches(monkeypatch):
     monkeypatch.setenv("PROD_USERNAME", "u")
@@ -71,7 +55,6 @@ def test_authenticate_success_and_token_caches(monkeypatch):
 def test_authenticate_missing_credentials(monkeypatch):
     monkeypatch.delenv("PROD_USERNAME", raising=False)
     monkeypatch.delenv("PROD_PASSWORD", raising=False)
-    monkeypatch.setattr(client_mod, "_BASE_DIR", "/nonexistent")
     with pytest.raises(ProdClientError, match="Missing"):
         _client(FakeSession())._authenticate()
 
@@ -125,7 +108,7 @@ def test_a_network_timeout_is_a_transient_prod_error(monkeypatch):
 
     class Unreachable(FakeSession):
         def post(self, url, json=None, timeout=None):
-            raise requests.ConnectTimeout("timed out")
+            raise httpx.ConnectTimeout("timed out")
 
     with pytest.raises(ProdClientError, match="unreachable"):
         _client(Unreachable()).page_by_time(None, 50, 0)

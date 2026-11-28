@@ -4,9 +4,8 @@ description: Setup, the make targets, code style, where the code lives, CI, depl
 
 # Development
 
-This repo and [vex-agent-integration](https://github.com/InviteInstitute/vex-agent-integration)
-share one setup. A Makefile gives both the same commands, ruff and prettier own the code style, and
-GitHub Actions runs the same checks on every pull request.
+A Makefile gives the common commands, ruff and prettier own the code style, and GitHub Actions runs
+the same checks on every pull request.
 
 ## Set Up
 
@@ -47,8 +46,7 @@ virtualenv so `pytest` and `ruff` end up on your `PATH`.
 
 ## Code Style
 
-Ruff lints and formats the Python. Its config is in `pyproject.toml`, the same as in
-vex-agent-integration. The rules are pyflakes, import sorting, pyupgrade and bugbear. Line length
+Ruff lints and formats the Python. Its config is in `pyproject.toml`. The rules are pyflakes, import sorting, pyupgrade and bugbear. Line length
 is left to the formatter.
 
 Prettier formats the frontend (JSX and CSS), with its config in `frontend/.prettierrc.json`. An

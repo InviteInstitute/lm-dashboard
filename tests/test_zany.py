@@ -10,6 +10,7 @@ import pytest
 from app import config, db, zany
 from app.main import UNLOCK_COOKIE, _unlock_failures, _unlock_signer
 from app.pipeline import workers, zany_source
+from app.turnstile import sign_cookie
 
 STUDY = "STUDY-0001"
 
@@ -87,7 +88,7 @@ def test_drain_stores_and_routes_only_tracked_students_and_passes_every_row():
         ("runProject", r01),
     ]
     assert r02 not in {db.canon_id(r["studentid"]) for r in rows}
-    assert workers.has_worker(r01)
+    assert db.canon_id(r01) in workers._workers
 
 
 def test_drain_rereads_the_overlap_so_a_row_that_commits_late_is_seen():
@@ -189,7 +190,7 @@ def test_studies_and_participants_list_what_the_store_has():
 
 
 def unlock(client):
-    client.cookies.set(UNLOCK_COOKIE, _unlock_signer.sign(b"ok").decode())
+    client.cookies.set(UNLOCK_COOKIE, sign_cookie(_unlock_signer))
 
 
 def test_unlocking_checks_the_research_login_with_atlas_and_limits_tries(client, monkeypatch):

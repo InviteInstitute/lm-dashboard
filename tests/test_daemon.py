@@ -71,7 +71,7 @@ def test_one_full_tick_drains_then_sleeps(patched_daemon):
     client = FakeClient(time_pages=[[]])
     patched_daemon(client, stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert client.time_calls >= 1  # it reached and ran a drain
 
 
@@ -81,7 +81,7 @@ def test_paused_daemon_makes_no_prod_calls(patched_daemon):
     client = FakeClient()
     patched_daemon(client, stop_after=2)  # 2 ticks: exercise the paused continue
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert client.time_calls == 0  # paused short-circuits before drain
 
 
@@ -90,7 +90,7 @@ def test_backfills_a_new_student(patched_daemon):
     client = FakeClient(time_pages=[[]], student_pages=[[_ev(1, "newbie")]])
     patched_daemon(client, stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     # backfill ran -> the roster row is now marked backfilled and state materialized
     assert db.tracked_list()[0]["backfilled"] is True
     assert db.list_student_states(["newbie"]) != []
@@ -100,7 +100,7 @@ def test_transient_prod_error_backs_off(patched_daemon):
     client = FakeClient(raise_on_time=True)
     patched_daemon(client, stop_after=1)  # the backoff sleep raises the sentinel
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert client.time_calls == 1  # tried once, hit the error path
 
 
@@ -111,7 +111,7 @@ def test_repeated_prod_failures_log_unhealthy(patched_daemon, caplog):
     patched_daemon(client, stop_after=5)
     with caplog.at_level("ERROR", logger="pipeline"):
         with pytest.raises(_StopLoop):
-            daemon.main([])
+            daemon.main()
     assert any("UNHEALTHY" in r.message for r in caplog.records)
     assert client.time_calls == 5
 
@@ -123,7 +123,7 @@ def test_drained_events_materialize_state(patched_daemon):
     patched_daemon(client, stop_after=1)
     workers.reset()
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert db._query("SELECT 1 FROM vex_log WHERE studentID='s1'") != []
 
 
@@ -136,7 +136,7 @@ def test_backfill_error_is_logged_not_fatal(patched_daemon, monkeypatch):
     monkeypatch.setattr(daemon.poller, "backfill_student", _raise)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert db.tracked_list()[0]["backfilled"] is False  # failed backfill not marked done
 
 
@@ -150,14 +150,14 @@ def test_inference_error_is_logged_not_fatal(patched_daemon, monkeypatch):
     monkeypatch.setattr(daemon.workers, "dirty_workers", lambda: [BadWorker()])
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):  # the loop survives the inference error
-        daemon.main([])
+        daemon.main()
 
 
 def test_trigger_eval_error_is_logged_not_fatal(patched_daemon, monkeypatch):
     monkeypatch.setattr(daemon.triggers, "evaluate", _raise)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
 
 
 def test_non_transient_error_reraises(patched_daemon, monkeypatch):
@@ -168,13 +168,7 @@ def test_non_transient_error_reraises(patched_daemon, monkeypatch):
     monkeypatch.setattr(daemon.poller, "drain", _raise)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(RuntimeError, match="simulated failure"):
-        daemon.main([])
-
-
-# The old daemon reset handshake (meta['reset_requested_at'] -> db.reset_all +
-# workers.reset) is gone: reset is now a per-workspace, API-driven action that
-# clears only that board's researcher data and never wipes the shared mirror, so
-# the daemon has nothing to do on a reset.
+        daemon.main()
 
 
 def _capture_drain(monkeypatch):
@@ -198,7 +192,7 @@ def test_daemon_polls_the_union_of_all_boards_once(patched_daemon, monkeypatch):
     captured = _capture_drain(monkeypatch)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert captured["tracked"] == {"cobra3", "viper1"}
 
 
@@ -211,7 +205,7 @@ def test_paused_board_excludes_its_exclusive_students(patched_daemon, monkeypatc
     captured = _capture_drain(monkeypatch)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     # viper1 (only on paused B) is not polled; cobra3 stays live via A.
     assert captured["tracked"] == {"cobra3"}
 
@@ -234,7 +228,7 @@ def test_session_cutoff_passed_to_backfill_and_drain(patched_daemon, monkeypatch
     monkeypatch.setattr(daemon.poller, "drain", fake_drain)
     patched_daemon(FakeClient(), stop_after=1)
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert seen["backfill_since"] is not None
     assert seen["drain_since"] == seen["backfill_since"]
 
@@ -250,5 +244,5 @@ def test_first_drain_starts_at_the_session_cutoff(patched_daemon):
     patched_daemon(client, stop_after=1)
     started = db.now()
     with pytest.raises(_StopLoop):
-        daemon.main([])
+        daemon.main()
     assert asked and datetime.fromisoformat(asked[0]) >= started

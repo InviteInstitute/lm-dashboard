@@ -1,42 +1,23 @@
 """
 The REST client the pipeline uses to read prod's event stream.
 
-It does bulk, cursor-based reads. The cursor is currently the event timestamp,
-expressed through prod's existing `dateFrom` filter so it works against the live
-API with no server changes; a cleaner `?since=<id>` path is stubbed in for the
-day prod exposes a proper id cursor.
+It does bulk, cursor-based reads. The cursor is the event timestamp, expressed
+through prod's `dateFrom` filter.
 
 A single keep-alive session is reused across calls, and the auth token is cached
-and transparently refreshed whenever a request comes back 401.
+and transparently refreshed whenever a request comes back 401. Credentials come
+from the environment, which app.config loads from .env.mirror.
 """
 
 import os
 
-import requests
+import httpx
 
 PROD_API_BASE = os.environ.get("VEX_PROD_API_BASE", "https://inviteinstitutehub.org")
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class ProdClientError(RuntimeError):
     pass
-
-
-def _credentials():
-    user = os.environ.get("PROD_USERNAME")
-    pw = os.environ.get("PROD_PASSWORD")
-    if user and pw:
-        return user, pw
-    env_path = os.path.join(_BASE_DIR, ".env.mirror")
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("PROD_USERNAME="):
-                    user = user or line.split("=", 1)[1]
-                elif line.startswith("PROD_PASSWORD="):
-                    pw = pw or line.split("=", 1)[1]
-    return user, pw
 
 
 class ProdClient:
@@ -45,8 +26,8 @@ class ProdClient:
 
     def __init__(self, base=PROD_API_BASE, connect_timeout=3.0, read_timeout=8.0):
         self.base = base
-        self.timeout = (connect_timeout, read_timeout)
-        self.session = requests.Session()
+        self.timeout = httpx.Timeout(read_timeout, connect=connect_timeout)
+        self.session = httpx.Client()
         self._token = None
 
     def _call(self, method, path, **kw):
@@ -54,12 +35,12 @@ class ProdClient:
         as a 504, so it raises ProdClientError and the daemon backs off."""
         try:
             return getattr(self.session, method)(f"{self.base}{path}", timeout=self.timeout, **kw)
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise ProdClientError(f"prod unreachable: {e}") from e
 
     # -- auth -------------------------------------------------------------
     def _authenticate(self):
-        user, pw = _credentials()
+        user, pw = os.environ.get("PROD_USERNAME"), os.environ.get("PROD_PASSWORD")
         if not user or not pw:
             raise ProdClientError("Missing PROD_USERNAME/PROD_PASSWORD (.env.mirror or env).")
         resp = self._call("post", "/api/token/", json={"username": user, "password": pw})
@@ -75,11 +56,11 @@ class ProdClient:
     def _get(self, params):
         """Fetch one page of results. Retries once after re-authenticating if the
         first attempt returns 401; any other non-200 raises ProdClientError."""
-        headers = {"Authorization": f"Token {self.token()}"}
-        resp = self._call("get", "/api/rabbitmq/vex_logs/", headers=headers, params=params)
-        if resp.status_code == 401:
-            headers = {"Authorization": f"Token {self._authenticate()}"}
+        for token in (self.token(), None):
+            headers = {"Authorization": f"Token {token or self._authenticate()}"}
             resp = self._call("get", "/api/rabbitmq/vex_logs/", headers=headers, params=params)
+            if resp.status_code != 401:
+                break
         if resp.status_code != 200:
             raise ProdClientError(f"prod API {resp.status_code}: {resp.text[:120]}")
         return resp.json().get("results", [])

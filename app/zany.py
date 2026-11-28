@@ -20,8 +20,8 @@ import json
 import logging
 import time
 
+import httpx
 import psycopg
-import requests
 
 from app import config
 
@@ -167,21 +167,17 @@ class LoginFailed(Exception):
 def researcher_login(email, password):
     """Check a login against ATLAS: sign in with it, ask whether the account is a researcher, sign
     out. Stores nothing. Raises LoginFailed with a message for the person."""
-    s = requests.Session()
     try:
-        r = s.post(
-            f"{config.ATLAS_URL}/api/method/login",
-            data={"usr": email, "pwd": password},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            raise LoginFailed("That email and password don't match a research login.")
-        try:
-            who = s.get(f"{config.ATLAS_URL}/api/method/atlas.research.researcher", timeout=10)
-            researcher = who.status_code == 200 and who.json()["message"]["researcher"]
-        finally:
-            s.post(f"{config.ATLAS_URL}/api/method/logout", timeout=10)
-    except requests.RequestException as e:
+        with httpx.Client(base_url=config.ATLAS_URL, timeout=10) as s:
+            r = s.post("/api/method/login", data={"usr": email, "pwd": password})
+            if r.status_code != 200:
+                raise LoginFailed("That email and password don't match a research login.")
+            try:
+                who = s.get("/api/method/atlas.research.researcher")
+                researcher = who.status_code == 200 and who.json()["message"]["researcher"]
+            finally:
+                s.post("/api/method/logout")
+    except httpx.HTTPError as e:
         log.warning("ATLAS login check failed: %s", e)
         raise LoginFailed("ATLAS didn't answer. Try again in a minute.") from e
     if not researcher:

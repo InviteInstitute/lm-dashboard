@@ -13,12 +13,11 @@ dependencies = [
     "psycopg[binary]==3.3.4",      # data layer (API + daemon), pooled via psycopg-pool
     "psycopg-pool==3.3.1",
     "itsdangerous==2.2.0",         # signs the Turnstile "solved the widget" cookie (app/turnstile)
-    "httpx==0.28.1",               # Turnstile siteverify (async)
-    "requests==2.34.2",            # ingestion daemon
+    "httpx==0.28.1",               # Turnstile siteverify, the prod client, the ATLAS login check
     "python-dotenv==1.2.2",
     # The trigger + learner-model engine (and its apted dependency) come from the
     # agent-lm-packages submodule, installed editable from vendor/ (see the
-    # Dockerfile, requirements.txt, and CI).
+    # Dockerfile and CI).
 ]
 
 [project.optional-dependencies]
@@ -34,8 +33,7 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["app*"]
 
-# Ruff owns linting and formatting. This block is kept identical to
-# vex-agent-integration so both repos lint and format the same way.
+# Ruff owns linting and formatting.
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -45,10 +43,11 @@ extend-exclude = ["*.egg-info"]
 select = ["E", "F", "I", "UP", "B"]
 ignore = [
     "E501",   # line length is the formatter's call; this code favors dense lines
-    "E402",   # deliberate late imports (load_dotenv before importing the data layer)
     "E741",   # a few short-lived loop vars read fine in context
     "E731",   # the odd lambda binding is clearer left inline
     "B905",   # our zip() pairs are equal-length by construction
-    "UP042",  # str-enum migration is a semantic change, out of scope here
-    "UP035",  # the flagged deprecated-import paths are intentional compat
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# conftest points DATABASE_URL at the test database before the app is imported.
+"tests/conftest.py" = ["E402"]

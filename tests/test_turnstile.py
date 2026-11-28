@@ -1,7 +1,7 @@
 """The Cloudflare Turnstile bot gate over /api/* (see app/turnstile.py), which
 replaced HTTP Basic Auth: the dashboard is public, this only keeps bots off."""
 
-from app.turnstile import COOKIE_NAME, cookie_is_valid, sign_cookie
+from app.turnstile import COOKIE_NAME, sign_cookie, valid_signed
 
 
 def test_healthz_is_open(anon_client):
@@ -42,9 +42,9 @@ def test_verify_endpoint_rejects_failed_challenge(anon_client, monkeypatch):
 
 def test_cookie_sign_roundtrip():
     value = sign_cookie()
-    assert cookie_is_valid(value) is True
-    assert cookie_is_valid(value + "tampered") is False
-    assert cookie_is_valid(None) is False
+    assert valid_signed(value) is True
+    assert valid_signed(value + "tampered") is False
+    assert valid_signed(None) is False
 
 
 def _fake_verify(result):

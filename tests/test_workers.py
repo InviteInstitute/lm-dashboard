@@ -149,7 +149,7 @@ def test_reconcile_drops_untracked_workers():
     workers.get_worker("keep")
     workers.get_worker("drop")
     workers.reconcile({"keep"})
-    assert workers.has_worker("keep") and not workers.has_worker("drop")
+    assert "keep" in workers._workers and "drop" not in workers._workers
 
 
 def test_route_to_cached_worker_ingests_without_double_count():

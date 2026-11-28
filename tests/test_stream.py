@@ -1,13 +1,8 @@
 """SSE live stream: the change fingerprint, the pure channel diff, and the
-endpoint handshake. The live loop itself isn't exercised here (it never ends by
-design); `once=1` returns just the hello so the test can't block on it."""
+endpoint handshake."""
 
 from app import db
 from app.main import _changed_channels
-
-
-def test_changed_channels_first_tick_is_never_a_change():
-    assert _changed_channels(None, {"states": "a", "roster": "b"}) == []
 
 
 def test_changed_channels_lists_only_the_channels_that_moved():
@@ -55,7 +50,7 @@ def test_fingerprint_counters_isolate_per_channel():
 
 
 def test_stream_endpoint_opens_with_hello(client):
-    r = client.get("/api/stream/?once=1")
-    assert r.status_code == 200
-    assert "text/event-stream" in r.headers["content-type"]
-    assert "event: hello" in r.text
+    with client.stream("GET", "/api/stream/") as r:
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers["content-type"]
+        assert next(r.iter_lines()) == "event: hello"

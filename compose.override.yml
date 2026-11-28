@@ -8,14 +8,12 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./app:/app/app
-    environment:
-      PIPELINE_REQUIRE_VIEWER: "0"     # local: poll as soon as a board has students
 
   daemon:
     volumes:
       - ./app:/app/app
     environment:
-      PIPELINE_REQUIRE_VIEWER: "0"
+      PIPELINE_REQUIRE_VIEWER: "0"     # local: poll as soon as a board has students
 
   web:
     image: node:20-slim

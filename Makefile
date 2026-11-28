@@ -1,5 +1,4 @@
-# One command vocabulary, shared with vex-agent-integration. Run `make` or
-# `make help` to list targets. This is a thin wrapper over scripts/ and the
+# One command vocabulary. Run `make` or `make help` to list targets. This is a thin wrapper over scripts/ and the
 # compose files, so behavior matches running those by hand.
 #
 # Docker targets honor COMPOSE, so on a host where docker needs sudo run e.g.

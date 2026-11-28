@@ -141,6 +141,35 @@ def _shape_rubric(rb):
     }
 
 
+# The engine's fields the sheet shows as they are, per indicator and per run.
+_INDICATOR_KEYS = (
+    "name",
+    "channel",
+    "rung",
+    "direction",
+    "absent_label",
+    "value",
+    "abstained",
+    "abstain_reason",
+)
+_SUMMARY_KEYS = (
+    "boundary_exceeded",
+    "boundary_exit_step",
+    "boundary_exit_overridden",
+    "outcome_available",
+    "fidelity_verdict",
+    "sim_final_off_island",
+    "gps_final_off_island",
+    "off_island_agreement",
+    "gps_final_error_mm",
+    "gps_final_error_reason",
+    "gps_to_trajectory_mm",
+    "orphan_block_count",
+    "fabricated_motion",
+    "edge_zone_traversed",
+)
+
+
 def goal_runs(student_id, since=None):
     """One entry per profiled run of this student since `since` (a board reset),
     oldest first. Each run's index joins it to the edit-distance runs."""
@@ -151,16 +180,9 @@ def goal_runs(student_id, since=None):
         for g in prof.get("goals", []):
             indicators = [
                 {
-                    "name": ind.get("name"),
+                    **{k: ind.get(k) for k in _INDICATOR_KEYS},
                     "role": role,
-                    "channel": ind.get("channel"),
-                    "rung": ind.get("rung"),
                     "rung_labels": ind.get("rung_labels") or [],
-                    "direction": ind.get("direction"),
-                    "absent_label": ind.get("absent_label"),
-                    "value": ind.get("value"),
-                    "abstained": ind.get("abstained"),
-                    "abstain_reason": ind.get("abstain_reason"),
                     "flags": ind.get("flags") or [],
                 }
                 for role, inds in (
@@ -214,22 +236,7 @@ def goal_runs(student_id, since=None):
                 "battery": battery,
                 "rollup": _shape_rollup(p.get("rollup")),
                 "rubric": _shape_rubric(p.get("rubric")),
-                "summary": {
-                    "boundary_exceeded": prof.get("boundary_exceeded"),
-                    "boundary_exit_step": prof.get("boundary_exit_step"),
-                    "boundary_exit_overridden": prof.get("boundary_exit_overridden"),
-                    "outcome_available": prof.get("outcome_available"),
-                    "fidelity_verdict": prof.get("fidelity_verdict"),
-                    "sim_final_off_island": prof.get("sim_final_off_island"),
-                    "gps_final_off_island": prof.get("gps_final_off_island"),
-                    "off_island_agreement": prof.get("off_island_agreement"),
-                    "gps_final_error_mm": prof.get("gps_final_error_mm"),
-                    "gps_final_error_reason": prof.get("gps_final_error_reason"),
-                    "gps_to_trajectory_mm": prof.get("gps_to_trajectory_mm"),
-                    "orphan_block_count": prof.get("orphan_block_count"),
-                    "fabricated_motion": prof.get("fabricated_motion"),
-                    "edge_zone_traversed": prof.get("edge_zone_traversed"),
-                },
+                "summary": {k: prof.get(k) for k in _SUMMARY_KEYS},
             }
         )
     return runs

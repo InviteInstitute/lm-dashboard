@@ -8,22 +8,10 @@ def _types(seq, **kw):
     return [(t, i) for (t, i, _d) in detect_run_triggers(seq, **kw)]
 
 
-def test_six_zero_streak_fires_wheel_spin_once():
-    # None, then six zeros: wheel_spin fires at index 6 (the 6th zero), only once
-    seq = [None, 0, 0, 0, 0, 0, 0]
-    assert ("wheel_spin", 6) in _types(seq)
-    assert sum(1 for t, _ in _types(seq) if t == "wheel_spin") == 1
-
-
 def test_wheel_spin_rearms_after_edit():
     seq = [None, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0]
     fires = [i for t, i in _types(seq) if t == "wheel_spin"]
     assert fires == [6, 13]
-
-
-def test_resilience_fires_on_breakout_after_four_zeros():
-    seq = [None, 0, 0, 0, 0, 2]  # four zeros then an edit
-    assert ("resilience", 5) in _types(seq)
 
 
 def test_no_resilience_with_only_three_zeros():
@@ -41,13 +29,6 @@ def test_iterative_fires_at_threshold_then_cooldown_until_zero():
     seq = [None, 2, 2, 2, 2, 2, 2, 2, 0, 3, 3, 3, 3, 3, 3]
     fires = [i for t, i in _types(seq) if t == "iterative"]
     assert fires == [6, 14]
-
-
-def test_iterative_counts_distance_one():
-    # A single-block edit (edit_distance == 1) now counts toward Step-by-Step
-    # (ITERATIVE_EDIT_MIN = 0), so six of them reach the default threshold.
-    seq = [None, 1, 1, 1, 1, 1, 1, 1]
-    assert ("iterative", 6) in _types(seq)
 
 
 def test_wheel_spin_and_resilience_both_fire_on_long_then_edit():

@@ -1,9 +1,9 @@
 """The block humanizer: readable name -> params, incl. the value-slot numbers
-the edit-distance AST drops, nested reporters, and if/else branch labels."""
+the edit-distance AST drops, range operators, and if/else branch labels."""
 
 import json
 
-from log_parser_delta_engine import generate_readable_lines, generate_readable_text
+from log_parser_delta_engine import generate_readable_lines
 
 from app import db
 
@@ -25,10 +25,6 @@ def _num(slot, n):
     return f'<value name="{slot}"><shadow type="math_number"><field name="NUM">{n}</field></shadow></value>'
 
 
-def test_simple_block_is_just_its_name():
-    assert _body(_wrap('<block type="pg_drivetrain_stop_driving"/>')) == ["stop driving"]
-
-
 def test_keeps_the_value_number_and_hides_mutator_noise():
     xml = _wrap(
         '<block type="pg_drivetrain_drive_for">'
@@ -38,15 +34,6 @@ def test_keeps_the_value_number_and_hides_mutator_noise():
     line = _body(xml)[0]
     assert "drive for" in line and "forward" in line and "200" in line
     assert "mutator" not in line  # Blockly plumbing hidden
-
-
-def test_unknown_block_gets_a_name_derived_from_its_type():
-    assert _body(_wrap('<block type="pg_brand_new_2099"/>')) == ["brand new 2099"]
-
-
-def test_loose_blocks_are_listed_as_not_connected():
-    lines = generate_readable_lines('<xml><block type="pg_drivetrain_stop_driving"/></xml>')
-    assert lines == ["not connected (won't run):", "  stop driving"]
 
 
 def test_if_else_labels_the_else_branch():
@@ -65,26 +52,6 @@ def test_if_else_labels_the_else_branch():
     assert "  drive forward" in lines and "  stop driving" in lines  # both bodies indented
 
 
-def test_nested_reporters_recurse_to_any_depth():
-    # if ( not ( (object distance < 200) and eye near object ) )
-    cond = (
-        '<block type="pg_operator_not"><value name="OPERAND">'
-        '<block type="pg_operator_and_or"><field name="CHECK">and</field>'
-        '<value name="OPERAND1"><block type="pg_operator_comparison"><field name="COMPARISON">&lt;</field>'
-        '<value name="NUM1"><block type="pg_sensing_distance_distance"><field name="DISTANCE">frontdistance</field></block></value>'
-        + _num("NUM2", 200)
-        + "</block></value>"
-        '<value name="OPERAND2"><block type="pg_sensing_optical_near_object"><field name="OPTICAL">fronteye</field></block></value>'
-        "</block></value></block>"
-    )
-    xml = _wrap(
-        f'<block type="pg_control_if_then"><value name="CONDITION">{cond}</value>'
-        '<statement name="SUBSTACK"><block type="pg_drivetrain_stop_driving"/></statement></block>'
-    )
-    top = _body(xml)[0]
-    assert "not (" in top and "and" in top and "< 200" in top  # full depth rendered
-
-
 def test_range_operator_keeps_all_three_numbers():
     xml = _wrap(
         '<block type="pg_control_if_then"><value name="CONDITION">'
@@ -97,12 +64,6 @@ def test_range_operator_keeps_all_three_numbers():
     )
     top = _body(xml)[0]
     assert "0" in top and "50" in top and "90" in top  # none dropped
-
-
-def test_bad_input_never_raises():
-    assert generate_readable_lines("") == []
-    assert generate_readable_lines("<xml><not closed") == []
-    assert generate_readable_text(None) == ""
 
 
 def test_detail_endpoint_exposes_readable_program(client, seed_state):

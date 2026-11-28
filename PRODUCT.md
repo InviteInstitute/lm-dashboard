@@ -14,17 +14,16 @@ interviews, and record observations during a session.
 
 ## Product Purpose
 
-Make ongoing student coding activity understandable on one live board so
-researchers can decide where to direct their attention and retain a useful session
-record. Success means moving from an activity signal to the underlying evidence,
-an observation or interview, and an export for subsequent research.
+Show a room's coding activity on one live board, so researchers can see who to
+watch and keep a record of the session. A researcher goes from an alert to the
+activity behind it, then to a note or an interview, and exports the session for
+later research.
 
 ## Positioning
 
-The dashboard mirrors Reflecks/VEX activity and derives interpretable signals from
-changes between code runs and session episodes. Its five activity triggers are
-rules over observed activity, not a black-box assessment of a student's ability or
-understanding. Researcher judgment remains central to interpreting those signals.
+The dashboard mirrors Reflecks/VEX activity and works out signals from the changes
+between code runs and from session episodes. The triggers are five fixed rules over
+what a student did. A researcher decides what an alert means.
 
 ## Operating Context
 
@@ -46,17 +45,17 @@ understanding. Researcher judgment remains central to interpreting those signals
   activity counts, status, presence, and interview selection.
 - Preserve the documented trigger terminology: Wheel-spinning, Resilience,
   Inactive, Explorer, and Step-by-Step. Trigger types can be enabled or disabled.
-  Numeric thresholds are implementation settings, not immutable product promises.
+  The numeric thresholds can change.
 - Student details include a readable program, a playground prompt, expanded
-  timelines, trigger history, and notes. A prompt is context for an LLM, not evidence
-  that the dashboard's activity rules use an LLM.
+  timelines, trigger history, and notes. The prompt is context for an LLM. The
+  activity rules don't use one.
 - Identity-switch notifications expose handle casing and class-code changes that
   may affect interpretation of activity.
 - Production is a read-only data source. Researcher actions write to the local
   dashboard store and must not write back to Reflecks.
 - Board isolation must be preserved. Reset clears the board's research session
   inputs and dismissals while retaining roster and presence and leaving the shared
-  student mirror intact; a backup precedes the reset.
+  student mirror intact. A backup comes first.
 - Researcher inputs must not fail silently. Preserve visible failed-save feedback,
   retries, and recoverable input through the outbox.
 - Protect access to the dashboard and research data. Do not commit student
@@ -73,11 +72,9 @@ Institute. Existing identity assets include `frontend/public/logo_INVITE.png` an
 - `README.md`: product overview and operation.
 - `docs/guides/using-the-dashboard.md`: researcher workflows and terminology.
 - `docs/concepts/architecture.md`: system architecture, source-data boundaries, and
-  isolation. This is an engineering document, not a visual design specification.
-- `frontend/src/CohortDashboard.jsx` and `app/main.py`: incumbent interface and
-  behavior when documentation details differ.
-- No outcome benchmarks or testimonials were confirmed during initialization;
-  future work must not invent them.
+  isolation.
+- `frontend/src/CohortDashboard.jsx` and `app/main.py`: the interface and behavior
+  to trust when the docs differ.
 
 ## Product Principles
 
@@ -90,6 +87,5 @@ Institute. Existing identity assets include `frontend/public/logo_INVITE.png` an
 
 ## Open Decisions
 
-No product-specific accessibility standard, additional audience, or new outcome
-claim was established during initialization. Confirm these if future work depends
-on them.
+There is no accessibility standard, second audience or outcome claim yet. Agree
+on one before work depends on it.

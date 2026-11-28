@@ -51,8 +51,7 @@ and the research login unlocks them.
 | Explorer | one run changes 13 or more blocks |
 | Step-by-Step | a student makes a steady run of small edits (six on most playgrounds) |
 
-They are rules over what students did, not a judgment of what they know. The researcher decides
-what an alert means.
+They are five fixed rules over what a student did. The researcher decides what an alert means.
 
 ![The board with eight test students: cards with their run and episode tracks, and five alerts in the Needs Intervention column](images/board.png)
 

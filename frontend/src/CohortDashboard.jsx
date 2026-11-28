@@ -20,12 +20,11 @@ import { useSafeWrite } from "./hooks/useSafeWrite";
 import { useStudentDetail } from "./hooks/useStudentDetail";
 import { useTheme } from "./hooks/useTheme";
 import { triggerDownload } from "./lib/download";
-import { headlineTriggers, statusMeta } from "./lib/status";
+import { headlineTriggers, statusMeta, switchKind } from "./lib/status";
 
 const ALL_TRIGGERS_ON = Object.fromEntries(Object.keys(TRIGGERS).map((t) => [t, true]));
 
-const switchText = (s) =>
-  `${s.kind === "casing" ? "casing changed" : "new class"}: ${s.from} -> ${s.to}`;
+const switchText = (s) => `${switchKind(s)}: ${s.from} -> ${s.to}`;
 
 const CohortDashboard = () => {
   const board = useBoardData();
@@ -97,9 +96,9 @@ const CohortDashboard = () => {
     const next = !pollingOn;
     setPollingOn(next);
     try {
-      const r = await safeWrite(`polling ${next ? "on" : "off"}`, { enabled: next }, () =>
-        api.post("/api/polling/", { enabled: next }),
-      );
+      const r = await safeWrite(`polling ${next ? "on" : "off"}`, "/api/polling/", {
+        enabled: next,
+      });
       setPollingOn(r.data.enabled);
     } catch {
       fetchPolling();
@@ -111,8 +110,10 @@ const CohortDashboard = () => {
     setTriggerCfg((c) => ({ ...c, [type]: next }));
     const body = { trigger_type: type, enabled: next };
     try {
-      const r = await safeWrite(`trigger ${type} ${next ? "on" : "off"}`, body, () =>
-        api.post("/api/triggers/config/", body),
+      const r = await safeWrite(
+        `trigger ${type} ${next ? "on" : "off"}`,
+        "/api/triggers/config/",
+        body,
       );
       setTriggerCfg(r.data.enabled);
       // The API filters this board's feed by these switches, and a switch change
@@ -131,9 +132,7 @@ const CohortDashboard = () => {
     setRosterField(sid, { present });
     const body = { studentID: sid, present };
     try {
-      await safeWrite(`${present ? "present" : "absent"}: ${sid}`, body, () =>
-        api.post("/api/presence/", body),
-      );
+      await safeWrite(`${present ? "present" : "absent"}: ${sid}`, "/api/presence/", body);
     } catch {
       board.fetchRoster();
     }
@@ -150,9 +149,7 @@ const CohortDashboard = () => {
       trigger_type: trigger?.trigger_type ?? null,
     };
     try {
-      await safeWrite(`${picked ? "pick" : "unpick"}: ${sid}`, body, () =>
-        api.post("/api/picked/", body),
-      );
+      await safeWrite(`${picked ? "pick" : "unpick"}: ${sid}`, "/api/picked/", body);
     } catch {
       board.fetchRoster();
     }
@@ -169,7 +166,7 @@ const CohortDashboard = () => {
       body.trigger_type = trigger.trigger_type;
     }
     try {
-      await safeWrite(`note on ${sid}`, body, () => api.post("/api/notes/", body));
+      await safeWrite(`note on ${sid}`, "/api/notes/", body);
     } catch {
       /* parked in the outbox; the toast already said so */
     }
@@ -179,7 +176,7 @@ const CohortDashboard = () => {
   const dismissAlert = async (id) => {
     setTriggers((ts) => ts.filter((t) => t.id !== id));
     try {
-      await safeWrite(`dismiss alert #${id}`, { id }, () => api.post("/api/triggers/ack/", { id }));
+      await safeWrite(`dismiss alert #${id}`, "/api/triggers/ack/", { id });
     } catch {
       board.fetchTriggers();
     }
@@ -189,9 +186,7 @@ const CohortDashboard = () => {
     board.dropSwitch(id);
     toast.dismiss(id);
     try {
-      await safeWrite(`dismiss switch #${id}`, { id }, () =>
-        api.post("/api/switches/ack/", { id }),
-      );
+      await safeWrite(`dismiss switch #${id}`, "/api/switches/ack/", { id });
     } catch {
       board.fetchSwitches();
     }
@@ -201,9 +196,7 @@ const CohortDashboard = () => {
   const track = async (ids) => {
     await Promise.all(
       ids.map((sid) =>
-        safeWrite(`track: ${sid}`, { studentID: sid }, () =>
-          api.post("/api/tracked/", { studentID: sid }),
-        ).catch(() => {}),
+        safeWrite(`track: ${sid}`, "/api/tracked/", { studentID: sid }).catch(() => {}),
       ),
     );
     board.fetchRoster();
@@ -224,7 +217,7 @@ const CohortDashboard = () => {
   const untrack = async (sid) => {
     const body = { studentID: sid, remove: true };
     try {
-      await safeWrite(`untrack: ${sid}`, body, () => api.post("/api/tracked/", body));
+      await safeWrite(`untrack: ${sid}`, "/api/tracked/", body);
     } catch {
       board.fetchRoster();
     }

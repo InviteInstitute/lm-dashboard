@@ -5,10 +5,6 @@ __pycache__/
 venv/
 *.egg-info/
 
-# SQLite (data + WAL sidecars + backups)
-*.sqlite3
-db.sqlite3-*
-
 # Raw event dumps (follow_logs.py etc.) — never commit student telemetry
 *.jsonl
 
@@ -32,29 +28,23 @@ site/
 .vscode/
 .idea/
 
-# Dev process logs (start.sh)
+# Dev process logs
 .devlogs/
 
 # Test coverage artifacts
 .coverage
 htmlcov/
-frontend/coverage/
 
 # Cache
 .pytest_cache
-
-# Tunnel Runtime
-.ngrok.pid
-.ngrok.log
-.cloudflared.pid
-.cloudflared.log
 
 # Scripts & Graphs
 .ua/
 scripts/loadtest.py
 
-# Impeccable
-.impeccable/
+# Impeccable's caches (its config.json is tracked)
+**/.impeccable/*
+!.impeccable/config.json
 
 # Local goal-evidence screenshot harness (renders GoalEvidence vs an engine fixture)
 /frontend/goalharness.html

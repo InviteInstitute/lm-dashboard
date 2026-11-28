@@ -6,7 +6,7 @@ import { Button, IconButton, TextArea } from "@carbon/react";
 import { Close } from "@carbon/icons-react";
 import { TRIGGERS } from "../constants";
 import { Icon } from "../icons";
-import { toneVars, triggerMeta } from "../lib/status";
+import { switchKind, toneVars, triggerMeta } from "../lib/status";
 import { clockTime, fmtDur, fullTime, relTime } from "../lib/time";
 import { PickTag } from "./StudentCard";
 
@@ -159,7 +159,7 @@ export const AlertFeed = ({
               >
                 <div className="feed-what">
                   <Icon name="swap" size={14} />
-                  <strong>{s.kind === "casing" ? "casing changed" : "new class"}</strong>
+                  <strong>{switchKind(s)}</strong>
                   <span>
                     {s.kind === "casing" ? s.from : s.from || "-"} -&gt; {s.to}
                   </span>

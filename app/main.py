@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
+from itsdangerous import TimestampSigner
 from learner_models import extract_workspace_xml
 from log_parser_delta_engine import generate_readable_text
 from pydantic import BaseModel
@@ -31,7 +31,14 @@ from app.constants import (
     TRIGGER_LABELS,
     TRIGGER_RECENT_SECONDS,
 )
-from app.turnstile import COOKIE_NAME, TurnstileGateMiddleware, sign_cookie, verify_turnstile
+from app.turnstile import (
+    COOKIE_MAX_AGE,
+    COOKIE_NAME,
+    TurnstileGateMiddleware,
+    set_signed_cookie,
+    valid_signed,
+    verify_turnstile,
+)
 
 app = FastAPI(title="LM Dashboard")
 # Middleware runs outermost-first in reverse add order, so these are added
@@ -152,7 +159,7 @@ def _required(value, name):
 @app.get("/healthz")
 def health():
     # Not at "/" so the static frontend mount can serve the dashboard there.
-    return {"service": "luc-dashboard", "ok": True}
+    return {"service": "lm-dashboard", "ok": True}
 
 
 # --------------------------------------------------------------------------
@@ -168,14 +175,7 @@ class TurnstileVerifyRequest(BaseModel):
 async def turnstile_verify(body: TurnstileVerifyRequest, request: Request, response: Response):
     if not await verify_turnstile(body.token, _client_ip(request)):
         raise HTTPException(status_code=403, detail="turnstile verification failed")
-    response.set_cookie(
-        COOKIE_NAME,
-        sign_cookie(),
-        max_age=12 * 3600,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-    )
+    set_signed_cookie(response, COOKIE_NAME, COOKIE_MAX_AGE)
     return {"ok": True}
 
 
@@ -195,14 +195,7 @@ _unlock_failures: dict[str, list[float]] = {}
 
 
 def zany_unlocked(request: Request) -> bool:
-    value = request.cookies.get(UNLOCK_COOKIE)
-    if not value:
-        return False
-    try:
-        _unlock_signer.unsign(value, max_age=UNLOCK_HOURS * 3600)
-        return True
-    except (BadSignature, SignatureExpired):
-        return False
+    return valid_signed(request.cookies.get(UNLOCK_COOKIE), UNLOCK_HOURS * 3600, _unlock_signer)
 
 
 def board_source(wsid):
@@ -285,21 +278,8 @@ def zany_unlock(body: UnlockBody, request: Request, response: Response):
         _unlock_failures[ip] = [*recent, now]
         raise HTTPException(status_code=401, detail=str(e)) from e
     _unlock_failures.pop(ip, None)
-    response.set_cookie(
-        UNLOCK_COOKIE,
-        _unlock_signer.sign(b"ok").decode(),
-        max_age=UNLOCK_HOURS * 3600,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-    )
+    set_signed_cookie(response, UNLOCK_COOKIE, UNLOCK_HOURS * 3600, _unlock_signer)
     return {"unlocked": True, "studies": _studies()}
-
-
-@app.post("/api/zany/lock/")
-def zany_lock(response: Response):
-    response.delete_cookie(UNLOCK_COOKIE)
-    return {"unlocked": False}
 
 
 @app.get("/api/zany/participants/")
@@ -359,10 +339,9 @@ def student_states(classCode: str | None = None, wsid: int = Depends(current_wor
 # --------------------------------------------------------------------------
 # live stream (Server-Sent Events)
 # --------------------------------------------------------------------------
-# One long-lived stream replaces the dashboard's four per-tick poll loops. The
-# server watches a cheap change fingerprint once and pushes a `changed` event
-# naming only the channels that actually moved, so the client refetches just
-# those instead of blind-polling all four every POLL_MS. The open connection
+# One long-lived stream per dashboard. The server watches a cheap change
+# fingerprint and pushes a `changed` event naming only the channels that
+# actually moved, so the client refetches just those. The open connection
 # also is the viewer-presence signal: while a dashboard holds the stream we
 # stamp viewer_last_seen, so the daemon's dead-man's switch keeps prod polling
 # alive; when the tab closes, the stream ends and the switch pauses.
@@ -371,20 +350,15 @@ STREAM_HEARTBEAT_TICKS = 40  # stamp presence + send a keepalive comment every N
 
 
 def _changed_channels(prev, cur):
-    """Channel names whose fingerprint changed between two snapshots. Pure and
-    I/O-free so it can be unit-tested; `prev is None` (the first tick) is never a
-    change."""
-    if prev is None:
-        return []
+    """Channel names whose fingerprint changed between two snapshots."""
     return [name for name in cur if cur.get(name) != prev.get(name)]
 
 
 @app.get("/api/stream/")
-async def stream(request: Request, once: bool = False, wsid: int = Depends(current_workspace_id)):
+async def stream(request: Request, wsid: int = Depends(current_workspace_id)):
     """Server-Sent Events feed. Emits `hello` immediately (the client does one
     full fetch on connect), then `changed` events carrying the list of channels
-    that moved. `once=true` returns just the hello and closes -- used by tests so
-    they never block on the live loop.
+    that moved.
 
     The change signal is still global (any student's change wakes every open
     board, which then refetches its own roster-scoped data); holding the stream is
@@ -392,8 +366,6 @@ async def stream(request: Request, once: bool = False, wsid: int = Depends(curre
 
     async def gen():
         yield "event: hello\ndata: {}\n\n"
-        if once:
-            return
         prev = await run_in_threadpool(db.data_fingerprint)
         await run_in_threadpool(
             db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
@@ -438,7 +410,7 @@ def student_state_detail(student_id: str, wsid: int = Depends(current_workspace_
         raise HTTPException(status_code=404, detail="no state for that student")
     since = db.reset_since(wsid)
     payload = _shape_state(rows[0], heavy=True, since=since)
-    # Readable program listing (feature #12): the student's latest blocks with
+    # Readable program listing: the student's latest blocks with
     # their parameters spelled out, incl. the numbers the edit-distance AST drops.
     # Best-effort and isolated -- a parse miss just yields "".
     proj = db.latest_project(student_id)
@@ -750,11 +722,8 @@ TRIGGER_TYPES = tuple(TRIGGER_LABELS)
 
 
 def _disabled_triggers(wsid) -> set[str]:
-    """The trigger types this board has switched off. A board that never set its
-    own keeps the shared setting from before the switches were per board."""
-    raw = db.get_workspace_setting(wsid, "disabled_triggers")
-    if raw is None:
-        raw = db.get_meta("disabled_triggers") or ""
+    """The trigger types this board has switched off."""
+    raw = db.get_workspace_setting(wsid, "disabled_triggers") or ""
     return {t for t in raw.split(",") if t}
 
 
@@ -765,13 +734,10 @@ class TriggerConfigBody(BaseModel):
 
 @app.get("/api/triggers/config/")
 def triggers_config(wsid: int = Depends(current_workspace_id)):
-    """Which trigger types this board shows (all on by default), with their
-    display labels."""
+    """Which trigger types this board shows (all on by default). The dashboard
+    owns their names (frontend/src/constants.js)."""
     disabled = _disabled_triggers(wsid)
-    return {
-        "enabled": {t: (t not in disabled) for t in TRIGGER_TYPES},
-        "labels": TRIGGER_LABELS,
-    }
+    return {"enabled": {t: (t not in disabled) for t in TRIGGER_TYPES}}
 
 
 @app.post("/api/triggers/config/")

@@ -487,7 +487,7 @@ def workspace_polling_states():
 
 
 # Per-workspace control flags (polling_enabled, viewer_last_seen, disabled_triggers,
-# ...), the tenant-scoped replacement for the old global `meta` singletons.
+# source, reset_at).
 def set_workspace_setting(workspace_id, key, value):
     _execute(
         "INSERT INTO workspace_setting (workspace_id, key, value) VALUES (%s, %s, %s) "
@@ -506,8 +506,7 @@ def get_workspace_setting(workspace_id, key):
 
 # --------------------------------------------------------------------------
 # meta: a tiny key/value store the two processes use to signal each other
-# (the daemon's session start, and the shared trigger switches from before they
-# were per board, still read as the default for a board that never set its own)
+# (the daemon's session start)
 # --------------------------------------------------------------------------
 # The daemon's current session (see workers.start_session).
 SESSION_META_KEY = "session_start"
@@ -548,10 +547,10 @@ def reset_since(workspace_id=None):
 def reset_workspace(workspace_id=None):
     """Clear one workspace's researcher-owned state for a fresh session: its
     notes, pick history + picked flags, and trigger acks. Spared: the roster
-    itself and presence, and -- unlike the old single-board reset -- the SHARED
-    per-student mirror + derived state (vex_log, student_state, trigger_event),
-    which other boards depend on and which this board just re-derives its view
-    from. The /api/reset/ endpoint writes a CSV backup before calling this."""
+    itself and presence, and the SHARED per-student mirror + derived state
+    (vex_log, student_state, trigger_event), which other boards depend on and
+    which this board just re-derives its view from. The /api/reset/ endpoint
+    saves an export zip before calling this."""
     wsid = _ws(workspace_id)
     with write_txn() as con:
         con.execute("DELETE FROM note WHERE workspace_id = %s", (wsid,))
@@ -718,9 +717,8 @@ def list_student_states(students=None, class_code=None, workspace_id=None):
 
 # trigger_event is shared (daemon-written per student); the intervention feed is
 # scoped to a workspace's roster and acknowledgement is per-workspace via
-# trigger_ack. Both queries compute `acknowledged` from that overlay (no longer
-# from the vestigial trigger_event.acknowledged column) so _trigger_row is
-# unchanged. Which trigger TYPES are active stays a global daemon setting.
+# trigger_ack. Both queries compute `acknowledged` from that overlay, not from
+# trigger_event.acknowledged, which is the daemon's global re-alert flag.
 _TRIG_COLS = (
     "te.id, te.studentID, te.trigger_type, te.started_at, te.last_seen_at, "
     "te.resolved_at, te.detail"

@@ -37,14 +37,11 @@ from app import db
 from app.config import (
     GOAL_BATTERY_ENABLED,
     GOAL_RECOGNITION_ENABLED,
-    GOAL_ROLLUP_ENABLED,
-    GOAL_RUBRIC_ENABLED,
     GOAL_TIMELINE_ENABLED,
 )
+from app.constants import BUFFER_MAX
 
 logger = logging.getLogger("pipeline")
-
-from app.constants import BUFFER_MAX
 
 # Trigger types fired per-run from the worker (deduped by run index).
 RUN_TRIGGER_TYPES = ("wheel_spin", "resilience", "explorer", "iterative")
@@ -72,8 +69,8 @@ class StudentWorker:
                 session_id=self.student_id,
                 include_timeline=GOAL_TIMELINE_ENABLED,
                 include_battery=GOAL_BATTERY_ENABLED,
-                include_rollup=GOAL_ROLLUP_ENABLED,
-                include_rubric=GOAL_RUBRIC_ENABLED,
+                include_rollup=True,
+                include_rubric=True,
             )
             if GOAL_RECOGNITION_ENABLED
             else None
@@ -125,22 +122,29 @@ class StudentWorker:
         self.goal_written.discard(idx)  # force recompute_and_write to re-persist with the outcome
 
     # -- ingest ----------------------------------------------------------
-    def ingest(self, ev):
+    def ingest(self, ev, live=True):
         """Fold one event into the buffer and streams and update the running fields
         (class code, latest project, last-seen markers), then flag the worker
         dirty. `ev` is a dict with studentID, classCode, eventType, raw_message,
-        project, source_event_id, and event_time (a datetime)."""
+        project, source_event_id, event_time (a datetime) and, for a row replayed
+        from the log, received_at as the time when event_time is missing.
+        Rehydrate replays with live=False, which records no identity switches."""
         et = ev.get("eventType") or ""
-        ts = ev["event_time"].timestamp() if ev.get("event_time") else None
-        evt = {"event_type": et, "content": ev.get("raw_message") or "{}", "ts": ts}
+        at = ev.get("event_time") or ev.get("received_at")
+        evt = {
+            "event_type": et,
+            "content": ev.get("raw_message") or "{}",
+            "ts": at and at.timestamp(),
+        }
         self._feed(evt)
         # Switch detection: compare this event's casing/class against the
         # last-seen ones BEFORE we overwrite them. Only tracked students have a
         # worker, so this is roster-only for free. Non-critical telemetry, so a
         # failure here must never break ingest.
-        for kind, frm, to in detect_switches(
+        switches = detect_switches(
             self.display_id, self.class_code, ev.get("studentID"), ev.get("classCode")
-        ):
+        )
+        for kind, frm, to in switches if live else ():
             try:
                 db.record_switch(self.student_id, kind, frm, to)
             except Exception:
@@ -282,17 +286,14 @@ def get_worker(student_id):
 def route(ev):
     """Hand a freshly-persisted event to its student's worker.
 
-    If that worker doesn't exist yet, we create and rehydrate it instead, and
-    crucially do NOT also ingest(ev): rehydrate already reloads the just-inserted
-    vex_log row, so ingesting here too would double-count the event in the
-    buffer."""
-    key = db.canon_id(ev["studentID"])
-    w = _workers.get(key)
+    If that worker doesn't exist yet, get_worker creates and rehydrates it, and
+    crucially we do NOT also ingest(ev): rehydrate already reloads the
+    just-inserted vex_log row, so ingesting here too would double-count it."""
+    w = _workers.get(db.canon_id(ev["studentID"]))
     if w is None:
-        w = _workers[key] = StudentWorker(ev["studentID"])
-        _rehydrate(w)
-        return
-    w.ingest(ev)
+        get_worker(ev["studentID"])
+    else:
+        w.ingest(ev)
 
 
 def dirty_workers():
@@ -353,10 +354,6 @@ def start_session(since):
     db.set_meta(db.SESSION_META_KEY, session_key())
 
 
-def has_worker(student_id):
-    return db.canon_id(student_id) in _workers
-
-
 def _rehydrate(worker):
     """Warm a cold worker by replaying the student's recent tail from the raw
     log, the one SQL read on the hot path. Also seeds the per-type fired-index
@@ -365,27 +362,5 @@ def _rehydrate(worker):
     for t in worker.fired:
         worker.fired[t] = db.fired_indices(worker.student_id, t, session=session_key())
     for row in db.student_tail(worker.student_id, BUFFER_MAX, since=_session_cutoff):
-        et = row["eventType"] or ""
-        ts = None
-        if row["event_time"]:
-            ts = row["event_time"].timestamp()
-        elif row["received_at"]:
-            ts = row["received_at"].timestamp()
-        evt = {"event_type": et, "content": row["raw_message"] or "{}", "ts": ts}
-        worker._feed(evt)
-        if row.get("studentID"):
-            worker.display_id = row[
-                "studentID"
-            ]  # rows are oldest-first, so this ends on the newest casing
-        if row["classCode"]:
-            worker.class_code = row["classCode"]
-        if row["project"] is not None:
-            worker.latest_project = row["project"]
-            worker.latest_project_ts = row["event_time"]
-        if row["source_event_id"] is not None:
-            worker.last_event_id = max(worker.last_event_id, row["source_event_id"])
-        if row["event_time"]:
-            worker.last_event_time = row["event_time"]
-    if worker.events:
-        worker.dirty = True
+        worker.ingest(row, live=False)
         logger.info("rehydrated %s with %d events", worker.student_id, len(worker.events))

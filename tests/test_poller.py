@@ -159,4 +159,4 @@ def test_drain_drops_worker_and_reraises_when_route_fails(monkeypatch):
         poller.drain(client, cursor, limit=100, tracked={"s1"})
     # the event still persisted; the worker was dropped so the next tick rehydrates
     assert db._query("SELECT 1 FROM vex_log WHERE source_event_id=1") != []
-    assert not workers.has_worker("s1")
+    assert "s1" not in workers._workers

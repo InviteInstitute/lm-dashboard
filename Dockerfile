@@ -18,7 +18,7 @@ RUN npm run build          # -> /web/dist
 FROM python:3.12-slim AS app
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-COPY pyproject.toml requirements.txt ./
+COPY pyproject.toml ./
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 COPY vendor/ ./vendor/

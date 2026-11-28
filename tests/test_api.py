@@ -187,15 +187,6 @@ def test_trigger_switches_are_per_board(client):
     assert len(client.get("/api/triggers/", headers=a).json()["triggers"]) == 1
 
 
-def test_a_board_without_its_own_switches_keeps_the_old_shared_setting(client):
-    db.set_meta("disabled_triggers", "explorer")  # set before the switches were per board
-    h = {"X-Board-Id": "old-board"}
-    assert client.get("/api/triggers/config/", headers=h).json()["enabled"]["explorer"] is False
-    on = {"trigger_type": "explorer", "enabled": True}
-    client.post("/api/triggers/config/", json=on, headers=h)
-    assert client.get("/api/triggers/config/", headers=h).json()["enabled"]["explorer"] is True
-
-
 # --- triggers feed + ack ---------------------------------------------------
 def test_triggers_feed_and_ack(client):
     db.tracked_add("s1")  # the feed is scoped to the workspace roster

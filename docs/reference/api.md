@@ -35,7 +35,6 @@ only the trigger types it shows.
 | `POST` | `/api/source/` | point this board at Reflecks or one ZANY study |
 | `GET`  | `/api/zany/` | whether ZANY is connected and unlocked here, and its studies |
 | `POST` | `/api/zany/unlock/` | unlock ZANY in this browser with the research login |
-| `POST` | `/api/zany/lock/` | lock it again |
 | `GET`  | `/api/zany/participants/` | the participant IDs with records in one study |
 | `GET`  | `/api/stream/` | the live stream that says which channels changed |
 | `GET`  | `/api/student_states/` | the state of every student on the board |
@@ -71,7 +70,7 @@ only the trigger types it shows.
 A health check. It lives at `/healthz` and not `/` because the dashboard is served from `/`.
 
 ```json title="Response"
-{ "service": "luc-dashboard", "ok": true }
+{ "service": "lm-dashboard", "ok": true }
 ```
 
 ---
@@ -145,12 +144,6 @@ it sets a signed, HTTP-only `zany_unlocked` cookie that lasts 12 hours.
 Returns `{ "unlocked": true, "studies": [...] }`. It answers `401` with the reason for a wrong
 login, `404` when ZANY isn't connected here, and `429` after five wrong tries from one address in
 ten minutes.
-
----
-
-## POST /api/zany/lock/
-
-Clears the unlock cookie. Returns `{ "unlocked": false }`.
 
 ---
 
@@ -413,15 +406,12 @@ dismissed. The student sheet shows it.
 
 ## GET /api/triggers/config/
 
-Which trigger types this board shows, all of them by default, with their labels.
+Which trigger types this board shows, all of them by default. The dashboard keeps their names
+itself, in `frontend/src/constants.js`.
 
 ```json title="Response"
 {
-  "enabled": { "wheel_spin": true, "resilience": true, "inactive": true, "explorer": true, "iterative": true },
-  "labels": {
-    "wheel_spin": "Wheel-spinning", "resilience": "Resilience", "inactive": "Inactive",
-    "explorer": "Explorer", "iterative": "Step-by-Step"
-  }
+  "enabled": { "wheel_spin": true, "resilience": true, "inactive": true, "explorer": true, "iterative": true }
 }
 ```
 
@@ -431,8 +421,7 @@ Which trigger types this board shows, all of them by default, with their labels.
 
 Shows or hides one trigger type on this board. The daemon keeps firing every type, because alerts
 are shared by all boards, so this only filters this board's [feed](#get-apitriggers). Showing a
-type again brings back its alerts that are still current. A board that never set its own switches
-uses the shared setting from before the switches were per board.
+type again brings back its alerts that are still current.
 
 ```json title="Request"
 { "trigger_type": "inactive", "enabled": false }
@@ -630,6 +619,6 @@ backfills the board's students to fill the gap.
 Returns the new state, like `{ "enabled": false }`.
 
 !!! note
-    This is the manual pause. With `--require-viewer`, which `compose.yml` turns on, the daemon
+    This is the manual pause. With `PIPELINE_REQUIRE_VIEWER`, which `compose.yml` turns on, the daemon
     also stops polling a board whose dashboard nobody has open. It polls a board only when both
     allow it. See [Configuration](../guides/configuration.md#the-dead-mans-switch).

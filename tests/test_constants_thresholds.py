@@ -1,4 +1,4 @@
-from app.constants import ITERATIVE_THRESHOLDS
+from learner_models.constants import ITERATIVE_THRESHOLDS
 
 
 def test_thresholds_use_real_telemetry_playground_names():

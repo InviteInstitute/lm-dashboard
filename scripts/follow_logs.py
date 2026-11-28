@@ -17,6 +17,7 @@ import time
 from datetime import UTC, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import app.config  # noqa: E402, F401  (loads .env.mirror into the environment)
 from app.pipeline.client import ProdClient, ProdClientError  # noqa: E402
 
 POLL_SECONDS = 5

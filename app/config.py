@@ -34,13 +34,6 @@ GOAL_RECOGNITION_ENABLED = _flag("GOAL_RECOGNITION_ENABLED")
 # set GOAL_BATTERY_ENABLED=0 to shed the heavier one under load.
 GOAL_TIMELINE_ENABLED = _flag("GOAL_TIMELINE_ENABLED")
 GOAL_BATTERY_ENABLED = _flag("GOAL_BATTERY_ENABLED")
-# The two battery-fed rollups: the purpose-1 goal claims (each goal banded from
-# the battery, or derived from its indicators) and the PROVISIONAL purpose-2
-# execution rubric (six dimensions, still under human validation upstream, so
-# the UI labels it provisional). Both reuse the one battery run per program, so
-# enabling them adds no extra simulations on top of GOAL_BATTERY_ENABLED.
-GOAL_ROLLUP_ENABLED = _flag("GOAL_ROLLUP_ENABLED")
-GOAL_RUBRIC_ENABLED = _flag("GOAL_RUBRIC_ENABLED")
 
 # Secret used to sign the "this browser solved Turnstile" cookie (see
 # app/turnstile.py). Required in any real deployment -- set a long random value

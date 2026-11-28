@@ -38,17 +38,24 @@ async def verify_turnstile(token, remote_ip):
     return resp.status_code == 200 and resp.json().get("success") is True
 
 
-def sign_cookie():
-    """A fresh signed cookie value for a browser that just solved the widget."""
-    return _signer.sign(b"ok").decode()
+def sign_cookie(signer=_signer):
+    """A fresh signed cookie value, by default the "solved the widget" one."""
+    return signer.sign(b"ok").decode()
 
 
-def cookie_is_valid(value):
-    """True iff `value` is a cookie this process signed, within COOKIE_MAX_AGE."""
+def set_signed_cookie(response, name, max_age, signer=_signer):
+    """Give the browser a signed cookie it can't read or forge, for max_age seconds."""
+    response.set_cookie(
+        name, sign_cookie(signer), max_age=max_age, httponly=True, secure=True, samesite="lax"
+    )
+
+
+def valid_signed(value, max_age=COOKIE_MAX_AGE, signer=_signer):
+    """True iff `value` is a cookie `signer` signed, within max_age seconds."""
     if not value:
         return False
     try:
-        _signer.unsign(value, max_age=COOKIE_MAX_AGE)
+        signer.unsign(value, max_age=max_age)
         return True
     except (BadSignature, SignatureExpired):
         return False
@@ -63,6 +70,6 @@ class TurnstileGateMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if not path.startswith("/api/") or path == VERIFY_PATH:
             return await call_next(request)
-        if not cookie_is_valid(request.cookies.get(COOKIE_NAME)):
+        if not valid_signed(request.cookies.get(COOKIE_NAME)):
             return JSONResponse({"error": "turnstile_required"}, status_code=403)
         return await call_next(request)

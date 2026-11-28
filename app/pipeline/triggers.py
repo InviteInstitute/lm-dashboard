@@ -15,11 +15,8 @@ from datetime import timedelta
 
 from app import db
 
-log = logging.getLogger("pipeline")
-
-# Thresholds + labels live in app/constants.py. RE_ALERT_SECONDS rotates an
-# acked-but-still-holding sustained trigger so a student who never got unstuck
-# resurfaces.
+# RE_ALERT_SECONDS rotates an acked-but-still-holding sustained trigger so a
+# student who never got unstuck resurfaces.
 from app.constants import (
     INACTIVE_TRIGGER_SECONDS,
     RE_ALERT_SECONDS,
@@ -28,6 +25,8 @@ from app.constants import (
 from app.constants import (
     TRIGGER_LABELS as LABELS,
 )
+
+log = logging.getLogger("pipeline")
 
 
 def _fmt_idle(secs):

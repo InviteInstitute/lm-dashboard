@@ -83,14 +83,3 @@ def test_acked_but_still_idle_rotates_after_re_alert_window():
     fresh = db.current_open_trigger("s1", "inactive")
     assert fresh is not None and fresh["id"] != ev["id"]  # a new, unacked row surfaced
     assert fresh["acknowledged"] is False
-
-
-def test_every_type_fires_whatever_a_board_switched_off():
-    # Alerts are shared by all boards, so the daemon ignores the old shared switch:
-    # each board filters its own feed instead (see test_api).
-    db.set_meta("disabled_triggers", "inactive")
-    _state(
-        "s1", last_event_time=db.now() - timedelta(seconds=triggers.INACTIVE_TRIGGER_SECONDS + 30)
-    )
-    triggers.evaluate()
-    assert db.current_open_trigger("s1", "inactive") is not None

@@ -1,7 +1,7 @@
 """
 The ingestion + inference daemon. This is the system's single writer.
 
-    python -m app.pipeline [--interval 0.5] [--limit 500]
+    python -m app.pipeline
 
 It runs one blocking loop. Each tick drains new events from prod into the raw
 log (idempotently, advancing a cursor), re-runs inference for the students whose
@@ -9,10 +9,10 @@ state changed and writes the result into student_state, then evaluates the
 intervention triggers. Run exactly ONE instance, since the cursor and the
 idempotency logic both assume a single writer; together they make a
 crash-and-restart lossless. Needs prod credentials (from .env.mirror or the
-environment).
+environment). Its settings are the PIPELINE_* environment variables
+(docs/guides/configuration.md).
 """
 
-import argparse
 import logging
 import os
 import random
@@ -27,50 +27,9 @@ from app.pipeline.client import ProdClient, ProdClientError
 log = logging.getLogger("pipeline")
 
 
-def _parse_args(argv=None):
-    p = argparse.ArgumentParser(description="VEX ingestion + inference pipeline (single writer).")
-    p.add_argument(
-        "--interval",
-        type=float,
-        default=float(os.environ.get("PIPELINE_INTERVAL", 0.5)),
-        help="Base seconds per tick while events are flowing (default 0.5).",
-    )
-    p.add_argument(
-        "--idle-max",
-        type=float,
-        default=float(os.environ.get("PIPELINE_IDLE_MAX", 5.0)),
-        help="Ceiling for the idle backoff: when nothing is happening, "
-        "poll intervals grow toward this (default 5s) to stop "
-        "hammering prod with empty polls.",
-    )
-    p.add_argument(
-        "--limit",
-        type=int,
-        default=int(os.environ.get("PIPELINE_PAGE_LIMIT", 500)),
-        help="Events per page when draining (default 500).",
-    )
-    p.add_argument(
-        "--overlap",
-        type=float,
-        default=2.0,
-        help="Cursor overlap seconds to absorb same-ts straddles.",
-    )
-    p.add_argument(
-        "--require-viewer",
-        action="store_true",
-        default=os.environ.get("PIPELINE_REQUIRE_VIEWER", "") not in ("", "0"),
-        help="Dead-man's switch: only poll prod while a dashboard is "
-        "open. The read API stamps viewer_last_seen on each grid "
-        "poll; prod polling auto-pauses after VIEWER_PRESENT_SECONDS "
-        "with no dashboard activity and resumes when one returns. "
-        "Off by default; meant for served/remote sessions.",
-    )
-    return p.parse_args(argv)
-
-
 def _live_workspace_ids(states, require_viewer, now):
     """Ids of the workspaces the daemon should poll prod for right now: polling
-    enabled and, when --require-viewer is on, a dashboard seen within
+    enabled and, when PIPELINE_REQUIRE_VIEWER is on, a dashboard seen within
     VIEWER_PRESENT_SECONDS. `states` is db.workspace_polling_states()."""
     live = []
     for ws in states:
@@ -88,14 +47,17 @@ def _live_workspace_ids(states, require_viewer, now):
     return live
 
 
-def main(argv=None):
+def main():
     logging.basicConfig(
         level=logging.INFO,
         format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
     )
-    opts = _parse_args(argv)
-    interval, limit, overlap, idle_max = opts.interval, opts.limit, opts.overlap, opts.idle_max
-    require_viewer = opts.require_viewer
+    interval = float(os.environ.get("PIPELINE_INTERVAL", 0.5))  # seconds per busy tick
+    idle_max = float(os.environ.get("PIPELINE_IDLE_MAX", 5.0))  # longest idle wait
+    limit = int(os.environ.get("PIPELINE_PAGE_LIMIT", 500))  # events per prod page
+    # Dead-man's switch: only poll prod for a board while its dashboard is open.
+    require_viewer = os.environ.get("PIPELINE_REQUIRE_VIEWER", "") not in ("", "0")
+    overlap = 2.0  # cursor overlap seconds, to absorb events that share a timestamp
 
     db.init_db()  # builds the schema on a fresh DB, no-op on an existing one
     client = ProdClient()
@@ -108,12 +70,10 @@ def main(argv=None):
         cursor.last_event_time,
     )
 
-    # Fan-out model: the daemon is still the single writer, but it now serves
-    # every workspace at once. It ingests the UNION of all boards' rosters (one
-    # shared mirror per student) and polls prod only for students on a LIVE board
-    # (polling enabled and, with --require-viewer, a fresh viewer). Reset is now a
-    # per-workspace API action that never touches the shared mirror, so there is
-    # no reset handshake here any more.
+    # The single writer serves every workspace at once. It ingests the UNION of
+    # all boards' rosters (one shared mirror per student) and polls prod only for
+    # students on a LIVE board (polling enabled and, with PIPELINE_REQUIRE_VIEWER,
+    # a fresh viewer).
     last_live = None  # tracks live/paused transitions for logging
 
     # Session cutoff: only ingest events at/after the moment this daemon started,
@@ -260,7 +220,7 @@ def main(argv=None):
             log.exception("trigger eval failed: %s", e)
 
         # Idle backoff: while events are flowing, sleep the base interval; once a
-        # tick finds nothing to do, grow the wait exponentially toward --idle-max
+        # tick finds nothing to do, grow the wait exponentially toward PIPELINE_IDLE_MAX
         # so quiet stretches don't keep hammering prod with empty polls. The
         # first sign of activity snaps the interval straight back to responsive.
         busy = bool(new or znew or changed or backfilled_now)

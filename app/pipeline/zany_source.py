@@ -74,7 +74,7 @@ def drain(cursor, tracked, since=None):
                     workers.route(norm)
                 except Exception:
                     # Stored but not routed: drop the worker so it rebuilds from the log.
-                    workers._workers.pop(db.canon_id(norm["studentID"]), None)
+                    workers.evict(norm["studentID"])
                     raise
                 new += 1
             if len(rows) < zany.PAGE:

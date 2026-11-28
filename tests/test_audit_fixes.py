@@ -61,7 +61,7 @@ def test_untracking_purges_goal_evidence_and_switches():
 def test_goal_evidence_writes_signal_the_states_channel():
     """Goal profiles are written after student_state, so without their own signal
     an open sheet refetches before the newest run's evidence exists."""
-    before = db.data_fingerprint()["states"]
+    before = db.data_fingerprint().get("states")
     db.upsert_goal_profile("g1", 0, {"index": 0, "status": "profiled", "ts": 1.0})
     assert db.data_fingerprint()["states"] != before
 

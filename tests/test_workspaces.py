@@ -6,8 +6,8 @@ from app import db
 
 
 def test_roster_is_isolated_per_workspace():
-    a = db.create_workspace("A")
-    b = db.create_workspace("B")
+    a = db.workspace_for_client_key("A")
+    b = db.workspace_for_client_key("B")
     db.tracked_add("cobra3", workspace_id=a)
     db.tracked_add("viper1", workspace_id=a)
     db.tracked_add("cobra3", workspace_id=b)  # same student, other board
@@ -18,8 +18,8 @@ def test_roster_is_isolated_per_workspace():
 
 
 def test_presence_and_picked_are_isolated():
-    a = db.create_workspace("A")
-    b = db.create_workspace("B")
+    a = db.workspace_for_client_key("A")
+    b = db.workspace_for_client_key("B")
     db.tracked_add("cobra3", workspace_id=a)
     db.tracked_add("cobra3", workspace_id=b)
     db.set_presence("cobra3", False, workspace_id=a)
@@ -31,8 +31,8 @@ def test_presence_and_picked_are_isolated():
 
 
 def test_remove_keeps_shared_mirror_until_last_workspace_untracks():
-    a = db.create_workspace("A")
-    b = db.create_workspace("B")
+    a = db.workspace_for_client_key("A")
+    b = db.workspace_for_client_key("B")
     db.tracked_add("cobra3", workspace_id=a)
     db.tracked_add("cobra3", workspace_id=b)
     db.insert_message_and_log(
@@ -58,8 +58,8 @@ def test_remove_keeps_shared_mirror_until_last_workspace_untracks():
 
 
 def test_student_states_scoped_to_workspace_roster():
-    a = db.create_workspace("A")
-    b = db.create_workspace("B")
+    a = db.workspace_for_client_key("A")
+    b = db.workspace_for_client_key("B")
     db.tracked_add("cobra3", workspace_id=a)
     db.tracked_add("viper1", workspace_id=b)
     db.upsert_student_state("cobra3", {"run_count": 1})

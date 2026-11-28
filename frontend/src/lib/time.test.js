@@ -32,9 +32,6 @@ describe("fmtDur", () => {
 });
 
 describe("parseTs", () => {
-  it("reads a bare DB timestamp as UTC, not local time", () => {
-    expect(parseTs("2026-09-25 01:57:18.055110").toISOString()).toBe("2026-09-25T01:57:18.055Z");
-  });
   it("keeps an explicit offset", () => {
     expect(parseTs("2026-07-21T10:24:00+00:00").toISOString()).toBe("2026-07-21T10:24:00.000Z");
   });

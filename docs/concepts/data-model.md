@@ -5,8 +5,7 @@ description: The Postgres tables, what is shared and what belongs to one board, 
 # Data Model
 
 Everything lives in Postgres. All the SQL is in `app/db.py` (psycopg 3, no ORM), so the whole query
-surface is in one file. Queries use `?` placeholders, and one helper turns them into psycopg's
-`%s`. Timestamps are stored as fixed-width text (see below), and flags are `smallint` 0 or 1.
+surface is in one file. Timestamps are `timestamptz` and flags are `boolean`.
 
 ## Tables
 
@@ -56,9 +55,9 @@ before it clears them.
 holds a copy, so a reset leaves it alone and the export includes it. See
 [saving a researcher's input](read-path.md#saving-a-researchers-input).
 
-`channel_rev` holds four counter rows, one per dashboard channel. A Postgres trigger function,
-`bump_rev()`, bumps the right one on every write to a source table and sends a `NOTIFY`. The live
-stream reads these counters instead of scanning tables. They are derived too, so losing them is
+`channel_rev` holds one counter row per dashboard channel. A Postgres trigger function,
+`bump_rev()`, bumps the right one on every write to a source table, and adds the row on a
+channel's first write. The live stream reads these counters instead of scanning tables. They are derived too, so losing them is
 harmless, since the next write sets them again.
 
 ## Shared Or Per Board
@@ -83,18 +82,22 @@ identity-switch toasts.
 
 ZANY students are keyed `zany:<study>:<participant ID>`, so they never collide with a Reflecks ID.
 
-## Two Rules In db.py
+## Rules In db.py
+
+??? note "Column names"
+    Postgres folds unquoted names to lower case, so a row comes back as a dict keyed `studentid`,
+    not `studentID`. The functions that hand rows to the API spell the keys out again.
 
 ??? note "Timestamps"
-    Timestamps are stored as UTC text in the fixed-width format `%Y-%m-%d %H:%M:%S.%f`. Because
-    every value has the same width, comparing the strings is the same as comparing the times, so
-    SQL like `ORDER BY started_at` and `resolved_at >= cutoff` works on the stored text. Two
-    helpers, `dt_to_db` and `db_to_dt`, are the only place this conversion happens.
+    Every timestamp is `timestamptz`, and every session runs in UTC, so the code passes and gets
+    aware UTC datetimes and the API sends ISO times with an offset. Databases made before November
+    2026 kept timestamps as UTC text and flags as 0 or 1. `init_db` converts them in place once,
+    inside its own transaction.
 
 ??? note "JSON"
-    `runs`, `episodes`, `detail` and `profile` are JSON stored as text, read and written through
-    two helpers. Where SQL needs to look inside one, it casts to `jsonb`, as the momentary
-    trigger's duplicate check does with `detail::jsonb->>'run_index'`.
+    `runs`, `episodes`, `detail` and `profile` are JSON stored as text, written with `json.dumps`
+    and read with `json.loads`. Where SQL needs to look inside one, it casts to `jsonb`, as the
+    momentary trigger's duplicate check does with `detail::jsonb->>'run_index'`.
 
 ## Why Postgres
 
@@ -102,7 +105,5 @@ ZANY students are keyed `zany:<study>:<participant ID>`, so they never collide w
 |---|---|
 | Many boards write at once | researchers add notes and picks at the same time, and Postgres handles that where SQLite's single writer lock would queue them |
 | Real tenancy | foreign keys and unique keys like `(workspace_id, studentID)` keep boards apart |
-| `LISTEN` and `NOTIFY` | the change counters notify, and the daemon listens for ATLAS's deletions in ZANY's store |
+| `LISTEN` and `NOTIFY` | the daemon listens for ATLAS's deletions in ZANY's store |
 | Still one command | it is one more container in the same compose stack |
-
-All the SQL stays behind `app/db.py`, which is why the move off SQLite was a rewrite of one file.

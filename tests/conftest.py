@@ -42,7 +42,7 @@ def fresh_db(tmp_path, monkeypatch):
     # tests rely on); CASCADE handles the vex_log -> message foreign key.
     with db.write_txn() as con:
         tables = [
-            r[0]
+            r["table_name"]
             for r in con.execute(
                 "SELECT table_name FROM information_schema.tables "
                 "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
@@ -53,9 +53,6 @@ def fresh_db(tmp_path, monkeypatch):
     # TRUNCATE wiped the default workspace too; recreate it so writes that fall
     # back to it (roster, presence, picks) have a workspace to land in.
     db.ensure_default_workspace()
-    # The control-flag cache is a module global with a 200ms TTL; clear it so a
-    # flag set in one test can't leak into the next (the daemon reads through it).
-    db._meta_cache.clear()
     workers.reset()
     workers.set_session_cutoff(None)  # module global; don't leak a cutoff between tests
     yield

@@ -1,13 +1,8 @@
-// Reading and writing times. Most API times are ISO with an offset, but notes and
-// identity switches come straight from the database as UTC with no zone
-// ("2026-09-25 01:57:18.055110"), which `new Date` would read as local time.
+// Reading and writing times. Every API time is ISO with an offset.
 
 export function parseTs(ts) {
   if (!ts) return null;
-  const bare = /^(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)(\.\d+)?$/.exec(ts);
-  const d = bare
-    ? new Date(`${bare[1]}T${bare[2]}${bare[3] ? bare[3].slice(0, 4) : ""}Z`)
-    : new Date(ts);
+  const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 

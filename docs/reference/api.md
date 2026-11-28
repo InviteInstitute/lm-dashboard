@@ -513,8 +513,8 @@ This board's notes for one student, oldest first.
 ```json title="Response"
 {
   "notes": [
-    { "id": 1, "studentID": "cobra3", "ts": "2026-06-14 10:31:00.000000", "text": "talked through the loop",
-      "trigger_id": null, "trigger_type": null, "created_at": "2026-06-14 10:31:00.000000" }
+    { "id": 1, "studentID": "cobra3", "ts": "2026-06-14T10:31:00+00:00", "text": "talked through the loop",
+      "trigger_id": null, "trigger_type": null, "created_at": "2026-06-14T10:31:00+00:00" }
   ],
   "count": 1
 }
@@ -561,7 +561,7 @@ includes it.
   "outbox": [
     { "id": 1, "op": "note on cobra3",
       "payload": "{\"studentID\": \"cobra3\", \"text\": \"...\"}",
-      "error": "Network Error", "created_at": "2026-06-14 10:31:00.000000" }
+      "error": "Network Error", "created_at": "2026-06-14T10:31:00+00:00" }
   ],
   "count": 1
 }

@@ -366,7 +366,7 @@ def student_states(classCode: str | None = None, wsid: int = Depends(current_wor
 # also is the viewer-presence signal: while a dashboard holds the stream we
 # stamp viewer_last_seen, so the daemon's dead-man's switch keeps prod polling
 # alive; when the tab closes, the stream ends and the switch pauses.
-STREAM_TICK_SECONDS = 0.25  # how often to check for changes (cheap: see data_version below)
+STREAM_TICK_SECONDS = 0.25  # how often to read the change fingerprint (a few tiny rows)
 STREAM_HEARTBEAT_TICKS = 40  # stamp presence + send a keepalive comment every N ticks (~10s)
 
 
@@ -398,32 +398,20 @@ async def stream(request: Request, once: bool = False, wsid: int = Depends(curre
         await run_in_threadpool(
             db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
         )
-        # O(1) change gate: db.data_version sums the per-channel revision
-        # counters that every write bumps, on a dedicated autocommit connection,
-        # so a quiet tick costs one tiny read instead of the four fingerprint
-        # queries. This is what makes the 0.25s tick free.
-        probe = await run_in_threadpool(db.data_version_probe)
-        dv = await run_in_threadpool(db.data_version, probe)
         ticks = 0
-        try:
-            while not await request.is_disconnected():
-                await asyncio.sleep(STREAM_TICK_SECONDS)
-                dv_now = await run_in_threadpool(db.data_version, probe)
-                if dv_now != dv:
-                    dv = dv_now
-                    cur = await run_in_threadpool(db.data_fingerprint)
-                    changed = _changed_channels(prev, cur)
-                    if changed:
-                        prev = cur
-                        yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
-                ticks += 1
-                if ticks % STREAM_HEARTBEAT_TICKS == 0:
-                    await run_in_threadpool(
-                        db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
-                    )
-                    yield ": keepalive\n\n"
-        finally:
-            probe.close()
+        while not await request.is_disconnected():
+            await asyncio.sleep(STREAM_TICK_SECONDS)
+            cur = await run_in_threadpool(db.data_fingerprint)
+            changed = _changed_channels(prev, cur)
+            if changed:
+                prev = cur
+                yield f"event: changed\ndata: {json.dumps({'channels': changed})}\n\n"
+            ticks += 1
+            if ticks % STREAM_HEARTBEAT_TICKS == 0:
+                await run_in_threadpool(
+                    db.set_workspace_setting, wsid, "viewer_last_seen", db.now().isoformat()
+                )
+                yield ": keepalive\n\n"
 
     return StreamingResponse(
         gen(),
@@ -592,7 +580,7 @@ def switches(wsid: int = Depends(current_workspace_id)):
             "kind": r["kind"],
             "from": r["from_value"],
             "to": r["to_value"],
-            "ts": _iso(db.db_to_dt(r["ts"])),
+            "ts": _iso(r["ts"]),
             "acknowledged": bool(r["acknowledged"]),
         }
         for r in db.list_switches(limit=100, workspace_id=wsid, since=db.reset_since(wsid))

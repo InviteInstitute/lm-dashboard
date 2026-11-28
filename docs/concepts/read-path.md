@@ -40,9 +40,8 @@ flowchart LR
     b --> col["Needs Intervention column"]
 ```
 
-Four times a second, the server reads one sum of the `channel_rev` counters. That read is tiny and
-doesn't grow with the data. When the sum moves, the server reads the four counters, works out which
-channels changed (`states`, `triggers`, `switches` or `roster`) and sends a `changed` event naming
+Four times a second, the server reads the `channel_rev` counters. That read is a few tiny rows and
+doesn't grow with the data. The server works out which channels changed (`states`, `triggers`, `switches` or `roster`) and sends a `changed` event naming
 them. The dashboard refetches only those endpoints. So an idle board costs one quiet connection,
 and a change reaches the screen in about a quarter second.
 

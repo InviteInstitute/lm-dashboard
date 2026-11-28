@@ -146,8 +146,8 @@ profiled run, and the student sheet shows them as goal evidence.
 
 !!! note "Every write bumps a change counter"
     A Postgres trigger in the schema bumps a counter in `channel_rev` on every write to
-    `student_state`, `goal_profile`, `trigger_event`, `switch_event` or `tracked_student`, and
-    sends a `NOTIFY`. The daemon doesn't know about it. That counter is how the live stream answers
+    `student_state`, `goal_profile`, `trigger_event`, `switch_event` or `tracked_student`. The
+    daemon doesn't know about it. That counter is how the live stream answers
     "did anything change?" with one tiny read (see the [read path](read-path.md#the-live-stream)).
 
 ## Triggers

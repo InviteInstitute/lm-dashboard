@@ -1,6 +1,8 @@
 """Ingestion poller: normalization (incl. the prod 'recieved_at' typo),
 idempotent persist, cursor advance, the tracked-only filter, and backfill."""
 
+from datetime import datetime
+
 from app import db
 from app.pipeline import poller, workers
 
@@ -111,7 +113,7 @@ def test_backfill_breaks_on_empty_page():
 def test_backfill_respects_since_cutoff():
     """page_student is newest-first, so backfill stops at the first event older
     than the cutoff and persists only the session's events."""
-    since = db.db_to_dt("2026-06-23T10:00:00Z")
+    since = datetime.fromisoformat("2026-06-23T10:00:00Z")
     client = FakeClient(
         student_pages=[
             [
@@ -127,7 +129,7 @@ def test_backfill_respects_since_cutoff():
 
 
 def test_drain_respects_since_cutoff():
-    since = db.db_to_dt("2026-06-23T10:00:00Z")
+    since = datetime.fromisoformat("2026-06-23T10:00:00Z")
     cursor = poller.get_cursor()
     client = FakeClient(
         time_pages=[

@@ -82,11 +82,11 @@ def test_drain_stores_and_routes_only_tracked_students_and_passes_every_row():
     assert cursor.last_source_id == last  # past R02's row too
     assert zany_source.drain(zany_source.get_cursor(), {r01}) == 0  # resumes after the last row
     rows = db._query("SELECT studentID, eventType, zany_seq FROM vex_log ORDER BY zany_seq")
-    assert [(r["eventType"], db.canon_id(r["studentID"])) for r in rows] == [
+    assert [(r["eventtype"], db.canon_id(r["studentid"])) for r in rows] == [
         ("blockCreated", r01),
         ("runProject", r01),
     ]
-    assert r02 not in {db.canon_id(r["studentID"]) for r in rows}
+    assert r02 not in {db.canon_id(r["studentid"]) for r in rows}
     assert workers.has_worker(r01)
 
 
@@ -172,7 +172,7 @@ def test_restarting_drops_every_zany_mirror_but_not_reflecks():
     keep("R01", 0)
     zany_source.backfill_student(zany.key(STUDY, "R01"))
     db.forget_all_zany()
-    left = [r["studentID"] for r in db._query("SELECT studentID FROM vex_log")]
+    left = [r["studentid"] for r in db._query("SELECT studentID FROM vex_log")]
     assert left == ["cobra3"]
 
 

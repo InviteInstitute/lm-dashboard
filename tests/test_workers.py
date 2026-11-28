@@ -1,6 +1,8 @@
 """Per-student workers: edit-distance trigger firing/dedupe, the materialize
 write, and the route/rehydrate no-double-count rule."""
 
+from datetime import datetime
+
 from app import db
 from app.pipeline import workers
 
@@ -18,7 +20,7 @@ def _worker_with_distances(sid, dists):
 
 def _fired(ttype):
     return db._query(
-        "SELECT (detail::jsonb ->> 'run_index')::int i FROM trigger_event WHERE trigger_type=?",
+        "SELECT (detail::jsonb ->> 'run_index')::int i FROM trigger_event WHERE trigger_type=%s",
         (ttype,),
     )
 
@@ -208,7 +210,7 @@ def test_student_tail_replays_chronologically_despite_insertion_order():
         db.insert_message_and_log(
             {
                 "raw_message": "{}",
-                "event_time": db.db_to_dt(ts),
+                "event_time": datetime.fromisoformat(ts),
                 "classCode": "C",
                 "eventType": "runProject",
                 "studentID": "s1",
@@ -222,18 +224,18 @@ def test_student_tail_replays_chronologically_despite_insertion_order():
 
 def test_student_tail_orders_null_event_time_by_received_at_fallback():
     def _insert(eid, event_time_iso, received_at_iso):
-        et = db.dt_to_db(db.db_to_dt(event_time_iso)) if event_time_iso else None
-        rt = db.dt_to_db(db.db_to_dt(received_at_iso))
+        et = datetime.fromisoformat(event_time_iso) if event_time_iso else None
+        rt = datetime.fromisoformat(received_at_iso)
         with db.write_txn() as con:
             cur = con.execute(
                 "INSERT INTO message (queue_name, routing_key, exchange, content, received_at) "
-                "VALUES ('p', '', '', '{}', ?) RETURNING id",
+                "VALUES ('p', '', '', '{}', %s) RETURNING id",
                 (rt,),
             )
             con.execute(
                 "INSERT INTO vex_log (from_message_id, classCode, eventType, studentID, "
                 "project, raw_message, event_time, source_event_id) "
-                "VALUES (?, 'C', 'runProject', 's1', '{}', '{}', ?, ?)",
+                "VALUES (%s, 'C', 'runProject', 's1', '{}', '{}', %s, %s)",
                 (cur.fetchone()["id"], et, eid),
             )
 
@@ -257,7 +259,7 @@ def test_session_cutoff_hides_pre_session_events_on_rehydrate():
         db.insert_message_and_log(
             {
                 "raw_message": "{}",
-                "event_time": db.db_to_dt(ts),
+                "event_time": datetime.fromisoformat(ts),
                 "classCode": "C",
                 "eventType": "runProject",
                 "studentID": "s1",
@@ -265,7 +267,7 @@ def test_session_cutoff_hides_pre_session_events_on_rehydrate():
                 "source_event_id": sid_eid,
             }
         )
-    workers.set_session_cutoff(db.db_to_dt("2026-06-23T10:00:00Z"))
+    workers.set_session_cutoff(datetime.fromisoformat("2026-06-23T10:00:00Z"))
     w = workers.get_worker("s1")
     assert len(w.events) == 1  # only the post-cutoff event replayed
     assert w.last_event_id == 2

@@ -340,9 +340,10 @@ def set_session_cutoff(since):
 
 
 def session_key():
-    """The current session's identity: its cutoff as a DB timestamp string, or
-    "" when there is no cutoff (tests, one-off tools)."""
-    return db.dt_to_db(_session_cutoff) if _session_cutoff is not None else ""
+    """The current session's identity: its cutoff as UTC text, the form stored
+    goal_profile.session and trigger details already hold, or "" when there is
+    no cutoff (tests, one-off tools)."""
+    return _session_cutoff.strftime("%Y-%m-%d %H:%M:%S.%f") if _session_cutoff is not None else ""
 
 
 def start_session(since):

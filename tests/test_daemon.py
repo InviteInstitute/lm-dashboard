@@ -191,7 +191,7 @@ def _capture_drain(monkeypatch):
 
 
 def test_daemon_polls_the_union_of_all_boards_once(patched_daemon, monkeypatch):
-    a, b = db.create_workspace("A"), db.create_workspace("B")
+    a, b = db.workspace_for_client_key("A"), db.workspace_for_client_key("B")
     db.tracked_add("cobra3", workspace_id=a)
     db.tracked_add("viper1", workspace_id=b)
     db.tracked_add("cobra3", workspace_id=b)  # overlap -> polled once, not twice
@@ -203,7 +203,7 @@ def test_daemon_polls_the_union_of_all_boards_once(patched_daemon, monkeypatch):
 
 
 def test_paused_board_excludes_its_exclusive_students(patched_daemon, monkeypatch):
-    a, b = db.create_workspace("A"), db.create_workspace("B")
+    a, b = db.workspace_for_client_key("A"), db.workspace_for_client_key("B")
     db.tracked_add("cobra3", workspace_id=a)  # live board
     db.tracked_add("viper1", workspace_id=b)  # only on the paused board
     db.tracked_add("cobra3", workspace_id=b)  # shared with the live board

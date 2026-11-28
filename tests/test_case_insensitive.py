@@ -1,5 +1,7 @@
 """Case-insensitive identity + switch recording, end to end through a worker."""
 
+from datetime import datetime
+
 from app import db
 from app.pipeline import workers
 
@@ -80,7 +82,7 @@ def _norm(sid, cls, eid, etype="runProject", ts="2026-06-22T10:00:00Z"):
         "project": "{}",
         "raw_message": "{}",
         "source_event_id": eid,
-        "event_time": db.db_to_dt(ts),
+        "event_time": datetime.fromisoformat(ts),
     }
 
 

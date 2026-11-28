@@ -107,7 +107,7 @@ are the dashboard's own, drawn with Carbon's tokens through the `--lmd-*` names 
 | What fails | What happens |
 |---|---|
 | The daemon crashes in the middle of a drain | on restart it reads the overlap window again and drops the duplicates, so nothing is lost |
-| Production is down or answers 5xx | the daemon backs off up to 30 seconds and logs `UNHEALTHY` after five failures in a row, then carries on when production is back |
+| Production is down, times out or answers 5xx | the daemon backs off up to 30 seconds and logs `UNHEALTHY` after five failures in a row, then carries on when production is back |
 | ZANY's store is down | that tick's ZANY drain fails with a warning and Reflecks carries on |
 | The daemon restarts | each student's state is rebuilt from `vex_log`, and the cursor was already saved |
 | The daemon hits an error it doesn't expect | it logs it and exits, and Docker restarts it with the error in the log |

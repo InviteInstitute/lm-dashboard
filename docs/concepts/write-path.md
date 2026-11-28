@@ -52,7 +52,9 @@ seconds. When a tick finds nothing, the wait doubles each time up to `PIPELINE_I
 seconds), and the first new event brings it straight back to 0.5.
 
 The failure backoff handles errors. When a request fails, the wait grows up to 30 seconds, and
-after five failures in a row the daemon logs `UNHEALTHY`.
+after five failures in a row the daemon logs `UNHEALTHY`. A timeout or a dropped connection
+counts as a failure, like a 5xx, so the daemon backs off instead of exiting. If it exited, Docker
+would restart it, and a restart starts a new session that empties every card.
 
 !!! tip
     Poll load follows how much is happening, not how many students are on the roster. A quiet

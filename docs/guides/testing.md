@@ -13,11 +13,12 @@ side you're working on.
 
 ## What They Cover
 
-The backend tests cover the Postgres layer (the timestamp rule, the export and reset), the poller
-and its cursor, the per-student workers, the APTED edit distance, the five triggers and their
-history, identity switches, the episode segmenter, the readable program, the live stream's change
-signal, the outbox, the Turnstile gate, ZANY sources, goal evidence, board isolation and the
-daemon's fan-out across boards. Every API endpoint is called through a test client.
+The backend tests cover the Postgres layer (the one-time conversion of an older database, the
+export and reset), the poller and its cursor, the per-student workers, the APTED edit distance,
+the five triggers and their history, identity switches, the episode segmenter, the readable
+program, the live stream's change signal, the outbox, the Turnstile gate, ZANY sources, goal
+evidence, board isolation and the daemon's fan-out across boards. Every API endpoint is called
+through a test client.
 
 The frontend tests cover the time and status helpers (`src/lib/*.test.js`). They also render the
 whole dashboard against a mocked API (`src/CohortDashboard.test.jsx`) and check students, alerts,

@@ -92,7 +92,7 @@ ZANY students are keyed `zany:<study>:<participant ID>`, so they never collide w
     Every timestamp is `timestamptz`, and every session runs in UTC, so the code passes and gets
     aware UTC datetimes and the API sends ISO times with an offset. Databases made before November
     2026 kept timestamps as UTC text and flags as 0 or 1. `init_db` converts them in place once,
-    inside its own transaction.
+    inside its own transaction and under an advisory lock, so the API and the daemon never race it.
 
 ??? note "JSON"
     `runs`, `episodes`, `detail` and `profile` are JSON stored as text, written with `json.dumps`

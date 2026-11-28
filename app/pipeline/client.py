@@ -49,14 +49,20 @@ class ProdClient:
         self.session = requests.Session()
         self._token = None
 
+    def _call(self, method, path, **kw):
+        """One request to prod. A timeout or a dropped connection is as transient
+        as a 504, so it raises ProdClientError and the daemon backs off."""
+        try:
+            return getattr(self.session, method)(f"{self.base}{path}", timeout=self.timeout, **kw)
+        except requests.RequestException as e:
+            raise ProdClientError(f"prod unreachable: {e}") from e
+
     # -- auth -------------------------------------------------------------
     def _authenticate(self):
         user, pw = _credentials()
         if not user or not pw:
             raise ProdClientError("Missing PROD_USERNAME/PROD_PASSWORD (.env.mirror or env).")
-        resp = self.session.post(
-            f"{self.base}/api/token/", json={"username": user, "password": pw}, timeout=self.timeout
-        )
+        resp = self._call("post", "/api/token/", json={"username": user, "password": pw})
         if resp.status_code != 200:
             raise ProdClientError(f"Auth failed ({resp.status_code}).")
         self._token = resp.json().get("token")
@@ -70,20 +76,10 @@ class ProdClient:
         """Fetch one page of results. Retries once after re-authenticating if the
         first attempt returns 401; any other non-200 raises ProdClientError."""
         headers = {"Authorization": f"Token {self.token()}"}
-        resp = self.session.get(
-            f"{self.base}/api/rabbitmq/vex_logs/",
-            headers=headers,
-            params=params,
-            timeout=self.timeout,
-        )
+        resp = self._call("get", "/api/rabbitmq/vex_logs/", headers=headers, params=params)
         if resp.status_code == 401:
             headers = {"Authorization": f"Token {self._authenticate()}"}
-            resp = self.session.get(
-                f"{self.base}/api/rabbitmq/vex_logs/",
-                headers=headers,
-                params=params,
-                timeout=self.timeout,
-            )
+            resp = self._call("get", "/api/rabbitmq/vex_logs/", headers=headers, params=params)
         if resp.status_code != 200:
             raise ProdClientError(f"prod API {resp.status_code}: {resp.text[:120]}")
         return resp.json().get("results", [])

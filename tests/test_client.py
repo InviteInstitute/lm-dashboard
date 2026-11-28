@@ -2,6 +2,7 @@
 401 re-auth retry, paging, and credential loading."""
 
 import pytest
+import requests
 
 from app.pipeline import client as client_mod
 from app.pipeline.client import ProdClient, ProdClientError
@@ -114,3 +115,17 @@ def test_page_by_time_without_date_from(monkeypatch):
     sess = FakeSession(get_responses=[FakeResp(200, {"results": []})])
     _client(sess).page_by_time(None, 50, 0)
     assert "dateFrom" not in sess.gets[0][1]
+
+
+def test_a_network_timeout_is_a_transient_prod_error(monkeypatch):
+    # The daemon backs off on ProdClientError and exits on anything else, and a
+    # restart empties every card, so a timeout must come out as ProdClientError.
+    monkeypatch.setenv("PROD_USERNAME", "u")
+    monkeypatch.setenv("PROD_PASSWORD", "p")
+
+    class Unreachable(FakeSession):
+        def post(self, url, json=None, timeout=None):
+            raise requests.ConnectTimeout("timed out")
+
+    with pytest.raises(ProdClientError, match="unreachable"):
+        _client(Unreachable()).page_by_time(None, 50, 0)

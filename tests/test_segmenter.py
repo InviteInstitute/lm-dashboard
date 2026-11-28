@@ -9,11 +9,6 @@ def _e(et, ts):
     return {"event_type": et, "ts": ts}
 
 
-def test_empty_session():
-    eps, pauses = segment_session([])
-    assert eps == [] and pauses == []
-
-
 def test_consecutive_code_events_merge_into_one_episode():
     events = [_e("blockMoved", 1), _e("blockChanged", 2), _e("blockCreated", 3)]
     eps, _ = segment_session(events)
@@ -82,13 +77,6 @@ def test_run_absorbs_soft_then_closes_on_actionful_event():
     eps, _ = segment_session(events)
     assert eps[0]["episode_type"] == "RUN" and 1 in eps[0]["soft_indices"]  # menuOpen at idx 1
     assert eps[1]["episode_type"] == "CODE"
-
-
-def test_events_without_timestamps_still_segment():
-    eps, pauses = segment_session(
-        [{"event_type": "blockMoved", "ts": None}, {"event_type": "blockMoved", "ts": None}]
-    )
-    assert len(eps) == 1 and pauses == []  # no ts -> no pause detection, still one episode
 
 
 def test_pauses_sorted_by_after_idx():

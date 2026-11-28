@@ -29,3 +29,6 @@ export const signal = (c) => `var(--lmd-signal-${c.slice(1)}, ${c})`;
 // A tinted surface for something in an alert state: the fill colour (for
 // backgrounds and borders) and its contrast-safe text colour.
 export const toneVars = (c) => ({ "--tone": c, "--tone-text": signal(c) });
+
+// What an identity switch was, for its toast and its feed row.
+export const switchKind = (s) => (s.kind === "casing" ? "casing changed" : "new class");

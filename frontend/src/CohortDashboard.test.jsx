@@ -39,38 +39,38 @@ const ROUTES = {
       explorer: true,
       iterative: true,
     },
-    labels: {},
   },
 };
 
+// Answer GETs from ROUTES, with `overrides` (url -> data) taking precedence.
+const withRoutes = (overrides = {}) =>
+  api.get.mockImplementation((url) =>
+    Promise.resolve({ data: url in overrides ? overrides[url] : (ROUTES[url] ?? {}) }),
+  );
+
 beforeEach(() => {
-  api.get.mockImplementation((url) => Promise.resolve({ data: ROUTES[url] ?? {} }));
+  withRoutes();
   api.post.mockResolvedValue({ data: {} });
 });
 
 describe("CohortDashboard", () => {
   it("renders a card with the active trigger as its status badge", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 1,
-                studentID: "alice",
-                trigger_type: "wheel_spin",
-                label: "Wheel-spinning",
-                value: "6 identical reruns",
-                active: true,
-                age_seconds: 42,
-              },
-            ],
-            active_count: 1,
-            counts: { wheel_spin: 1 },
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 1,
+            studentID: "alice",
+            trigger_type: "wheel_spin",
+            label: "Wheel-spinning",
+            value: "6 identical reruns",
+            active: true,
+            age_seconds: 42,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: { wheel_spin: 1 },
+      },
     });
     render(<CohortDashboard />);
     // 'alice' shows in both the roster chip and the cohort card
@@ -94,25 +94,20 @@ describe("CohortDashboard", () => {
       soft_indices: [],
     }));
     const evs = Array.from({ length: total }, () => ({ eventType: "blockMoved" }));
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/") {
-        return Promise.resolve({
-          data: {
-            students: [
-              {
-                studentID: "alice",
-                run_count: total,
-                event_count: total,
-                last_seen: new Date().toISOString(),
-                runs: { runs, run_count: total },
-                episodes: { events: evs, episodes: eps, pauses: [], event_count: total },
-              },
-            ],
-            student_count: 1,
+    withRoutes({
+      "/api/student_states/": {
+        students: [
+          {
+            studentID: "alice",
+            run_count: total,
+            event_count: total,
+            last_seen: new Date().toISOString(),
+            runs: { runs, run_count: total },
+            episodes: { events: evs, episodes: eps, pauses: [], event_count: total },
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        student_count: 1,
+      },
     });
     render(<CohortDashboard />);
     await waitFor(() =>
@@ -138,31 +133,26 @@ describe("CohortDashboard", () => {
       start_ts: 0,
       end_ts: 45,
     };
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/") {
-        return Promise.resolve({
-          data: {
-            students: [
-              {
-                studentID: "alice",
-                current_state: 1,
-                current_label: "explorer",
-                stuck: false,
-                consecutive_stuck: 0,
-                run_count: 0,
-                event_count: 4,
-                last_seen: new Date().toISOString(),
-                state_sequence: [],
-                hmm: { runs: [], run_count: 0, obs_labels: {} },
-                episodes: { events: [], episodes: [ep], pauses: [], event_count: 4 },
-              },
-            ],
-            student_count: 1,
-            stuck_count: 0,
+    withRoutes({
+      "/api/student_states/": {
+        students: [
+          {
+            studentID: "alice",
+            current_state: 1,
+            current_label: "explorer",
+            stuck: false,
+            consecutive_stuck: 0,
+            run_count: 0,
+            event_count: 4,
+            last_seen: new Date().toISOString(),
+            state_sequence: [],
+            hmm: { runs: [], run_count: 0, obs_labels: {} },
+            episodes: { events: [], episodes: [ep], pauses: [], event_count: 4 },
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        student_count: 1,
+        stuck_count: 0,
+      },
     });
     render(<CohortDashboard />);
     const blocks = await screen.findAllByTitle(/^CODE \| /);
@@ -171,27 +161,22 @@ describe("CohortDashboard", () => {
   });
 
   it("surfaces a backend alert in the intervention column", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 1,
-                studentID: "alice",
-                trigger_type: "wheel_spin",
-                label: "Wheel-spinning",
-                value: "3 re-runs",
-                active: true,
-                age_seconds: 42,
-              },
-            ],
-            active_count: 1,
-            counts: { wheel_spin: 1 },
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 1,
+            studentID: "alice",
+            trigger_type: "wheel_spin",
+            label: "Wheel-spinning",
+            value: "3 re-runs",
+            active: true,
+            age_seconds: 42,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: { wheel_spin: 1 },
+      },
     });
     render(<CohortDashboard />);
     // an alert row renders its own dismiss (✕) button -- proof the alert surfaced
@@ -199,43 +184,34 @@ describe("CohortDashboard", () => {
   });
 
   it("suppresses alerts for a student marked absent", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/tracked/") {
-        return Promise.resolve({
-          data: {
-            tracked: [
-              {
-                studentID: "alice",
-                backfilled: true,
-                has_data: true,
-                present: false,
-                picked: false,
-              },
-            ],
-            count: 1,
+    withRoutes({
+      "/api/tracked/": {
+        tracked: [
+          {
+            studentID: "alice",
+            backfilled: true,
+            has_data: true,
+            present: false,
+            picked: false,
           },
-        });
-      }
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 1,
-                studentID: "alice",
-                trigger_type: "inactive",
-                label: "Inactive",
-                value: "6m idle",
-                active: true,
-                age_seconds: 360,
-              },
-            ],
-            active_count: 1,
-            counts: { inactive: 1 },
+        ],
+        count: 1,
+      },
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 1,
+            studentID: "alice",
+            trigger_type: "inactive",
+            label: "Inactive",
+            value: "6m idle",
+            active: true,
+            age_seconds: 360,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: { inactive: 1 },
+      },
     });
     render(<CohortDashboard />);
     // the absent kid's alert is filtered out -> empty column, no dismiss button
@@ -259,27 +235,22 @@ describe("CohortDashboard", () => {
   });
 
   it('stamps the trigger when "Picked" is clicked on an alert card', async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 9,
-                studentID: "alice",
-                trigger_type: "wheel_spin",
-                label: "Wheel-spinning",
-                value: "6 identical reruns",
-                active: true,
-                age_seconds: 42,
-              },
-            ],
-            active_count: 1,
-            counts: { wheel_spin: 1 },
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 9,
+            studentID: "alice",
+            trigger_type: "wheel_spin",
+            label: "Wheel-spinning",
+            value: "6 identical reruns",
+            active: true,
+            age_seconds: 42,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: { wheel_spin: 1 },
+      },
     });
     render(<CohortDashboard />);
     // Both the card and the alert say "Mark Picked"; click the one in the alert feed.
@@ -331,27 +302,22 @@ describe("CohortDashboard", () => {
   });
 
   it("acks a trigger when its ✕ is clicked", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 7,
-                studentID: "alice",
-                trigger_type: "inactive",
-                label: "Inactive",
-                value: "idle 6m",
-                active: true,
-                age_seconds: 360,
-              },
-            ],
-            active_count: 1,
-            counts: {},
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 7,
+            studentID: "alice",
+            trigger_type: "inactive",
+            label: "Inactive",
+            value: "idle 6m",
+            active: true,
+            age_seconds: 360,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: {},
+      },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByRole("button", { name: /^Dismiss alert/ }));
@@ -361,37 +327,32 @@ describe("CohortDashboard", () => {
   });
 
   it("keeps recently-resolved alerts in the feed (the API keeps them 7 min)", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              // a recovered wheel_spin still in the backend's 2-min window -> still shows
-              {
-                id: 1,
-                studentID: "alice",
-                trigger_type: "wheel_spin",
-                label: "Wheel-spinning",
-                value: "6 identical reruns",
-                active: false,
-                age_seconds: 30,
-              },
-              {
-                id: 2,
-                studentID: "alice",
-                trigger_type: "explorer",
-                label: "Explorer",
-                value: "changed 15",
-                active: false,
-                age_seconds: 5,
-              },
-            ],
-            active_count: 0,
-            counts: {},
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          // a recovered wheel_spin still in the backend's 2-min window -> still shows
+          {
+            id: 1,
+            studentID: "alice",
+            trigger_type: "wheel_spin",
+            label: "Wheel-spinning",
+            value: "6 identical reruns",
+            active: false,
+            age_seconds: 30,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+          {
+            id: 2,
+            studentID: "alice",
+            trigger_type: "explorer",
+            label: "Explorer",
+            value: "changed 15",
+            active: false,
+            age_seconds: 5,
+          },
+        ],
+        active_count: 0,
+        counts: {},
+      },
     });
     render(<CohortDashboard />);
     // both linger in the feed -> two alert rows
@@ -401,22 +362,17 @@ describe("CohortDashboard", () => {
   });
 
   it("opens the detail modal and fetches the heavy payload on click", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/alice/") {
-        return Promise.resolve({
-          data: {
-            studentID: "alice",
-            current_state: 2,
-            run_count: 4,
-            event_count: 12,
-            block: { llm_prompt: "[Active] events_whenStarted", timestamp: null },
-            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
-            hmm: { runs: [], run_count: 0, obs_labels: {} },
-          },
-        });
-      }
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    withRoutes({
+      "/api/student_states/alice/": {
+        studentID: "alice",
+        current_state: 2,
+        run_count: 4,
+        event_count: 12,
+        block: { llm_prompt: "[Active] events_whenStarted", timestamp: null },
+        episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+        hmm: { runs: [], run_count: 0, obs_labels: {} },
+      },
+      "/api/notes/": { notes: [], count: 0 },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // the card's id label
@@ -425,58 +381,53 @@ describe("CohortDashboard", () => {
   });
 
   it("renders per-run goal evidence with rungs and uncertainty flags", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/alice/") {
-        return Promise.resolve({
-          data: {
-            studentID: "alice",
-            run_count: 1,
-            event_count: 3,
-            block: { llm_prompt: null },
-            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
-            runs: { runs: [], run_count: 0 },
-            goal_recognition_enabled: true,
-            goal_runs: [
+    withRoutes({
+      "/api/student_states/alice/": {
+        studentID: "alice",
+        run_count: 1,
+        event_count: 3,
+        block: { llm_prompt: null },
+        episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+        runs: { runs: [], run_count: 0 },
+        goal_recognition_enabled: true,
+        goal_runs: [
+          {
+            index: 0,
+            playground: "castle_crashers",
+            status: "profiled",
+            goals: [
               {
-                index: 0,
-                playground: "castle_crashers",
-                status: "profiled",
-                goals: [
+                goal: "clear_debris_zone",
+                indicators: [
                   {
-                    goal: "clear_debris_zone",
-                    indicators: [
-                      {
-                        name: "debris_zone_coverage",
-                        role: "intent",
-                        channel: "code",
-                        rung: "negligible",
-                        rung_labels: ["negligible", "some", "meaningful", "systematic"],
-                        direction: "higher_is_better",
-                        abstained: false,
-                        abstain_reason: null,
-                        flags: [],
-                      },
-                      {
-                        name: "plow_proximity_execution",
-                        role: "attainment",
-                        channel: "simulation",
-                        rung: null,
-                        rung_labels: ["attach_estimated", "armed_never_close"],
-                        direction: "lower_is_better",
-                        abstained: true,
-                        abstain_reason: "no_simulation",
-                        flags: ["sim_unverified"],
-                      },
-                    ],
+                    name: "debris_zone_coverage",
+                    role: "intent",
+                    channel: "code",
+                    rung: "negligible",
+                    rung_labels: ["negligible", "some", "meaningful", "systematic"],
+                    direction: "higher_is_better",
+                    abstained: false,
+                    abstain_reason: null,
+                    flags: [],
+                  },
+                  {
+                    name: "plow_proximity_execution",
+                    role: "attainment",
+                    channel: "simulation",
+                    rung: null,
+                    rung_labels: ["attach_estimated", "armed_never_close"],
+                    direction: "lower_is_better",
+                    abstained: true,
+                    abstain_reason: "no_simulation",
+                    flags: ["sim_unverified"],
                   },
                 ],
               },
             ],
           },
-        });
-      }
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+      },
+      "/api/notes/": { notes: [], count: 0 },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
@@ -529,20 +480,16 @@ describe("CohortDashboard", () => {
         ],
       },
     ];
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/alice/")
-        return Promise.resolve({
-          data: {
-            studentID: "alice",
-            block: { llm_prompt: null },
-            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
-            runs: { runs: [], run_count: 0 },
-            goal_recognition_enabled: true,
-            goal_runs: runs,
-          },
-        });
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    withRoutes({
+      "/api/student_states/alice/": {
+        studentID: "alice",
+        block: { llm_prompt: null },
+        episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+        runs: { runs: [], run_count: 0 },
+        goal_recognition_enabled: true,
+        goal_runs: runs,
+      },
+      "/api/notes/": { notes: [], count: 0 },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
@@ -674,20 +621,16 @@ describe("CohortDashboard", () => {
         },
       },
     ];
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/alice/")
-        return Promise.resolve({
-          data: {
-            studentID: "alice",
-            block: { llm_prompt: null },
-            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
-            runs: { runs: [], run_count: 0 },
-            goal_recognition_enabled: true,
-            goal_runs: runs,
-          },
-        });
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    withRoutes({
+      "/api/student_states/alice/": {
+        studentID: "alice",
+        block: { llm_prompt: null },
+        episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+        runs: { runs: [], run_count: 0 },
+        goal_recognition_enabled: true,
+        goal_runs: runs,
+      },
+      "/api/notes/": { notes: [], count: 0 },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice"));
@@ -887,27 +830,20 @@ describe("CohortDashboard", () => {
   });
 
   it('shows "waiting for activity" for a tracked student with no state yet', async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/tracked/") {
-        return Promise.resolve({
-          data: {
-            tracked: [
-              {
-                studentID: "newkid",
-                backfilled: false,
-                has_data: false,
-                present: true,
-                picked: false,
-              },
-            ],
-            count: 1,
+    withRoutes({
+      "/api/tracked/": {
+        tracked: [
+          {
+            studentID: "newkid",
+            backfilled: false,
+            has_data: false,
+            present: true,
+            picked: false,
           },
-        });
-      }
-      if (url === "/api/student_states/") {
-        return Promise.resolve({ data: { students: [], student_count: 0, stuck_count: 0 } });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        count: 1,
+      },
+      "/api/student_states/": { students: [], student_count: 0, stuck_count: 0 },
     });
     render(<CohortDashboard />);
     expect(await screen.findByText(/Waiting for activity/)).toBeInTheDocument();
@@ -935,22 +871,17 @@ describe("CohortDashboard", () => {
   });
 
   it("closes the detail modal if the open student is untracked", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/alice/") {
-        return Promise.resolve({
-          data: {
-            studentID: "alice",
-            current_state: 1,
-            run_count: 0,
-            event_count: 0,
-            block: { llm_prompt: null },
-            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
-            hmm: { runs: [], run_count: 0, obs_labels: {} },
-          },
-        });
-      }
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+    withRoutes({
+      "/api/student_states/alice/": {
+        studentID: "alice",
+        current_state: 1,
+        run_count: 0,
+        event_count: 0,
+        block: { llm_prompt: null },
+        episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+        hmm: { runs: [], run_count: 0, obs_labels: {} },
+      },
+      "/api/notes/": { notes: [], count: 0 },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // open the modal
@@ -991,28 +922,23 @@ describe("CohortDashboard", () => {
   });
 
   it("adds a note from the alert editor", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 3,
-                studentID: "alice",
-                trigger_type: "wheel_spin",
-                label: "Wheel-spinning",
-                value: "2 re-runs",
-                active: true,
-                age_seconds: 30,
-              },
-            ],
-            active_count: 1,
-            counts: {},
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 3,
+            studentID: "alice",
+            trigger_type: "wheel_spin",
+            label: "Wheel-spinning",
+            value: "2 re-runs",
+            active: true,
+            age_seconds: 30,
           },
-        });
-      }
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: {},
+      },
+      "/api/notes/": { notes: [], count: 0 },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByText("Add Note")); // open the editor
@@ -1033,26 +959,21 @@ describe("CohortDashboard", () => {
   });
 
   it("renders the identity-switch feed and acks a switch", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/switches/") {
-        return Promise.resolve({
-          data: {
-            switches: [
-              {
-                id: 5,
-                studentID: "cobra3",
-                kind: "class",
-                from: "FPFVDH",
-                to: "AFURRR",
-                ts: new Date().toISOString(),
-                acknowledged: false,
-              },
-            ],
-            unacked: 1,
+    withRoutes({
+      "/api/switches/": {
+        switches: [
+          {
+            id: 5,
+            studentID: "cobra3",
+            kind: "class",
+            from: "FPFVDH",
+            to: "AFURRR",
+            ts: new Date().toISOString(),
+            acknowledged: false,
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        unacked: 1,
+      },
     });
     render(<CohortDashboard />);
     expect(await screen.findByText(/Identity Switches/)).toBeInTheDocument();
@@ -1092,79 +1013,65 @@ describe("CohortDashboard", () => {
   });
 
   it("shows the previous trigger (what and when) on an alert card", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/triggers/") {
-        return Promise.resolve({
-          data: {
-            triggers: [
-              {
-                id: 2,
-                studentID: "alice",
-                trigger_type: "inactive",
-                label: "Inactive",
-                value: "idle 6m",
-                active: true,
-                age_seconds: 360,
-                prev: {
-                  trigger_type: "wheel_spin",
-                  label: "Wheel-spinning",
-                  at: "2026-07-21T10:24:00+00:00",
-                },
-              },
-            ],
-            active_count: 1,
-            counts: { inactive: 1 },
+    withRoutes({
+      "/api/triggers/": {
+        triggers: [
+          {
+            id: 2,
+            studentID: "alice",
+            trigger_type: "inactive",
+            label: "Inactive",
+            value: "idle 6m",
+            active: true,
+            age_seconds: 360,
+            prev: {
+              trigger_type: "wheel_spin",
+              label: "Wheel-spinning",
+              at: "2026-07-21T10:24:00+00:00",
+            },
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        active_count: 1,
+        counts: { inactive: 1 },
+      },
     });
     render(<CohortDashboard />);
     expect(await screen.findByText(/Before this: Wheel-spinning/)).toBeInTheDocument();
   });
 
   it("renders the trigger-history grid in the detail modal", async () => {
-    api.get.mockImplementation((url) => {
-      if (url === "/api/student_states/alice/") {
-        return Promise.resolve({
-          data: {
-            studentID: "alice",
-            run_count: 4,
-            event_count: 12,
-            block: { llm_prompt: "x", timestamp: null },
-            episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+    withRoutes({
+      "/api/student_states/alice/": {
+        studentID: "alice",
+        run_count: 4,
+        event_count: 12,
+        block: { llm_prompt: "x", timestamp: null },
+        episodes: { events: [], episodes: [], pauses: [], event_count: 0 },
+      },
+      "/api/notes/": { notes: [], count: 0 },
+      "/api/triggers/history/": {
+        history: [
+          {
+            id: 9,
+            trigger_type: "wheel_spin",
+            label: "Wheel-spinning",
+            value: "6 identical reruns",
+            started_at: "2026-07-21T10:24:00+00:00",
+            resolved_at: null,
+            status: "active",
           },
-        });
-      }
-      if (url === "/api/notes/") return Promise.resolve({ data: { notes: [], count: 0 } });
-      if (url === "/api/triggers/history/") {
-        return Promise.resolve({
-          data: {
-            history: [
-              {
-                id: 9,
-                trigger_type: "wheel_spin",
-                label: "Wheel-spinning",
-                value: "6 identical reruns",
-                started_at: "2026-07-21T10:24:00+00:00",
-                resolved_at: null,
-                status: "active",
-              },
-              {
-                id: 7,
-                trigger_type: "explorer",
-                label: "Explorer",
-                value: "changed 21",
-                started_at: "2026-07-21T10:01:00+00:00",
-                resolved_at: "2026-07-21T10:01:00+00:00",
-                status: "dismissed",
-              },
-            ],
-            count: 2,
+          {
+            id: 7,
+            trigger_type: "explorer",
+            label: "Explorer",
+            value: "changed 21",
+            started_at: "2026-07-21T10:01:00+00:00",
+            resolved_at: "2026-07-21T10:01:00+00:00",
+            status: "dismissed",
           },
-        });
-      }
-      return Promise.resolve({ data: ROUTES[url] ?? {} });
+        ],
+        count: 2,
+      },
     });
     render(<CohortDashboard />);
     fireEvent.click(await screen.findByTitle("alice")); // open the modal

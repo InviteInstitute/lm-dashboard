@@ -48,15 +48,15 @@ export function useSafeWrite(notify, online) {
     parked.forEach((item) => api.post("/api/outbox/", item).catch(() => parkLocally(item)));
   }, [online]);
 
-  // `op` names the action in the toast and the outbox; `post` sends it.
+  // `op` names the action in the toast and the outbox; `body` is posted to `url`.
   return React.useCallback(
-    async (op, payload, post) => {
+    async (op, url, body) => {
       for (let attempt = 0; ; attempt++) {
         try {
-          return await post();
+          return await api.post(url, body);
         } catch (e) {
           if (attempt >= RETRIES) {
-            failLoud(op, payload, e);
+            failLoud(op, body, e);
             throw e;
           }
           await new Promise((r) => setTimeout(r, RETRY_MS * (attempt + 1)));
